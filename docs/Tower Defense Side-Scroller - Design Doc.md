@@ -321,6 +321,8 @@ This visualization maps the dimensional shift into side-scrolling combat. It con
 
 ```
 
+![](gameplay/screen1.png)
+
 ### **B. Zoomed-Out Panoramic Map Framework (4 Screens Wide: 1 High ──► 2 High ──► 1 High)**
 
 This structural map outlines how vertical elevation changes dictate tactical combat placement.
@@ -344,14 +346,12 @@ SCREEN 1: THE HUB GATEWAY     SCREEN 2: THE RIDGE ASCENT     SCREEN 3: THE HIGH 
 
 ```
 
+![](gameplay/screen1-4.png)
+
 ### **Key Tactical Mechanics in View**
 
 - **Fixed Slots vs Open Paths:** Fixed square slots on the high bluffs handle stationary archer structures. The ground paths feature free-roaming autonomous catapult arrays rolling past the mid-screen hills to challenge spawn nodes.
 - **Vertical Strategy Layers:** Screen 3 features a dual-split topology. The upper ledge holds anti-air assets targeting oncoming flying targets, while the cave beneath routes subterranean crawling waves.
-
-![](gameplay/screen1.png)
-
-![](gameplay/screen1-4.png)
 
 ## **🌿 Blueprint 3: Interactive Skill Tree Branch Selection**
 
