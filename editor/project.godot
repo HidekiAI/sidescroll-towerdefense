@@ -1,0 +1,21 @@
+; Engine configuration file.
+; Godot 4.4+ project file.
+
+name="SSTD World Editor"
+description="Side-Scrolling Tower Defense — World Editor"
+config_version=5
+
+[application]
+run/main_scene="res://scenes/main.tscn"
+config/name="SSTD World Editor"
+config/description="World Editor for SSTD"
+config/features=PackedStringArray("4.4")
+config/icon="res://icon.png"
+
+[editor_plugins]
+enabled=PackedStringArray()
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+window/viewport_width=1920
+window/viewport_height=1080

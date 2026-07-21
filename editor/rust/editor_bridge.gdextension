@@ -1,0 +1,6 @@
+[configuration]
+entry_symbol = "gdextension_init"
+
+[libraries]
+linux.x86_64 = "res://rust/libsstd_core_editor.so"
+windows.x86_64 = "res://rust/sstd_core_editor.dll"
