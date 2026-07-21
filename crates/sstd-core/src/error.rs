@@ -1,13 +1,15 @@
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ValidationSeverity {
     Error,
     Warning,
     Info,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ValidationMessage {
     pub severity: ValidationSeverity,
     pub code: String,
@@ -48,7 +50,7 @@ impl ValidationMessage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ValidationResult {
     pub messages: Vec<ValidationMessage>,
 }

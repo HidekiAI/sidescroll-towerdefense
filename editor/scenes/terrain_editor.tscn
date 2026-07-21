@@ -2,7 +2,96 @@
 
 [ext_resource type="Script" path="res://scripts/terrain_editor.gd" id="1"]
 
-[node name="TerrainEditorEditor" type="Control"]
-layout_mode = 3
-anchors_preset = 0
+[node name="TerrainEditor" type="HSplitContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = 0.0
+offset_bottom = 0.0
 script = ExtResource("1")
+
+[node name="ListPanel" type="VBoxContainer" parent="."]
+size_flags_horizontal = 1
+
+[node name="ItemList" type="ItemList" parent="ListPanel"]
+size_flags_vertical = 3
+
+[node name="VBox" type="HBoxContainer" parent="ListPanel"]
+
+[node name="AddBtn" type="Button" parent="ListPanel/VBox"]
+text = "+ Add"
+size_flags_horizontal = 3
+
+[node name="DeleteBtn" type="Button" parent="ListPanel/VBox"]
+text = "Delete"
+
+[node name="PropPanel" type="VBoxContainer" parent="."]
+size_flags_horizontal = 2
+
+[node name="VBox" type="ScrollContainer" parent="PropPanel"]
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="PropPanel/VBox"]
+columns = 2
+
+[node name="KeyLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Key"
+
+[node name="KeyEdit" type="LineEdit" parent="PropPanel/VBox/Grid"]
+
+[node name="NameLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Display Name"
+
+[node name="NameEdit" type="LineEdit" parent="PropPanel/VBox/Grid"]
+
+[node name="WalkableLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Walkable"
+
+[node name="WalkableCheck" type="CheckBox" parent="PropPanel/VBox/Grid"]
+
+[node name="BuildableLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Buildable"
+
+[node name="BuildableCheck" type="CheckBox" parent="PropPanel/VBox/Grid"]
+
+[node name="SurfaceLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Surface"
+
+[node name="SurfaceOption" type="OptionButton" parent="PropPanel/VBox/Grid"]
+items = "normal\nice\nmud"
+selected = 0
+
+[node name="HazardLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Hazard"
+
+[node name="HazardOption" type="OptionButton" parent="PropPanel/VBox/Grid"]
+items = "none\nlava"
+selected = 0
+
+[node name="ElevLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Elevation"
+
+[node name="ElevSpin" type="SpinBox" parent="PropPanel/VBox/Grid"]
+min_value = -10
+max_value = 10
+
+[node name="ColorLabel" type="Label" parent="PropPanel/VBox/Grid"]
+text = "Color"
+
+[node name="ColorPicker" type="ColorPickerButton" parent="PropPanel/VBox/Grid"]
+
+[node name="PreviewRect" type="ColorRect" parent="PropPanel/VBox"]
+size_flags_horizontal = 3
+size_flags_vertical = 0
+custom_minimum_size = Vector2(64, 64)
+
+[node name="HSave" type="HBoxContainer" parent="PropPanel"]
+
+[node name="SaveBtn" type="Button" parent="PropPanel/HSave"]
+text = "Save"
+
+[node name="ImportBtn" type="Button" parent="PropPanel/HSave"]
+text = "Import..."
+
+[node name="ExportBtn" type="Button" parent="PropPanel/HSave"]
+text = "Export..."
