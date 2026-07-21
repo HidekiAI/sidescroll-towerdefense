@@ -42,6 +42,9 @@ Side Scrolling Tower Defense — hybrid base-management and side-scrolling tacti
 # Build sstd-core (pure Rust, no Godot dependency)
 cargo build -p sstd-core
 
+# Build bridge + copy to editor/rust/
+./scripts/build-bridge.sh
+
 # Run tests
 cargo test -p sstd-core
 
