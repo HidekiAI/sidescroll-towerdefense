@@ -2,7 +2,135 @@
 
 [ext_resource type="Script" path="res://scripts/entity_editor.gd" id="1"]
 
-[node name="EntityEditorEditor" type="Control"]
-layout_mode = 3
-anchors_preset = 0
+[node name="EntityEditor" type="HSplitContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 script = ExtResource("1")
+
+[node name="ListPanel" type="VBoxContainer" parent="."]
+size_flags_horizontal = 1
+
+[node name="ItemList" type="ItemList" parent="ListPanel"]
+size_flags_vertical = 3
+
+[node name="VBox" type="HBoxContainer" parent="ListPanel"]
+
+[node name="AddBtn" type="Button" parent="ListPanel/VBox"]
+text = "+ Add"
+size_flags_horizontal = 3
+
+[node name="DeleteBtn" type="Button" parent="ListPanel/VBox"]
+text = "Delete"
+
+[node name="PropPanel" type="VBoxContainer" parent="."]
+size_flags_horizontal = 2
+
+[node name="Scroll" type="ScrollContainer" parent="PropPanel"]
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="PropPanel/Scroll"]
+columns = 2
+
+[node name="KeyLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Key"
+
+[node name="KeyEdit" type="LineEdit" parent="PropPanel/Scroll/Grid"]
+
+[node name="ClassLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Class"
+
+[node name="ClassOption" type="OptionButton" parent="PropPanel/Scroll/Grid"]
+items = "tower\ntrap\nstructure\nvehicle\nbeast\nprojectile\nhero\nadventurer\nsoldier\nenemy\nconvoy\nwave"
+selected = 0
+
+[node name="WidthLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Width (tiles)"
+
+[node name="WidthSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 0.5
+max_value = 8.0
+step = 0.5
+value = 1.0
+
+[node name="HeightLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Height (tiles)"
+
+[node name="HeightSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 0.5
+max_value = 8.0
+step = 0.5
+value = 1.0
+
+[node name="HpLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Max HP"
+
+[node name="HpSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 1
+max_value = 9999
+value = 500
+
+[node name="SpeedLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Speed (pps)"
+
+[node name="SpeedSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 0
+max_value = 9999
+value = 0
+
+[node name="RangeLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Range (tiles)"
+
+[node name="RangeSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 0
+max_value = 64
+value = 3
+
+[node name="DamageLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Attack Power"
+
+[node name="DamageSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 0
+max_value = 9999
+value = 50
+
+[node name="ElementLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Element"
+
+[node name="ElementOption" type="OptionButton" parent="PropPanel/Scroll/Grid"]
+items = "physical\nfire\nice\nlightning\nholy\ndark"
+selected = 0
+
+[node name="CooldownLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Cooldown (ticks)"
+
+[node name="CooldownSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+min_value = 0
+max_value = 999
+value = 60
+
+[node name="ProjectileLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Projectile Type"
+
+[node name="ProjectileEdit" type="LineEdit" parent="PropPanel/Scroll/Grid"]
+
+[node name="GroundLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Requires Ground"
+
+[node name="GroundCheck" type="CheckBox" parent="PropPanel/Scroll/Grid"]
+
+[node name="CeilingLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+text = "Requires Ceiling"
+
+[node name="CeilingCheck" type="CheckBox" parent="PropPanel/Scroll/Grid"]
+
+[node name="HSave" type="HBoxContainer" parent="PropPanel"]
+
+[node name="SaveBtn" type="Button" parent="PropPanel/HSave"]
+text = "Save"
+
+[node name="ImportBtn" type="Button" parent="PropPanel/HSave"]
+text = "Import..."
+
+[node name="ExportBtn" type="Button" parent="PropPanel/HSave"]
+text = "Export..."

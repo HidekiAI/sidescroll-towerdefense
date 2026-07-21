@@ -1,8 +1,61 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/map_editor.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/tile_grid_display.gd" id="2"]
 
-[node name="MapEditorEditor" type="Control"]
-layout_mode = 3
-anchors_preset = 0
+[node name="MapEditor" type="HSplitContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 script = ExtResource("1")
+
+[node name="LeftPanel" type="VBoxContainer" parent="."]
+size_flags_horizontal = 0
+custom_minimum_size = Vector2(200, 0)
+
+[node name="TopBar" type="HBoxContainer" parent="LeftPanel"]
+
+[node name="ScreenLabel" type="Label" parent="LeftPanel/TopBar"]
+text = "Screen"
+
+[node name="ScreenSpin" type="SpinBox" parent="LeftPanel/TopBar"]
+min_value = 1
+max_value = 99
+value = 1
+size_flags_horizontal = 3
+
+[node name="PaintBtn" type="CheckButton" parent="LeftPanel/TopBar"]
+text = "Paint"
+size_flags_horizontal = 3
+
+[node name="EraseBtn" type="CheckButton" parent="LeftPanel/TopBar"]
+text = "Erase"
+size_flags_horizontal = 3
+
+[node name="PaletteList" type="ItemList" parent="LeftPanel"]
+size_flags_vertical = 3
+
+[node name="BottomBar" type="VBoxContainer" parent="LeftPanel"]
+
+[node name="CursorLabel" type="Label" parent="LeftPanel/BottomBar"]
+text = "Tile: -, -"
+
+[node name="SaveBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Save"
+
+[node name="ImportBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Import..."
+
+[node name="ExportBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Export..."
+
+[node name="RightPanel" type="VBoxContainer" parent="."]
+size_flags_horizontal = 3
+
+[node name="Scroll" type="ScrollContainer" parent="RightPanel"]
+size_flags_vertical = 3
+
+[node name="TileGrid" type="Control" parent="RightPanel/Scroll"]
+custom_minimum_size = Vector2(1440, 768)
+mouse_filter = 2
+script = ExtResource("2")
