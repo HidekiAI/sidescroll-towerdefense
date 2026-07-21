@@ -33,3 +33,4 @@ revision*/
 *.bak
 .tmp/
 
+editor/rust/*.so
