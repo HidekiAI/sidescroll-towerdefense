@@ -35,3 +35,4 @@ revision*/
 
 editor/rust/*.so
 editor/.godot/
+editor/config/

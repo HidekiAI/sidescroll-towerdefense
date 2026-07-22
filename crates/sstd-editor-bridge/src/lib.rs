@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use godot::prelude::*;
+use sstd_core::config::ConfigStore;
 use sstd_core::storage::{EntityDefsFile, ScreenFile, TerrainTypesFile};
 use sstd_core::terrain::GridConfig;
 
@@ -11,6 +14,7 @@ unsafe impl ExtensionLibrary for SstdEditorBridge {}
 #[class(init, base=Node)]
 struct SstdBridge {
     base: Base<Node>,
+    config_store: Option<ConfigStore>,
 }
 
 #[godot_api]
@@ -79,8 +83,23 @@ impl SstdBridge {
     }
 
     #[func]
+    fn init_config_db(&mut self, path: GString) -> GString {
+        let result = match ConfigStore::open_or_create(Path::new(&path.to_string())) {
+            Ok(store) => {
+                self.config_store = Some(store);
+                "{\"ok\": true}".to_string()
+            }
+            Err(e) => format!("{{\"error\": \"{}\"}}", e),
+        };
+        GString::from(result.as_str())
+    }
+
+    #[func]
     fn get_grid_config(&self) -> GString {
-        let config = GridConfig::default();
+        let config = match &self.config_store {
+            Some(store) => store.grid_config().ok().unwrap_or_default(),
+            None => GridConfig::default(),
+        };
         GString::from(
             serde_json::to_string(&config)
                 .unwrap_or_else(|_| "{\"error\": \"serialize failed\"}".to_string())
@@ -90,7 +109,10 @@ impl SstdBridge {
 
     #[func]
     fn check_dimension_compatibility(&self, screen_json: GString) -> GString {
-        let current = GridConfig::default();
+        let current = match &self.config_store {
+            Some(store) => store.grid_config().ok().unwrap_or_default(),
+            None => GridConfig::default(),
+        };
         let result = match ScreenFile::from_json(&screen_json.to_string()) {
             Ok(file) => {
                 let same_w = file.tile_width_px == current.tile_width_in_pixels;

@@ -41,7 +41,7 @@ func _ready() -> void:
         elif prop is ColorPickerButton:
             prop.color_changed.connect(_on_prop_changed)
 
-	_add_default_terrains()
+    _add_default_terrains()
 
 func _populate_option_buttons() -> void:
     for item in ["normal", "ice", "mud"]:

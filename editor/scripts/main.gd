@@ -17,6 +17,7 @@ func _ready() -> void:
     tabs = $TabContainer
     _instantiate_tabs()
     _load_bridge()
+    _init_config_db()
     _load_grid_config()
     tabs.tab_changed.connect(_on_tab_changed)
     _wire_editors()
@@ -41,6 +42,14 @@ func _load_bridge() -> void:
     else:
         push_error("GDExtension not found — SstdBridge class unavailable")
         assert(false, "GDExtension bridge is required")
+
+func _init_config_db() -> void:
+    var config_dir := ProjectSettings.globalize_path("res://config/")
+    DirAccess.make_dir_recursive_absolute(config_dir)
+    var db_path := config_dir.path_join("sstd_config.db")
+    var result: Variant = _bridge.init_config_db(db_path)
+    var parsed = JSON.parse_string(result)
+    assert(parsed != null and parsed.get("ok", false), "Failed to init config DB: " + str(parsed))
 
 func _load_grid_config() -> void:
     assert(_bridge != null and _bridge.has_method("get_grid_config"), "Bridge must be loaded before grid config")
