@@ -67,6 +67,14 @@ mkdir -p "${EDITOR_DIR}/rust"
 cp "$BRIDGE_SRC" "$BRIDGE_DST"
 echo "==> Copied bridge .so to editor/rust/"
 
+# Ensure GDExtension list exists (required for extension loading in game mode)
+GODOT_DIR="${EDITOR_DIR}/.godot/editor"
+mkdir -p "$GODOT_DIR"
+GODOT_EXT_LIST="${GODOT_DIR}/extension_list.cfg"
+if [ ! -f "$GODOT_EXT_LIST" ]; then
+    echo "res://rust/editor_bridge.gdextension" > "$GODOT_EXT_LIST"
+fi
+
 # ------------------------------------------------------------------
 # Step 2: Verify export templates exist
 # ------------------------------------------------------------------
