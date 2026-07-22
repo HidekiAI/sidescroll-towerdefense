@@ -6,7 +6,7 @@ use crate::entity::EntityLimits;
 use crate::error::SstdResult;
 use crate::terrain::{GridConfig, TimeConfig};
 
-pub const DEFAULT_CONFIG_DB_NAME: &str = "sstd_config.db";
+pub const DEFAULT_CONFIG_DB_NAME: &str = "sstd_config.sqlite3";
 
 pub struct ConfigStore {
     conn: Connection,

@@ -46,7 +46,7 @@ func _load_bridge() -> void:
 func _init_config_db() -> void:
     var config_dir := ProjectSettings.globalize_path("res://config/")
     DirAccess.make_dir_recursive_absolute(config_dir)
-    var db_path := config_dir.path_join("sstd_config.db")
+    var db_path := config_dir.path_join("sstd_config.sqlite3")
     var result: Variant = _bridge.init_config_db(db_path)
     var parsed = JSON.parse_string(result)
     assert(parsed != null and parsed.get("ok", false), "Failed to init config DB: " + str(parsed))
