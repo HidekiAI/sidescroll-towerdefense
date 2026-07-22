@@ -1,7 +1,7 @@
 extends Control
 
-const GRID_W := 30
-const GRID_H := 16
+var _grid_w: int = 30
+var _grid_h: int = 16
 
 var _tiles: Dictionary = {}
 var _terrain_types: Array[Dictionary] = []
@@ -11,13 +11,13 @@ var _selected_entity_key: String = ""
 var _screen_id: int = 1
 var _bridge: Node
 
-@onready var entity_palette: ItemList = $HSplit/LeftPanel/EntityPalette
-@onready var placement_grid: Control = $HSplit/RightPanel/Scroll/PlacementGrid
-@onready var screen_spin: SpinBox = $HSplit/LeftPanel/TopBar/ScreenSpin
-@onready var save_btn: Button = $HSplit/LeftPanel/BottomBar/SaveBtn
-@onready var import_map_btn: Button = $HSplit/LeftPanel/BottomBar/ImportMapBtn
-@onready var clear_btn: Button = $HSplit/LeftPanel/BottomBar/ClearBtn
-@onready var info_label: Label = $HSplit/LeftPanel/BottomBar/InfoLabel
+@onready var entity_palette: ItemList = $LeftPanel/EntityPalette
+@onready var placement_grid: Control = $RightPanel/Scroll/PlacementGrid
+@onready var screen_spin: SpinBox = $LeftPanel/TopBar/ScreenSpin
+@onready var save_btn: Button = $LeftPanel/BottomBar/SaveBtn
+@onready var import_map_btn: Button = $LeftPanel/BottomBar/ImportMapBtn
+@onready var clear_btn: Button = $LeftPanel/BottomBar/ClearBtn
+@onready var info_label: Label = $LeftPanel/BottomBar/InfoLabel
 
 func _ready() -> void:
     _load_defaults()
@@ -64,12 +64,12 @@ func _entity_class_color(c: String) -> Color:
 
 func _populate_terrain() -> void:
     _tiles.clear()
-    for y in GRID_H:
-        for x in GRID_W:
+    for y in _grid_h:
+        for x in _grid_w:
             _tiles["%d,%d" % [x, y]] = "air"
-    for x in GRID_W:
-        _tiles["%d,%d" % [x, GRID_H - 1]] = "grass"
-        _tiles["%d,%d" % [x, GRID_H - 2]] = "dirt"
+    for x in _grid_w:
+        _tiles["%d,%d" % [x, _grid_h - 1]] = "grass"
+        _tiles["%d,%d" % [x, _grid_h - 2]] = "dirt"
     placement_grid.queue_redraw()
 
 func get_tile(x: int, y: int) -> String:
@@ -87,8 +87,8 @@ func get_placements() -> Array[Dictionary]:
         var entry := p.duplicate()
         for e in _entity_defs:
             if e["key"] == p["entity_key"]:
-                entry["width"] = e["width_tiles"] * 48
-                entry["height"] = e["height_tiles"] * 48
+                entry["width"] = e["width_tiles"] * placement_grid.tile_size
+                entry["height"] = e["height_tiles"] * placement_grid.tile_size
                 entry["color"] = _entity_class_color(e["class"])
                 entry["key"] = e["key"]
                 break
@@ -108,7 +108,7 @@ func _on_screen_changed(value: float) -> void:
 func place_at(tile_x: int, tile_y: int) -> void:
     if _selected_entity_key.is_empty():
         return
-    if tile_x < 0 or tile_x >= GRID_W or tile_y < 0 or tile_y >= GRID_H:
+    if tile_x < 0 or tile_x >= _grid_w or tile_y < 0 or tile_y >= _grid_h:
         return
     for p in _placements:
         if p["tile_x"] == tile_x and int(p["tile_y"]) == tile_y:
@@ -144,8 +144,8 @@ func _on_clear() -> void:
 
 func _serialize() -> Dictionary:
     var tiles_out: Array[Dictionary] = []
-    for y in GRID_H:
-        for x in GRID_W:
+    for y in _grid_h:
+        for x in _grid_w:
             var key := get_tile(x, y)
             if key != "air":
                 tiles_out.append({"x": x, "y": y, "terrain": key})
@@ -159,8 +159,8 @@ func _serialize() -> Dictionary:
     return {
         "version": "0.1.0",
         "screen_id": _screen_id,
-        "width_tiles": GRID_W,
-        "height_tiles": GRID_H,
+        "width_tiles": _grid_w,
+        "height_tiles": _grid_h,
         "elevation_floor_tiles": 0,
         "elevation_ceiling_tiles": 4,
         "tiles": tiles_out,
@@ -171,7 +171,7 @@ func _on_save() -> void:
     var data := _serialize()
     var json_str := JSON.stringify(data, "\t")
     if _bridge and _bridge.has_method("validate_screen"):
-        var result := _bridge.validate_screen(json_str)
+        var result: Variant = _bridge.validate_screen(json_str)
         var parsed = JSON.parse_string(result)
         if parsed and parsed.get("valid", false) == false:
             push_error("Validation: ", parsed.get("error", "unknown"))
@@ -199,8 +199,8 @@ func _on_import_file(path: String) -> void:
         push_error("Invalid JSON")
         return
     _tiles.clear()
-    for y in GRID_H:
-        for x in GRID_W:
+    for y in _grid_h:
+        for x in _grid_w:
             _tiles["%d,%d" % [x, y]] = "air"
     if parsed.has("tiles"):
         for t in parsed["tiles"]:
@@ -220,6 +220,13 @@ func _on_import_file(path: String) -> void:
 
 func set_bridge(b: Node) -> void:
     _bridge = b
+
+func set_grid_config(cfg: Dictionary) -> void:
+    _grid_w = cfg.get("max_tiles_per_screen_x", 30)
+    _grid_h = cfg.get("max_tiles_per_screen_y", 16)
+    if placement_grid and placement_grid.has_method("set_grid_config"):
+        placement_grid.set_grid_config(cfg)
+    _populate_terrain()
 
 func set_entity_defs(defs: Array[Dictionary]) -> void:
     if defs.size() > 0:

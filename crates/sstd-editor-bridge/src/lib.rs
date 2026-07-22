@@ -1,5 +1,6 @@
 use godot::prelude::*;
 use sstd_core::storage::{EntityDefsFile, ScreenFile, TerrainTypesFile};
+use sstd_core::terrain::GridConfig;
 
 struct SstdEditorBridge;
 
@@ -73,6 +74,44 @@ impl SstdBridge {
                 }
             }
             Err(e) => format!("{{\"valid\": false, \"error\": \"{}\"}}", e),
+        };
+        GString::from(result.as_str())
+    }
+
+    #[func]
+    fn get_grid_config(&self) -> GString {
+        let config = GridConfig::default();
+        GString::from(
+            serde_json::to_string(&config)
+                .unwrap_or_else(|_| "{\"error\": \"serialize failed\"}".to_string())
+                .as_str(),
+        )
+    }
+
+    #[func]
+    fn check_dimension_compatibility(&self, screen_json: GString) -> GString {
+        let current = GridConfig::default();
+        let result = match ScreenFile::from_json(&screen_json.to_string()) {
+            Ok(file) => {
+                let same_w = file.tile_width_px == current.tile_width_in_pixels;
+                let same_h = file.tile_height_px == current.tile_height_in_pixels;
+                if same_w && same_h {
+                    format!(
+                        "{{\"compatible\": true, \"saved_px\": {{\"w\": {}, \"h\": {}}}, \"current_px\": {{\"w\": {}, \"h\": {}}}}}",
+                        file.tile_width_px, file.tile_height_px,
+                        current.tile_width_in_pixels, current.tile_height_in_pixels,
+                    )
+                } else {
+                    format!(
+                        "{{\"compatible\": false, \"saved_px\": {{\"w\": {}, \"h\": {}}}, \"current_px\": {{\"w\": {}, \"h\": {}}}, \"message\": \"Tile dimensions changed from {}x{} to {}x{}. Use porting to rescale.\"}}",
+                        file.tile_width_px, file.tile_height_px,
+                        current.tile_width_in_pixels, current.tile_height_in_pixels,
+                        file.tile_width_px, file.tile_height_px,
+                        current.tile_width_in_pixels, current.tile_height_in_pixels,
+                    )
+                }
+            }
+            Err(e) => format!("{{\"error\": \"{}\"}}", e),
         };
         GString::from(result.as_str())
     }

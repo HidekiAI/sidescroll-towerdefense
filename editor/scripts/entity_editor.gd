@@ -4,25 +4,25 @@ var _entity_defs: Array[Dictionary] = []
 var _selected_index: int = -1
 var _bridge: Node
 
-@onready var entity_list: ItemList = $HSplit/ListPanel/ItemList
-@onready var add_btn: Button = $HSplit/ListPanel/VBox/AddBtn
-@onready var delete_btn: Button = $HSplit/ListPanel/VBox/DeleteBtn
-@onready var key_edit: LineEdit = $HSplit/PropPanel/Scroll/Grid/KeyEdit
-@onready var class_option: OptionButton = $HSplit/PropPanel/Scroll/Grid/ClassOption
-@onready var width_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/WidthSpin
-@onready var height_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/HeightSpin
-@onready var hp_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/HpSpin
-@onready var speed_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/SpeedSpin
-@onready var range_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/RangeSpin
-@onready var damage_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/DamageSpin
-@onready var element_option: OptionButton = $HSplit/PropPanel/Scroll/Grid/ElementOption
-@onready var cooldown_spin: SpinBox = $HSplit/PropPanel/Scroll/Grid/CooldownSpin
-@onready var projectile_edit: LineEdit = $HSplit/PropPanel/Scroll/Grid/ProjectileEdit
-@onready var ground_check: CheckBox = $HSplit/PropPanel/Scroll/Grid/GroundCheck
-@onready var ceiling_check: CheckBox = $HSplit/PropPanel/Scroll/Grid/CeilingCheck
-@onready var save_btn: Button = $HSplit/PropPanel/SaveBtn
-@onready var import_btn: Button = $HSplit/PropPanel/ImportBtn
-@onready var export_btn: Button = $HSplit/PropPanel/ExportBtn
+@onready var entity_list: ItemList = $ListPanel/ItemList
+@onready var add_btn: Button = $ListPanel/VBox/AddBtn
+@onready var delete_btn: Button = $ListPanel/VBox/DeleteBtn
+@onready var key_edit: LineEdit = $PropPanel/Scroll/Grid/KeyEdit
+@onready var class_option: OptionButton = $PropPanel/Scroll/Grid/ClassOption
+@onready var width_spin: SpinBox = $PropPanel/Scroll/Grid/WidthSpin
+@onready var height_spin: SpinBox = $PropPanel/Scroll/Grid/HeightSpin
+@onready var hp_spin: SpinBox = $PropPanel/Scroll/Grid/HpSpin
+@onready var speed_spin: SpinBox = $PropPanel/Scroll/Grid/SpeedSpin
+@onready var range_spin: SpinBox = $PropPanel/Scroll/Grid/RangeSpin
+@onready var damage_spin: SpinBox = $PropPanel/Scroll/Grid/DamageSpin
+@onready var element_option: OptionButton = $PropPanel/Scroll/Grid/ElementOption
+@onready var cooldown_spin: SpinBox = $PropPanel/Scroll/Grid/CooldownSpin
+@onready var projectile_edit: LineEdit = $PropPanel/Scroll/Grid/ProjectileEdit
+@onready var ground_check: CheckBox = $PropPanel/Scroll/Grid/GroundCheck
+@onready var ceiling_check: CheckBox = $PropPanel/Scroll/Grid/CeilingCheck
+@onready var save_btn: Button = $PropPanel/HSave/SaveBtn
+@onready var import_btn: Button = $PropPanel/HSave/ImportBtn
+@onready var export_btn: Button = $PropPanel/HSave/ExportBtn
 
 const CLASS_KEYS := ["tower", "trap", "structure", "vehicle", "beast", "projectile", "hero", "adventurer", "soldier", "enemy", "convoy", "wave"]
 const ELEMENT_KEYS := ["physical", "fire", "ice", "lightning", "holy", "dark"]
@@ -153,7 +153,7 @@ func _on_save() -> void:
     var data: Dictionary = {"version": "0.1.0", "entities": _entity_defs}
     var json_str := JSON.stringify(data, "\t")
     if _bridge and _bridge.has_method("import_entity_defs"):
-        var result := _bridge.import_entity_defs(json_str)
+        var result: Variant = _bridge.import_entity_defs(json_str)
         var parsed = JSON.parse_string(result)
         if parsed and parsed.has("error"):
             push_error("Bridge validation: ", parsed["error"])

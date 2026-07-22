@@ -140,6 +140,8 @@ pub struct ScreenFile {
     pub screen_id: i32,
     pub width_tiles: i32,
     pub height_tiles: i32,
+    pub tile_width_px: i32,
+    pub tile_height_px: i32,
     pub elevation_floor_tiles: i32,
     pub elevation_ceiling_tiles: i32,
     pub tiles: Vec<ScreenTileEntry>,
@@ -175,6 +177,24 @@ impl ScreenFile {
                 )
                 .with_field("version")
                 .with_value(&self.version),
+            );
+        }
+
+        let default_grid = crate::terrain::GridConfig::default();
+        if self.tile_width_px != default_grid.tile_width_in_pixels
+            || self.tile_height_px != default_grid.tile_height_in_pixels
+        {
+            result = result.with_message(
+                crate::error::ValidationMessage::warning(
+                    "TILE_DIMENSION_MISMATCH",
+                    format!(
+                        "Saved tile dimensions {}x{} differ from current {}x{}. Porting recommended.",
+                        self.tile_width_px, self.tile_height_px,
+                        default_grid.tile_width_in_pixels, default_grid.tile_height_in_pixels,
+                    ),
+                )
+                .with_field("tile_width_px")
+                .with_value(&format!("{}x{}", self.tile_width_px, self.tile_height_px)),
             );
         }
 
@@ -308,6 +328,8 @@ mod tests {
             screen_id: 1,
             width_tiles: 30,
             height_tiles: 16,
+            tile_width_px: 64,
+            tile_height_px: 64,
             elevation_floor_tiles: 0,
             elevation_ceiling_tiles: 4,
             tiles: vec![ScreenTileEntry {

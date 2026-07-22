@@ -1,7 +1,15 @@
 extends Control
 
 var placement_editor: Control
-var tile_size: int = 48
+var tile_size: int = 64
+var grid_w: int = 30
+var grid_h: int = 16
+
+func set_grid_config(cfg: Dictionary) -> void:
+    tile_size = cfg.get("tile_width_in_pixels", 64)
+    grid_w = cfg.get("max_tiles_per_screen_x", 30)
+    grid_h = cfg.get("max_tiles_per_screen_y", 16)
+    queue_redraw()
 
 func pixel_to_tile(pos: Vector2) -> Vector2i:
     return Vector2i(int(pos.x / tile_size), int(pos.y / tile_size))
@@ -10,23 +18,20 @@ func _draw() -> void:
     if not placement_editor:
         return
 
-    var grid_w := 30
-    var grid_h := 16
-
     for y in grid_h:
         for x in grid_w:
-            var key := placement_editor.get_tile(x, y)
-            var color := placement_editor.terrain_color(key)
+            var key: String = placement_editor.get_tile(x, y)
+            var color: Color = placement_editor.terrain_color(key)
             var rect := Rect2(x * tile_size, y * tile_size, tile_size, tile_size)
             draw_rect(rect, color)
             draw_rect(rect, Color(0.2, 0.2, 0.2, 0.3), false, 1)
 
     for e in placement_editor.get_placements():
-        var ex := e["tile_x"] * tile_size
-        var ey := e["tile_y"] * tile_size
-        var ew := e.get("width", 1.0) * tile_size
-        var eh := e.get("height", 1.0) * tile_size
-        var ecolor := e.get("color", Color(1, 1, 1, 0.6))
+        var ex: float = e["tile_x"] * tile_size
+        var ey: float = e["tile_y"] * tile_size
+        var ew: float = e.get("width", 1.0) * tile_size
+        var eh: float = e.get("height", 1.0) * tile_size
+        var ecolor: Color = e.get("color", Color(1, 1, 1, 0.6))
         draw_rect(Rect2(ex, ey, ew, eh), ecolor)
         draw_rect(Rect2(ex, ey, ew, eh), Color.WHITE, false, 2)
         if e.has("key"):

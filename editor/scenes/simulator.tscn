@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/simulator.gd" id="1"]
 
-[node name="SimulatorEditor" type="Control"]
+[node name="Simulator" type="Control"]
 layout_mode = 3
 anchors_preset = 0
 script = ExtResource("1")

@@ -1,7 +1,7 @@
 extends Control
 
-const GRID_W := 30
-const GRID_H := 16
+var _grid_w: int = 30
+var _grid_h: int = 16
 
 var _tiles: Dictionary = {}
 var _terrain_types: Array[Dictionary] = []
@@ -10,15 +10,15 @@ var _paint_mode: bool = true
 var _screen_id: int = 1
 var _bridge: Node
 
-@onready var palette_list: ItemList = $HSplit/LeftPanel/PaletteList
-@onready var tile_grid: Control = $HSplit/RightPanel/Scroll/TileGrid
-@onready var screen_spin: SpinBox = $HSplit/LeftPanel/TopBar/ScreenSpin
-@onready var paint_btn: CheckButton = $HSplit/LeftPanel/TopBar/PaintBtn
-@onready var erase_btn: CheckButton = $HSplit/LeftPanel/TopBar/EraseBtn
-@onready var save_btn: Button = $HSplit/LeftPanel/BottomBar/SaveBtn
-@onready var import_btn: Button = $HSplit/LeftPanel/BottomBar/ImportBtn
-@onready var export_btn: Button = $HSplit/LeftPanel/BottomBar/ExportBtn
-@onready var cursor_label: Label = $HSplit/LeftPanel/BottomBar/CursorLabel
+@onready var palette_list: ItemList = $LeftPanel/PaletteList
+@onready var tile_grid: Control = $RightPanel/Scroll/TileGrid
+@onready var screen_spin: SpinBox = $LeftPanel/TopBar/ScreenSpin
+@onready var paint_btn: CheckButton = $LeftPanel/TopBar/PaintBtn
+@onready var erase_btn: CheckButton = $LeftPanel/TopBar/EraseBtn
+@onready var save_btn: Button = $LeftPanel/BottomBar/SaveBtn
+@onready var import_btn: Button = $LeftPanel/BottomBar/ImportBtn
+@onready var export_btn: Button = $LeftPanel/BottomBar/ExportBtn
+@onready var cursor_label: Label = $LeftPanel/BottomBar/CursorLabel
 
 func _ready() -> void:
     _load_defaults()
@@ -55,12 +55,12 @@ func _refresh_palette() -> void:
 
 func _populate_grid() -> void:
     _tiles.clear()
-    for y in GRID_H:
-        for x in GRID_W:
+    for y in _grid_h:
+        for x in _grid_w:
             _tiles[_key(x, y)] = "air"
-    for x in GRID_W:
-        _tiles[_key(x, GRID_H - 1)] = "grass"
-        _tiles[_key(x, GRID_H - 2)] = "dirt"
+    for x in _grid_w:
+        _tiles[_key(x, _grid_h - 1)] = "grass"
+        _tiles[_key(x, _grid_h - 2)] = "dirt"
     tile_grid.queue_redraw()
 
 func _key(x: int, y: int) -> String:
@@ -76,7 +76,7 @@ func terrain_color(key: String) -> Color:
     return Color("#87ceeb")
 
 func _paint_tile(x: int, y: int) -> void:
-    if x < 0 or x >= GRID_W or y < 0 or y >= GRID_H:
+    if x < 0 or x >= _grid_w or y < 0 or y >= _grid_h:
         return
     _tiles[_key(x, y)] = _selected_terrain if _paint_mode else "air"
     tile_grid.queue_redraw()
@@ -101,16 +101,16 @@ func _on_screen_changed(value: float) -> void:
 
 func _serialize() -> Dictionary:
     var tiles_out: Array[Dictionary] = []
-    for y in GRID_H:
-        for x in GRID_W:
+    for y in _grid_h:
+        for x in _grid_w:
             var key := get_tile(x, y)
             if key != "air":
                 tiles_out.append({"x": x, "y": y, "terrain": key})
     return {
         "version": "0.1.0",
         "screen_id": _screen_id,
-        "width_tiles": GRID_W,
-        "height_tiles": GRID_H,
+        "width_tiles": _grid_w,
+        "height_tiles": _grid_h,
         "elevation_floor_tiles": 0,
         "elevation_ceiling_tiles": 4,
         "tiles": tiles_out,
@@ -121,7 +121,7 @@ func _on_save() -> void:
     var data := _serialize()
     var json_str := JSON.stringify(data, "\t")
     if _bridge and _bridge.has_method("import_screen"):
-        var result := _bridge.import_screen(json_str)
+        var result: Variant = _bridge.import_screen(json_str)
         var parsed = JSON.parse_string(result)
         if parsed and parsed.has("error"):
             push_error("Bridge validation: ", parsed["error"])
@@ -149,8 +149,8 @@ func _on_import_file(path: String) -> void:
         push_error("Invalid screen file")
         return
     _tiles.clear()
-    for y in GRID_H:
-        for x in GRID_W:
+    for y in _grid_h:
+        for x in _grid_w:
             _tiles[_key(x, y)] = "air"
     for t in parsed["tiles"]:
         if t.has("x") and t.has("y") and t.has("terrain"):
@@ -175,8 +175,15 @@ func _on_export() -> void:
 func _input(event: InputEvent) -> void:
     if event is InputEventMouseMotion:
         var pos := tile_grid.get_local_mouse_position()
-        var tile := Vector2i(int(pos.x / 48), int(pos.y / 48))
+        var tile := Vector2i(int(pos.x / tile_grid.tile_size), int(pos.y / tile_grid.tile_size))
         cursor_label.text = "Tile: %d, %d" % [tile.x, tile.y]
 
 func set_bridge(b: Node) -> void:
     _bridge = b
+
+func set_grid_config(cfg: Dictionary) -> void:
+    _grid_w = cfg.get("max_tiles_per_screen_x", 30)
+    _grid_h = cfg.get("max_tiles_per_screen_y", 16)
+    if tile_grid and tile_grid.has_method("set_grid_config"):
+        tile_grid.set_grid_config(cfg)
+    _populate_grid()

@@ -4,21 +4,21 @@ var _bridge: Node
 var _terrain_types: Array[Dictionary] = []
 var _selected_index: int = -1
 
-@onready var list: ItemList = $HSplit/ListPanel/ItemList
-@onready var add_btn: Button = $HSplit/ListPanel/VBox/AddBtn
-@onready var delete_btn: Button = $HSplit/ListPanel/VBox/DeleteBtn
-@onready var key_edit: LineEdit = $HSplit/PropPanel/VBox/Grid/KeyEdit
-@onready var name_edit: LineEdit = $HSplit/PropPanel/VBox/Grid/NameEdit
-@onready var walkable_check: CheckBox = $HSplit/PropPanel/VBox/Grid/WalkableCheck
-@onready var buildable_check: CheckBox = $HSplit/PropPanel/VBox/Grid/BuildableCheck
-@onready var surface_option: OptionButton = $HSplit/PropPanel/VBox/Grid/SurfaceOption
-@onready var hazard_option: OptionButton = $HSplit/PropPanel/VBox/Grid/HazardOption
-@onready var elev_spin: SpinBox = $HSplit/PropPanel/VBox/Grid/ElevSpin
-@onready var color_picker: ColorPickerButton = $HSplit/PropPanel/VBox/Grid/ColorPicker
-@onready var preview_rect: ColorRect = $HSplit/PropPanel/VBox/PreviewRect
-@onready var save_btn: Button = $HSplit/PropPanel/VBox/SaveBtn
-@onready var import_btn: Button = $HSplit/PropPanel/VBox/ImportBtn
-@onready var export_btn: Button = $HSplit/PropPanel/VBox/ExportBtn
+@onready var list: ItemList = $ListPanel/ItemList
+@onready var add_btn: Button = $ListPanel/VBox/AddBtn
+@onready var delete_btn: Button = $ListPanel/VBox/DeleteBtn
+@onready var key_edit: LineEdit = $PropPanel/VBox/Grid/KeyEdit
+@onready var name_edit: LineEdit = $PropPanel/VBox/Grid/NameEdit
+@onready var walkable_check: CheckBox = $PropPanel/VBox/Grid/WalkableCheck
+@onready var buildable_check: CheckBox = $PropPanel/VBox/Grid/BuildableCheck
+@onready var surface_option: OptionButton = $PropPanel/VBox/Grid/SurfaceOption
+@onready var hazard_option: OptionButton = $PropPanel/VBox/Grid/HazardOption
+@onready var elev_spin: SpinBox = $PropPanel/VBox/Grid/ElevSpin
+@onready var color_picker: ColorPickerButton = $PropPanel/VBox/Grid/ColorPicker
+@onready var preview_rect: ColorRect = $PropPanel/VBox/PreviewRect
+@onready var save_btn: Button = $PropPanel/HSave/SaveBtn
+@onready var import_btn: Button = $PropPanel/HSave/ImportBtn
+@onready var export_btn: Button = $PropPanel/HSave/ExportBtn
 
 func _ready() -> void:
     add_btn.pressed.connect(_on_add)
@@ -44,11 +44,10 @@ func _ready() -> void:
     _add_default_terrains()
 
 func _load_bridge() -> void:
-    var gdext = load("res://rust/editor_bridge.gdextension")
-    if gdext:
-        _bridge = gdext.new()
+    if ClassDB.class_exists("SstdBridge"):
+        _bridge = ClassDB.instantiate("SstdBridge")
     else:
-        push_warning("GDExtension not found — bridge methods unavailable")
+        push_warning("GDExtension not found — SstdBridge class unavailable")
 
 func _add_default_terrains() -> void:
     var defaults: Array[Dictionary] = [

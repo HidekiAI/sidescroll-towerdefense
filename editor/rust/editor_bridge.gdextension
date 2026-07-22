@@ -1,5 +1,6 @@
 [configuration]
-entry_symbol = "gdextension_init"
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = "4.4"
 
 [libraries]
 linux.x86_64 = "res://rust/libsstd_editor_bridge.so"

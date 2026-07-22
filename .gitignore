@@ -34,3 +34,4 @@ revision*/
 .tmp/
 
 editor/rust/*.so
+editor/.godot/

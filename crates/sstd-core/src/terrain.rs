@@ -239,7 +239,7 @@ impl TerrainTile {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct GridConfig {
     pub max_tiles_per_screen_x: i32,
     pub max_tiles_per_screen_y: i32,
