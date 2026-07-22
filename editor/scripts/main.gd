@@ -37,6 +37,7 @@ func _instantiate_tabs() -> void:
 func _load_bridge() -> void:
     if ClassDB.class_exists("SstdBridge"):
         _bridge = ClassDB.instantiate("SstdBridge")
+        add_child(_bridge)
     else:
         push_error("GDExtension not found — SstdBridge class unavailable")
         assert(false, "GDExtension bridge is required")

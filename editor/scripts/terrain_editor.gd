@@ -41,21 +41,13 @@ func _ready() -> void:
         elif prop is ColorPickerButton:
             prop.color_changed.connect(_on_prop_changed)
 
-    _load_bridge()
-    _add_default_terrains()
+	_add_default_terrains()
 
 func _populate_option_buttons() -> void:
     for item in ["normal", "ice", "mud"]:
         surface_option.add_item(item)
     for item in ["none", "lava"]:
         hazard_option.add_item(item)
-
-func _load_bridge() -> void:
-    if ClassDB.class_exists("SstdBridge"):
-        _bridge = ClassDB.instantiate("SstdBridge")
-    else:
-        push_error("GDExtension not found — SstdBridge class unavailable")
-        assert(false, "GDExtension bridge is required")
 
 func _add_default_terrains() -> void:
     var defaults: Array[Dictionary] = [
