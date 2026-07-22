@@ -42,7 +42,6 @@ text = "Class"
 
 [node name="ClassOption" type="OptionButton" parent="PropPanel/Scroll/Grid"]
 items = PackedStringArray("tower", "trap", "structure", "vehicle", "beast", "projectile", "hero", "adventurer", "soldier", "enemy", "convoy", "wave")
-selected = 0
 
 [node name="WidthLabel" type="Label" parent="PropPanel/Scroll/Grid"]
 text = "Width (tiles)"
@@ -99,7 +98,6 @@ text = "Element"
 
 [node name="ElementOption" type="OptionButton" parent="PropPanel/Scroll/Grid"]
 items = PackedStringArray("physical", "fire", "ice", "lightning", "holy", "dark")
-selected = 0
 
 [node name="CooldownLabel" type="Label" parent="PropPanel/Scroll/Grid"]
 text = "Cooldown (ticks)"
