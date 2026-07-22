@@ -70,8 +70,6 @@ func _wire_editors() -> void:
 
 func _on_tab_changed(tab: int) -> void:
     current_tab = tab
-    if tab == 2 and entity_editor.has_method("get_entity_defs"):
-        map_editor.set_entity_defs(entity_editor.get_entity_defs())
     if tab == 2:
         map_editor._populate_grid()
     if tab == 3:

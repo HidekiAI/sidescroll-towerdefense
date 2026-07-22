@@ -58,14 +58,14 @@ text = "Buildable"
 text = "Surface"
 
 [node name="SurfaceOption" type="OptionButton" parent="PropPanel/VBox/Grid"]
-items = "normal\nice\nmud"
+items = PackedStringArray("normal", "ice", "mud")
 selected = 0
 
 [node name="HazardLabel" type="Label" parent="PropPanel/VBox/Grid"]
 text = "Hazard"
 
 [node name="HazardOption" type="OptionButton" parent="PropPanel/VBox/Grid"]
-items = "none\nlava"
+items = PackedStringArray("none", "lava")
 selected = 0
 
 [node name="ElevLabel" type="Label" parent="PropPanel/VBox/Grid"]
