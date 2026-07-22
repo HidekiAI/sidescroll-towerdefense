@@ -21,6 +21,7 @@ var _selected_index: int = -1
 @onready var export_btn: Button = $PropPanel/HSave/ExportBtn
 
 func _ready() -> void:
+    _populate_option_buttons()
     add_btn.pressed.connect(_on_add)
     delete_btn.pressed.connect(_on_delete)
     list.item_selected.connect(_on_select)
@@ -43,11 +44,18 @@ func _ready() -> void:
     _load_bridge()
     _add_default_terrains()
 
+func _populate_option_buttons() -> void:
+    for item in ["normal", "ice", "mud"]:
+        surface_option.add_item(item)
+    for item in ["none", "lava"]:
+        hazard_option.add_item(item)
+
 func _load_bridge() -> void:
     if ClassDB.class_exists("SstdBridge"):
         _bridge = ClassDB.instantiate("SstdBridge")
     else:
-        push_warning("GDExtension not found — SstdBridge class unavailable")
+        push_error("GDExtension not found — SstdBridge class unavailable")
+        assert(false, "GDExtension bridge is required")
 
 func _add_default_terrains() -> void:
     var defaults: Array[Dictionary] = [

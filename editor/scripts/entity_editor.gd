@@ -28,6 +28,7 @@ const CLASS_KEYS := ["tower", "trap", "structure", "vehicle", "beast", "projecti
 const ELEMENT_KEYS := ["physical", "fire", "ice", "lightning", "holy", "dark"]
 
 func _ready() -> void:
+    _populate_option_buttons()
     add_btn.pressed.connect(_on_add)
     delete_btn.pressed.connect(_on_delete)
     entity_list.item_selected.connect(_on_select)
@@ -46,6 +47,12 @@ func _ready() -> void:
     element_option.item_selected.connect(_on_prop_changed)
 
     _add_defaults()
+
+func _populate_option_buttons() -> void:
+    for item in CLASS_KEYS:
+        class_option.add_item(item)
+    for item in ELEMENT_KEYS:
+        element_option.add_item(item)
 
 func _add_defaults() -> void:
     var defaults: Array[Dictionary] = [

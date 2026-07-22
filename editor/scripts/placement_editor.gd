@@ -2,6 +2,8 @@ extends Control
 
 var _grid_w: int = 30
 var _grid_h: int = 16
+var _tile_w: int = 64
+var _tile_h: int = 64
 
 var _tiles: Dictionary = {}
 var _terrain_types: Array[Dictionary] = []
@@ -161,6 +163,8 @@ func _serialize() -> Dictionary:
         "screen_id": _screen_id,
         "width_tiles": _grid_w,
         "height_tiles": _grid_h,
+        "tile_width_px": _tile_w,
+        "tile_height_px": _tile_h,
         "elevation_floor_tiles": 0,
         "elevation_ceiling_tiles": 4,
         "tiles": tiles_out,
@@ -224,6 +228,8 @@ func set_bridge(b: Node) -> void:
 func set_grid_config(cfg: Dictionary) -> void:
     _grid_w = cfg.get("max_tiles_per_screen_x", 30)
     _grid_h = cfg.get("max_tiles_per_screen_y", 16)
+    _tile_w = cfg.get("tile_width_in_pixels", 64)
+    _tile_h = cfg.get("tile_height_in_pixels", 64)
     if placement_grid and placement_grid.has_method("set_grid_config"):
         placement_grid.set_grid_config(cfg)
     _populate_terrain()
