@@ -3,26 +3,32 @@ extends Control
 var _entity_defs: Array[Dictionary] = []
 var _selected_index: int = -1
 var _bridge: Node
+var _sprite_px: int = 32
 
 @onready var entity_list: ItemList = $ListPanel/ItemList
 @onready var add_btn: Button = $ListPanel/VBox/AddBtn
 @onready var delete_btn: Button = $ListPanel/VBox/DeleteBtn
-@onready var key_edit: LineEdit = $PropPanel/Scroll/Grid/KeyEdit
-@onready var class_option: OptionButton = $PropPanel/Scroll/Grid/ClassOption
-@onready var width_spin: SpinBox = $PropPanel/Scroll/Grid/WidthSpin
-@onready var height_spin: SpinBox = $PropPanel/Scroll/Grid/HeightSpin
-@onready var hp_spin: SpinBox = $PropPanel/Scroll/Grid/HpSpin
-@onready var speed_spin: SpinBox = $PropPanel/Scroll/Grid/SpeedSpin
-@onready var range_spin: SpinBox = $PropPanel/Scroll/Grid/RangeSpin
-@onready var damage_spin: SpinBox = $PropPanel/Scroll/Grid/DamageSpin
-@onready var element_option: OptionButton = $PropPanel/Scroll/Grid/ElementOption
-@onready var cooldown_spin: SpinBox = $PropPanel/Scroll/Grid/CooldownSpin
-@onready var projectile_edit: LineEdit = $PropPanel/Scroll/Grid/ProjectileEdit
-@onready var ground_check: CheckBox = $PropPanel/Scroll/Grid/GroundCheck
-@onready var ceiling_check: CheckBox = $PropPanel/Scroll/Grid/CeilingCheck
+@onready var key_edit: LineEdit = $PropPanel/PixelSplit/Scroll/Grid/KeyEdit
+@onready var class_option: OptionButton = $PropPanel/PixelSplit/Scroll/Grid/ClassOption
+@onready var width_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/WidthSpin
+@onready var height_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/HeightSpin
+@onready var hp_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/HpSpin
+@onready var speed_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/SpeedSpin
+@onready var range_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/RangeSpin
+@onready var damage_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/DamageSpin
+@onready var element_option: OptionButton = $PropPanel/PixelSplit/Scroll/Grid/ElementOption
+@onready var cooldown_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/CooldownSpin
+@onready var projectile_edit: LineEdit = $PropPanel/PixelSplit/Scroll/Grid/ProjectileEdit
+@onready var ground_check: CheckBox = $PropPanel/PixelSplit/Scroll/Grid/GroundCheck
+@onready var ceiling_check: CheckBox = $PropPanel/PixelSplit/Scroll/Grid/CeilingCheck
 @onready var save_btn: Button = $PropPanel/HSave/SaveBtn
 @onready var import_btn: Button = $PropPanel/HSave/ImportBtn
 @onready var export_btn: Button = $PropPanel/HSave/ExportBtn
+@onready var footprint_rect: ColorRect = $PropPanel/PixelSplit/Scroll/FootprintRect
+@onready var pixel_canvas: Control = $PropPanel/PixelSplit/ArtPanel/PixelCanvas
+@onready var preview_3x3: Control = $PropPanel/PixelSplit/ArtPanel/Preview3x3
+@onready var import_png_btn: Button = $PropPanel/PixelSplit/ArtPanel/ArtToolbar/ImportPngBtn
+@onready var export_png_btn: Button = $PropPanel/PixelSplit/ArtPanel/ArtToolbar/ExportPngBtn
 
 const CLASS_KEYS := ["tower", "trap", "structure", "vehicle", "beast", "projectile", "hero", "adventurer", "soldier", "enemy", "convoy", "wave"]
 const ELEMENT_KEYS := ["physical", "fire", "ice", "lightning", "holy", "dark"]
@@ -45,6 +51,10 @@ func _ready() -> void:
             prop.value_changed.connect(_on_prop_changed)
     class_option.item_selected.connect(_on_prop_changed)
     element_option.item_selected.connect(_on_prop_changed)
+
+    import_png_btn.pressed.connect(_on_import_png)
+    export_png_btn.pressed.connect(_on_export_png)
+    pixel_canvas.pixel_changed.connect(_on_canvas_pixel_changed)
 
     _add_defaults()
 
@@ -121,6 +131,35 @@ func _on_select(index: int) -> void:
     projectile_edit.text = e["projectile_type"]
     ground_check.button_pressed = e["requires_ground"]
     ceiling_check.button_pressed = e["requires_ceiling"]
+    _update_preview()
+    _load_sprite_png(e["key"])
+
+func _sprite_png_path(key: String) -> String:
+    return "res://assets/entities/%s_%dx%d.png" % [key, _sprite_px, _sprite_px]
+
+func _load_sprite_png(key: String) -> void:
+    var path := _sprite_png_path(key)
+    var abs := ProjectSettings.globalize_path(path)
+    if FileAccess.file_exists(abs):
+        if not pixel_canvas.load_png(abs):
+            push_warning("Failed to load PNG: ", abs)
+            _make_default_sprite_image()
+    else:
+        _make_default_sprite_image()
+    _sync_tiled_preview()
+
+func _make_default_sprite_image() -> void:
+    var img: Image = Image.create(_sprite_px, _sprite_px, false, Image.FORMAT_RGBA8)
+    var c := Color(0.5, 0.5, 0.5, 1)
+    for y in _sprite_px:
+        for x in _sprite_px:
+            img.set_pixel(x, y, c)
+    pixel_canvas.set_image(img)
+
+func _sync_tiled_preview() -> void:
+    var img: Image = pixel_canvas.get_image()
+    if img:
+        preview_3x3.set_image(img)
 
 func _clear_props() -> void:
     key_edit.text = ""
@@ -154,9 +193,39 @@ func _on_prop_changed(_val = null) -> void:
     e["projectile_type"] = projectile_edit.text
     e["requires_ground"] = ground_check.button_pressed
     e["requires_ceiling"] = ceiling_check.button_pressed
+    _update_preview()
     _refresh_list()
 
+func _on_canvas_pixel_changed(_x: int, _y: int, _color: Color) -> void:
+    _sync_tiled_preview()
+
+func _on_import_png() -> void:
+    var dialog := FileDialog.new()
+    dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+    dialog.add_filter("*.png", "PNG images")
+    dialog.title = "Import Sprite Image"
+    add_child(dialog)
+    dialog.file_selected.connect(func(path: String):
+        var img: Image = Image.new()
+        if img.load(path) != OK:
+            push_error("Failed to load: ", path)
+            return
+        if img.get_width() != _sprite_px or img.get_height() != _sprite_px:
+            img.resize(_sprite_px, _sprite_px, Image.INTERPOLATE_NEAREST)
+        pixel_canvas.set_image(img)
+        _sync_tiled_preview()
+    )
+    dialog.popup_centered(Vector2i(600, 400))
+
+func _on_export_png() -> void:
+    if _selected_index < 0:
+        return
+    var e := _entity_defs[_selected_index]
+    pixel_canvas.save_png(ProjectSettings.globalize_path(_sprite_png_path(e["key"])))
+    print("PNG saved: ", _sprite_png_path(e["key"]))
+
 func _on_save() -> void:
+    _on_export_png()
     var data: Dictionary = {"version": "0.1.0", "entities": _entity_defs}
     var json_str := JSON.stringify(data, "\t")
     if _bridge and _bridge.has_method("import_entity_defs"):
@@ -213,3 +282,15 @@ func set_bridge(b: Node) -> void:
 
 func get_entity_defs() -> Array[Dictionary]:
     return _entity_defs
+
+func _update_preview() -> void:
+    if _selected_index < 0 or _selected_index >= _entity_defs.size():
+        footprint_rect.custom_minimum_size = Vector2(32, 32)
+        footprint_rect.color = Color(1, 1, 1, 0.15)
+        return
+    var e: Dictionary = _entity_defs[_selected_index]
+    var px_per_tile: int = 32
+    var w: int = max(px_per_tile, int(ceil(e["width_tiles"] * px_per_tile)))
+    var h: int = max(px_per_tile, int(ceil(e["height_tiles"] * px_per_tile)))
+    footprint_rect.custom_minimum_size = Vector2(w, h)
+    footprint_rect.color = Color(0.4, 0.7, 1.0, 0.3)

@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/entity_editor.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/pixel_canvas.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/tiled_preview.gd" id="3"]
 
 [node name="EntityEditor" type="HSplitContainer"]
 anchors_preset = 15
@@ -26,101 +28,135 @@ text = "Delete"
 [node name="PropPanel" type="VBoxContainer" parent="."]
 size_flags_horizontal = 2
 
-[node name="Scroll" type="ScrollContainer" parent="PropPanel"]
+[node name="PixelSplit" type="VSplitContainer" parent="PropPanel"]
 size_flags_vertical = 3
 
-[node name="Grid" type="GridContainer" parent="PropPanel/Scroll"]
+[node name="Scroll" type="ScrollContainer" parent="PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="PropPanel/PixelSplit/Scroll"]
 columns = 2
 
-[node name="KeyLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="KeyLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Key"
 
-[node name="KeyEdit" type="LineEdit" parent="PropPanel/Scroll/Grid"]
+[node name="KeyEdit" type="LineEdit" parent="PropPanel/PixelSplit/Scroll/Grid"]
 
-[node name="ClassLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="ClassLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Class"
 
-[node name="ClassOption" type="OptionButton" parent="PropPanel/Scroll/Grid"]
+[node name="ClassOption" type="OptionButton" parent="PropPanel/PixelSplit/Scroll/Grid"]
 item_count = 0
 
-[node name="WidthLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="WidthLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Width (tiles)"
 
-[node name="WidthSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="WidthSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 0.5
 max_value = 8.0
 step = 0.5
 value = 1.0
 
-[node name="HeightLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="HeightLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Height (tiles)"
 
-[node name="HeightSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="HeightSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 0.5
 max_value = 8.0
 step = 0.5
 value = 1.0
 
-[node name="HpLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="HpLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Max HP"
 
-[node name="HpSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="HpSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 1
 max_value = 9999
 value = 500
 
-[node name="SpeedLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="SpeedLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Speed (pps)"
 
-[node name="SpeedSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="SpeedSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 0
 max_value = 9999
 value = 0
 
-[node name="RangeLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="RangeLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Range (tiles)"
 
-[node name="RangeSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="RangeSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 0
 max_value = 64
 value = 3
 
-[node name="DamageLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="DamageLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Attack Power"
 
-[node name="DamageSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="DamageSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 0
 max_value = 9999
 value = 50
 
-[node name="ElementLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="ElementLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Element"
 
-[node name="ElementOption" type="OptionButton" parent="PropPanel/Scroll/Grid"]
+[node name="ElementOption" type="OptionButton" parent="PropPanel/PixelSplit/Scroll/Grid"]
 item_count = 0
 
-[node name="CooldownLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="CooldownLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Cooldown (ticks)"
 
-[node name="CooldownSpin" type="SpinBox" parent="PropPanel/Scroll/Grid"]
+[node name="CooldownSpin" type="SpinBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 min_value = 0
 max_value = 999
 value = 60
 
-[node name="ProjectileLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="ProjectileLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Projectile Type"
 
-[node name="ProjectileEdit" type="LineEdit" parent="PropPanel/Scroll/Grid"]
+[node name="ProjectileEdit" type="LineEdit" parent="PropPanel/PixelSplit/Scroll/Grid"]
 
-[node name="GroundLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="GroundLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Requires Ground"
 
-[node name="GroundCheck" type="CheckBox" parent="PropPanel/Scroll/Grid"]
+[node name="GroundCheck" type="CheckBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
 
-[node name="CeilingLabel" type="Label" parent="PropPanel/Scroll/Grid"]
+[node name="CeilingLabel" type="Label" parent="PropPanel/PixelSplit/Scroll/Grid"]
 text = "Requires Ceiling"
 
-[node name="CeilingCheck" type="CheckBox" parent="PropPanel/Scroll/Grid"]
+[node name="CeilingCheck" type="CheckBox" parent="PropPanel/PixelSplit/Scroll/Grid"]
+
+[node name="PreviewLabel" type="Label" parent="PropPanel/PixelSplit/Scroll"]
+text = "Footprint"
+position = Vector2(0, 364)
+
+[node name="FootprintRect" type="ColorRect" parent="PropPanel/PixelSplit/Scroll"]
+color = Color(1, 1, 1, 0.15)
+custom_minimum_size = Vector2(32, 32)
+mouse_filter = 2
+
+[node name="ArtPanel" type="VBoxContainer" parent="PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="ArtToolbar" type="HBoxContainer" parent="PropPanel/PixelSplit/ArtPanel"]
+
+[node name="ImportPngBtn" type="Button" parent="PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Import PNG"
+
+[node name="ExportPngBtn" type="Button" parent="PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Export PNG"
+
+[node name="PixelCanvas" type="Control" parent="PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(256, 128)
+size_flags_vertical = 3
+mouse_filter = 0
+script = ExtResource("2")
+
+[node name="Preview3x3" type="Control" parent="PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(192, 64)
+mouse_filter = 2
+script = ExtResource("3")
 
 [node name="HSave" type="HBoxContainer" parent="PropPanel"]
 

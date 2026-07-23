@@ -12,14 +12,77 @@ pub struct ConfigStore {
     conn: Connection,
 }
 
+type PopulateFn = fn(&Connection) -> SstdResult<()>;
+
+struct Population {
+    id: &'static str,
+    description: &'static str,
+    func: PopulateFn,
+}
+
+const POPULATIONS: &[Population] = &[Population {
+    id: "001",
+    description: "Initial core config: grid, time, entity limits",
+    func: populate_001,
+}];
+
+const POST_POPULATIONS: &[Population] = &[];
+
+// ---------------------------------------------------------------------------
+// Population: populate_001 — seed the 12 core config keys
+// ---------------------------------------------------------------------------
+fn populate_001(conn: &Connection) -> SstdResult<()> {
+    let entries: [(&str, &str); 12] = [
+        ("grid.max_tiles_per_screen_x", "60"),
+        ("grid.max_tiles_per_screen_y", "33"),
+        ("grid.tile_width_in_pixels", "32"),
+        ("grid.tile_height_in_pixels", "32"),
+        ("grid.max_viewport_pixels_x", "1920"),
+        ("grid.max_viewport_pixels_y", "1080"),
+        ("time.tick_rate", "60"),
+        ("time.time_scale", "1"),
+        ("entity.max_per_world", "500"),
+        ("entity.max_on_screen", "50"),
+        ("entity.max_process_per_frame", "30"),
+        ("entity.max_off_screen_process", "10"),
+    ];
+    for (key, value) in &entries {
+        conn.execute(
+            "INSERT OR IGNORE INTO config (key, default_value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Version helpers
+// ---------------------------------------------------------------------------
+fn version_to_int(ver: &str) -> u32 {
+    let parts: Vec<&str> = ver.split('.').collect();
+    if parts.len() != 3 {
+        return 0;
+    }
+    let major: u32 = parts[0].parse().unwrap_or(0);
+    let minor: u32 = parts[1].parse().unwrap_or(0);
+    let sub: u32 = parts[2].parse().unwrap_or(0);
+    major * 100 + minor * 10 + sub
+}
+
+fn pop_id_to_version(id: &str) -> u32 {
+    id.parse().unwrap_or(0)
+}
+
 impl ConfigStore {
     pub fn open_or_create(path: &Path) -> SstdResult<Self> {
         let conn =
             Connection::open(path).map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
 
         let store = Self { conn };
-        store.ensure_schema()?;
-        store.seed_defaults()?;
+        store.initial()?;
+        store.run_populations()?;
+        store.run_post_populations()?;
         Ok(store)
     }
 
@@ -28,12 +91,14 @@ impl ConfigStore {
             .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
 
         let store = Self { conn };
-        store.ensure_schema()?;
-        store.seed_defaults()?;
+        store.initial()?;
+        store.run_populations()?;
+        store.run_post_populations()?;
         Ok(store)
     }
 
-    fn ensure_schema(&self) -> SstdResult<()> {
+    /// Category 1: Initial schema creation — runs once (idempotent via IF NOT EXISTS).
+    fn initial(&self) -> SstdResult<()> {
         self.conn
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS config (
@@ -47,54 +112,96 @@ impl ConfigStore {
                     value TEXT NOT NULL
                 );
 
-                INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '0.1.0');",
+                CREATE TABLE IF NOT EXISTS populations (
+                    id          TEXT PRIMARY KEY,
+                    description TEXT,
+                    applied_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '0.0.0');",
             )
             .map_err(|e| crate::error::StorageError::Io(e.to_string()))
     }
 
-    fn seed_defaults(&self) -> SstdResult<()> {
-        let grid = GridConfig::default();
-        let time = TimeConfig::default();
-        let limits = EntityLimits::default();
+    /// Category 2: Run pending numbered populations in order.
+    fn run_populations(&self) -> SstdResult<()> {
+        let current_ver = self.get_meta("schema_version")?;
+        let current_int = version_to_int(&current_ver);
 
-        let entries: [(&str, &str); 12] = [
-            ("grid.max_tiles_per_screen_x", "30"),
-            ("grid.max_tiles_per_screen_y", "16"),
-            ("grid.tile_width_in_pixels", "64"),
-            ("grid.tile_height_in_pixels", "64"),
-            ("grid.max_viewport_pixels_x", "1920"),
-            ("grid.max_viewport_pixels_y", "1080"),
-            ("time.tick_rate", "60"),
-            ("time.time_scale", "1"),
-            ("entity.max_per_world", "500"),
-            ("entity.max_on_screen", "50"),
-            ("entity.max_process_per_frame", "30"),
-            ("entity.max_off_screen_process", "10"),
-        ];
-
-        for (key, value) in &entries {
-            self.conn
-                .execute(
-                    "INSERT OR IGNORE INTO config (key, default_value) VALUES (?1, ?2)",
-                    rusqlite::params![key, value],
-                )
-                .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+        for pop in POPULATIONS {
+            let pop_ver = pop_id_to_version(pop.id);
+            if pop_ver <= current_int {
+                continue;
+            }
+            if self.population_applied(pop.id)? {
+                continue;
+            }
+            (pop.func)(&self.conn)?;
+            self.record_population(pop.id, pop.description)?;
+            self.set_meta("schema_version", &format_version(pop_ver))?;
         }
+        Ok(())
+    }
 
-        // Validate that struct defaults match the DB values
-        assert_eq!(grid.max_tiles_per_screen_x, 30);
-        assert_eq!(grid.max_tiles_per_screen_y, 16);
-        assert_eq!(grid.tile_width_in_pixels, 64);
-        assert_eq!(grid.tile_height_in_pixels, 64);
-        assert_eq!(grid.max_viewport_pixels_x, 1920);
-        assert_eq!(grid.max_viewport_pixels_y, 1080);
-        assert!((time.tick_rate - 60.0).abs() < f64::EPSILON);
-        assert!((time.time_scale - 1.0).abs() < f64::EPSILON);
-        assert_eq!(limits.max_entities_per_world, 500);
-        assert_eq!(limits.max_entities_on_screen, 50);
-        assert_eq!(limits.max_process_per_frame, 30);
-        assert_eq!(limits.max_off_screen_process, 10);
+    /// Category 3: Post-populate — same semantics, runs after all populations.
+    fn run_post_populations(&self) -> SstdResult<()> {
+        let current_ver = self.get_meta("schema_version")?;
+        let current_int = version_to_int(&current_ver);
 
+        for pop in POST_POPULATIONS {
+            let pop_ver = pop_id_to_version(pop.id);
+            if pop_ver <= current_int {
+                continue;
+            }
+            if self.population_applied(pop.id)? {
+                continue;
+            }
+            (pop.func)(&self.conn)?;
+            self.record_population(pop.id, pop.description)?;
+            self.set_meta("schema_version", &format_version(pop_ver))?;
+        }
+        Ok(())
+    }
+
+    fn get_meta(&self, key: &str) -> SstdResult<String> {
+        self.conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                rusqlite::params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))
+    }
+
+    fn set_meta(&self, key: &str, value: &str) -> SstdResult<()> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+                rusqlite::params![key, value],
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    fn population_applied(&self, id: &str) -> SstdResult<bool> {
+        let count: i32 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM populations WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+        Ok(count > 0)
+    }
+
+    fn record_population(&self, id: &str, description: &str) -> SstdResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO populations (id, description) VALUES (?1, ?2)",
+                rusqlite::params![id, description],
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
         Ok(())
     }
 
@@ -187,6 +294,32 @@ impl ConfigStore {
         }
         Ok(result)
     }
+
+    pub fn applied_populations(&self) -> SstdResult<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, description FROM populations ORDER BY id")
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| crate::error::StorageError::Io(e.to_string()))?);
+        }
+        Ok(result)
+    }
+}
+
+fn format_version(v: u32) -> String {
+    let major = v / 100;
+    let minor = (v % 100) / 10;
+    let sub = v % 10;
+    format!("{}.{}.{}", major, minor, sub)
 }
 
 #[cfg(test)]
@@ -204,8 +337,8 @@ mod tests {
     fn test_grid_config_from_db() {
         let store = ConfigStore::in_memory().unwrap();
         let grid = store.grid_config().unwrap();
-        assert_eq!(grid.max_tiles_per_screen_x, 30);
-        assert_eq!(grid.tile_width_in_pixels, 64);
+        assert_eq!(grid.max_tiles_per_screen_x, 60);
+        assert_eq!(grid.tile_width_in_pixels, 32);
     }
 
     #[test]
@@ -232,14 +365,55 @@ mod tests {
     }
 
     #[test]
-    fn test_seed_does_not_overwrite() {
+    fn test_custom_value_not_overwritten() {
         let store = ConfigStore::in_memory().unwrap();
         store
             .set_config("grid.max_tiles_per_screen_x", "99")
             .unwrap();
-        // Re-seed (should not overwrite existing)
-        store.seed_defaults().unwrap();
+        // Re-run initial + populations (idempotent — should NOT overwrite)
+        store.initial().unwrap();
+        store.run_populations().unwrap();
         let val = store.get_str("grid.max_tiles_per_screen_x").unwrap();
         assert_eq!(val, "99");
+    }
+
+    #[test]
+    fn test_population_applied() {
+        let store = ConfigStore::in_memory().unwrap();
+        let pops = store.applied_populations().unwrap();
+        assert!(pops.iter().any(|(id, _)| id == "001"));
+    }
+
+    #[test]
+    fn test_schema_version_after_population() {
+        let store = ConfigStore::in_memory().unwrap();
+        let ver = store.get_meta("schema_version").unwrap();
+        assert_eq!(ver, "0.0.1");
+    }
+
+    #[test]
+    fn test_format_version() {
+        assert_eq!(format_version(0), "0.0.0");
+        assert_eq!(format_version(1), "0.0.1");
+        assert_eq!(format_version(10), "0.1.0");
+        assert_eq!(format_version(100), "1.0.0");
+        assert_eq!(format_version(123), "1.2.3");
+    }
+
+    #[test]
+    fn test_version_to_int() {
+        assert_eq!(version_to_int("0.0.0"), 0);
+        assert_eq!(version_to_int("0.0.1"), 1);
+        assert_eq!(version_to_int("0.1.0"), 10);
+        assert_eq!(version_to_int("1.0.0"), 100);
+        assert_eq!(version_to_int("0.0.9"), 9);
+        assert_eq!(version_to_int("0.1.5"), 15);
+    }
+
+    #[test]
+    fn test_pop_id_to_version() {
+        assert_eq!(pop_id_to_version("001"), 1);
+        assert_eq!(pop_id_to_version("010"), 10);
+        assert_eq!(pop_id_to_version("100"), 100);
     }
 }

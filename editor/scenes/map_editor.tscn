@@ -56,6 +56,6 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 
 [node name="TileGrid" type="Control" parent="RightPanel/Scroll"]
-custom_minimum_size = Vector2(1440, 768)
-mouse_filter = 2
+custom_minimum_size = Vector2(1920, 1056)
+mouse_filter = 0
 script = ExtResource("2")

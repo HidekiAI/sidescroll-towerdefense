@@ -1,9 +1,9 @@
 extends Control
 
-var _grid_w: int = 30
-var _grid_h: int = 16
-var _tile_w: int = 64
-var _tile_h: int = 64
+var _grid_w: int = 60
+var _grid_h: int = 33
+var _tile_w: int = 32
+var _tile_h: int = 32
 
 var _tiles: Dictionary = {}
 var _terrain_types: Array[Dictionary] = []
@@ -186,10 +186,10 @@ func set_bridge(b: Node) -> void:
     _bridge = b
 
 func set_grid_config(cfg: Dictionary) -> void:
-    _grid_w = cfg.get("max_tiles_per_screen_x", 30)
-    _grid_h = cfg.get("max_tiles_per_screen_y", 16)
-    _tile_w = cfg.get("tile_width_in_pixels", 64)
-    _tile_h = cfg.get("tile_height_in_pixels", 64)
+    _grid_w = cfg.get("max_tiles_per_screen_x", 60)
+    _grid_h = cfg.get("max_tiles_per_screen_y", 33)
+    _tile_w = cfg.get("tile_width_in_pixels", 32)
+    _tile_h = cfg.get("tile_height_in_pixels", 32)
     if tile_grid and tile_grid.has_method("set_grid_config"):
         tile_grid.set_grid_config(cfg)
     _populate_grid()

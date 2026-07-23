@@ -1,15 +1,35 @@
 extends Control
 
 var map_editor: Control
-var tile_size: int = 64
-var grid_w: int = 30
-var grid_h: int = 16
+var tile_size: int = 32
+var grid_w: int = 60
+var grid_h: int = 33
+var _texture_cache: Dictionary = {}
 
 func set_grid_config(cfg: Dictionary) -> void:
-    tile_size = cfg.get("tile_width_in_pixels", 64)
-    grid_w = cfg.get("max_tiles_per_screen_x", 30)
-    grid_h = cfg.get("max_tiles_per_screen_y", 16)
+    tile_size = cfg.get("tile_width_in_pixels", 32)
+    grid_w = cfg.get("max_tiles_per_screen_x", 60)
+    grid_h = cfg.get("max_tiles_per_screen_y", 33)
+    _texture_cache.clear()
     queue_redraw()
+
+func reload_textures() -> void:
+    _texture_cache.clear()
+    queue_redraw()
+
+func _tile_texture(key: String) -> Texture2D:
+    if _texture_cache.has(key):
+        return _texture_cache[key]
+    var path := "res://assets/tiles/%s_%dx%d.png" % [key, tile_size, tile_size]
+    var abs := ProjectSettings.globalize_path(path)
+    if FileAccess.file_exists(abs):
+        var img: Image = Image.new()
+        if img.load(abs) == OK:
+            var tex: ImageTexture = ImageTexture.create_from_image(img)
+            _texture_cache[key] = tex
+            return tex
+    _texture_cache[key] = null
+    return null
 
 func pixel_to_tile(pos: Vector2) -> Vector2i:
     return Vector2i(
@@ -24,9 +44,12 @@ func _draw() -> void:
     for y in grid_h:
         for x in grid_w:
             var key: String = map_editor.get_tile(x, y)
-            var color: Color = map_editor.terrain_color(key)
             var rect := Rect2(x * tile_size, y * tile_size, tile_size, tile_size)
-            draw_rect(rect, color)
+            var tex: Texture2D = _tile_texture(key)
+            if tex:
+                draw_texture_rect(tex, rect, false)
+            else:
+                draw_rect(rect, map_editor.terrain_color(key))
             draw_rect(rect, Color(0.2, 0.2, 0.2, 0.3), false, 1)
 
     var mouse := get_local_mouse_position()

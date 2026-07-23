@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/terrain_editor.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/pixel_canvas.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/tiled_preview.gd" id="3"]
 
 [node name="TerrainEditor" type="HSplitContainer"]
 anchors_preset = 15
@@ -28,60 +30,88 @@ text = "Delete"
 [node name="PropPanel" type="VBoxContainer" parent="."]
 size_flags_horizontal = 2
 
-[node name="VBox" type="ScrollContainer" parent="PropPanel"]
+[node name="PixelSplit" type="VSplitContainer" parent="PropPanel"]
 size_flags_vertical = 3
 
-[node name="Grid" type="GridContainer" parent="PropPanel/VBox"]
+[node name="VBox" type="ScrollContainer" parent="PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="PropPanel/PixelSplit/VBox"]
 columns = 2
 
-[node name="KeyLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="KeyLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Key"
 
-[node name="KeyEdit" type="LineEdit" parent="PropPanel/VBox/Grid"]
+[node name="KeyEdit" type="LineEdit" parent="PropPanel/PixelSplit/VBox/Grid"]
 
-[node name="NameLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="NameLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Display Name"
 
-[node name="NameEdit" type="LineEdit" parent="PropPanel/VBox/Grid"]
+[node name="NameEdit" type="LineEdit" parent="PropPanel/PixelSplit/VBox/Grid"]
 
-[node name="WalkableLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="WalkableLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Walkable"
 
-[node name="WalkableCheck" type="CheckBox" parent="PropPanel/VBox/Grid"]
+[node name="WalkableCheck" type="CheckBox" parent="PropPanel/PixelSplit/VBox/Grid"]
 
-[node name="BuildableLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="BuildableLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Buildable"
 
-[node name="BuildableCheck" type="CheckBox" parent="PropPanel/VBox/Grid"]
+[node name="BuildableCheck" type="CheckBox" parent="PropPanel/PixelSplit/VBox/Grid"]
 
-[node name="SurfaceLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="SurfaceLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Surface"
 
-[node name="SurfaceOption" type="OptionButton" parent="PropPanel/VBox/Grid"]
+[node name="SurfaceOption" type="OptionButton" parent="PropPanel/PixelSplit/VBox/Grid"]
 item_count = 0
 
-[node name="HazardLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="HazardLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Hazard"
 
-[node name="HazardOption" type="OptionButton" parent="PropPanel/VBox/Grid"]
+[node name="HazardOption" type="OptionButton" parent="PropPanel/PixelSplit/VBox/Grid"]
 item_count = 0
 
-[node name="ElevLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="ElevLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Elevation"
 
-[node name="ElevSpin" type="SpinBox" parent="PropPanel/VBox/Grid"]
+[node name="ElevSpin" type="SpinBox" parent="PropPanel/PixelSplit/VBox/Grid"]
 min_value = -10
 max_value = 10
 
-[node name="ColorLabel" type="Label" parent="PropPanel/VBox/Grid"]
+[node name="ColorLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "Color"
 
-[node name="ColorPicker" type="ColorPickerButton" parent="PropPanel/VBox/Grid"]
+[node name="ColorPicker" type="ColorPickerButton" parent="PropPanel/PixelSplit/VBox/Grid"]
 
-[node name="PreviewRect" type="ColorRect" parent="PropPanel/VBox"]
+[node name="PreviewRect" type="ColorRect" parent="PropPanel/PixelSplit/VBox"]
 size_flags_horizontal = 3
 size_flags_vertical = 0
-custom_minimum_size = Vector2(64, 64)
+custom_minimum_size = Vector2(128, 64)
+
+[node name="ArtPanel" type="VBoxContainer" parent="PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="ArtToolbar" type="HBoxContainer" parent="PropPanel/PixelSplit/ArtPanel"]
+
+[node name="ImportPngBtn" type="Button" parent="PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Import PNG"
+
+[node name="ExportPngBtn" type="Button" parent="PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Export PNG"
+
+[node name="FillColorBtn" type="Button" parent="PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Fill w/ Color"
+
+[node name="PixelCanvas" type="Control" parent="PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(256, 128)
+size_flags_vertical = 3
+mouse_filter = 0
+script = ExtResource("2")
+
+[node name="Preview3x3" type="Control" parent="PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(192, 64)
+mouse_filter = 2
+script = ExtResource("3")
 
 [node name="HSave" type="HBoxContainer" parent="PropPanel"]
 

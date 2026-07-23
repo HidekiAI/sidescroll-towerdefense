@@ -3,19 +3,26 @@ extends Control
 var _bridge: Node
 var _terrain_types: Array[Dictionary] = []
 var _selected_index: int = -1
+var _suppress_prop_change: bool = false
+var _tile_px: int = 32
 
 @onready var list: ItemList = $ListPanel/ItemList
 @onready var add_btn: Button = $ListPanel/VBox/AddBtn
 @onready var delete_btn: Button = $ListPanel/VBox/DeleteBtn
-@onready var key_edit: LineEdit = $PropPanel/VBox/Grid/KeyEdit
-@onready var name_edit: LineEdit = $PropPanel/VBox/Grid/NameEdit
-@onready var walkable_check: CheckBox = $PropPanel/VBox/Grid/WalkableCheck
-@onready var buildable_check: CheckBox = $PropPanel/VBox/Grid/BuildableCheck
-@onready var surface_option: OptionButton = $PropPanel/VBox/Grid/SurfaceOption
-@onready var hazard_option: OptionButton = $PropPanel/VBox/Grid/HazardOption
-@onready var elev_spin: SpinBox = $PropPanel/VBox/Grid/ElevSpin
-@onready var color_picker: ColorPickerButton = $PropPanel/VBox/Grid/ColorPicker
-@onready var preview_rect: ColorRect = $PropPanel/VBox/PreviewRect
+@onready var key_edit: LineEdit = $PropPanel/PixelSplit/VBox/Grid/KeyEdit
+@onready var name_edit: LineEdit = $PropPanel/PixelSplit/VBox/Grid/NameEdit
+@onready var walkable_check: CheckBox = $PropPanel/PixelSplit/VBox/Grid/WalkableCheck
+@onready var buildable_check: CheckBox = $PropPanel/PixelSplit/VBox/Grid/BuildableCheck
+@onready var surface_option: OptionButton = $PropPanel/PixelSplit/VBox/Grid/SurfaceOption
+@onready var hazard_option: OptionButton = $PropPanel/PixelSplit/VBox/Grid/HazardOption
+@onready var elev_spin: SpinBox = $PropPanel/PixelSplit/VBox/Grid/ElevSpin
+@onready var color_picker: ColorPickerButton = $PropPanel/PixelSplit/VBox/Grid/ColorPicker
+@onready var preview_rect: ColorRect = $PropPanel/PixelSplit/VBox/PreviewRect
+@onready var pixel_canvas: Control = $PropPanel/PixelSplit/ArtPanel/PixelCanvas
+@onready var preview_3x3: Control = $PropPanel/PixelSplit/ArtPanel/Preview3x3
+@onready var import_png_btn: Button = $PropPanel/PixelSplit/ArtPanel/ArtToolbar/ImportPngBtn
+@onready var export_png_btn: Button = $PropPanel/PixelSplit/ArtPanel/ArtToolbar/ExportPngBtn
+@onready var fill_color_btn: Button = $PropPanel/PixelSplit/ArtPanel/ArtToolbar/FillColorBtn
 @onready var save_btn: Button = $PropPanel/HSave/SaveBtn
 @onready var import_btn: Button = $PropPanel/HSave/ImportBtn
 @onready var export_btn: Button = $PropPanel/HSave/ExportBtn
@@ -40,6 +47,11 @@ func _ready() -> void:
             prop.value_changed.connect(_on_prop_changed)
         elif prop is ColorPickerButton:
             prop.color_changed.connect(_on_prop_changed)
+
+    import_png_btn.pressed.connect(_on_import_png)
+    export_png_btn.pressed.connect(_on_export_png)
+    fill_color_btn.pressed.connect(_on_fill_color)
+    pixel_canvas.pixel_changed.connect(_on_canvas_pixel_changed)
 
     _add_default_terrains()
 
@@ -99,6 +111,8 @@ func _on_delete() -> void:
 func _on_select(index: int) -> void:
     _selected_index = index
     var t: Dictionary = _terrain_types[index]
+
+    _suppress_prop_change = true
     key_edit.text = t["key"]
     name_edit.text = t["display_name"]
     walkable_check.button_pressed = t["is_walkable"]
@@ -107,7 +121,37 @@ func _on_select(index: int) -> void:
     hazard_option.select(_hazard_index(t["hazard"]))
     elev_spin.value = t["elevation_tiles"]
     color_picker.color = Color(t["color_hex"])
+    _suppress_prop_change = false
+
     _update_preview()
+    _load_tile_png(t)
+
+func _tile_png_path(key: String) -> String:
+    return "res://assets/tiles/%s_%dx%d.png" % [key, _tile_px, _tile_px]
+
+func _load_tile_png(t: Dictionary) -> void:
+    var path := _tile_png_path(t["key"])
+    var abs := ProjectSettings.globalize_path(path)
+    if FileAccess.file_exists(abs):
+        if not pixel_canvas.load_png(abs):
+            push_warning("Failed to load PNG: ", abs)
+            _make_default_tile_image(t["color_hex"])
+    else:
+        _make_default_tile_image(t["color_hex"])
+    _sync_tiled_preview()
+
+func _make_default_tile_image(color_hex: String) -> void:
+    var img: Image = Image.create(_tile_px, _tile_px, false, Image.FORMAT_RGBA8)
+    var c := Color(color_hex)
+    for y in _tile_px:
+        for x in _tile_px:
+            img.set_pixel(x, y, c)
+    pixel_canvas.set_image(img)
+
+func _sync_tiled_preview() -> void:
+    var img: Image = pixel_canvas.get_image()
+    if img:
+        preview_3x3.set_image(img)
 
 func _clear_props() -> void:
     key_edit.text = ""
@@ -120,6 +164,8 @@ func _clear_props() -> void:
     color_picker.color = Color.WHITE
 
 func _on_prop_changed(_val = null) -> void:
+    if _suppress_prop_change:
+        return
     if _selected_index < 0 or _selected_index >= _terrain_types.size():
         return
     var t: Dictionary = _terrain_types[_selected_index]
@@ -138,7 +184,43 @@ func _update_preview() -> void:
     if _selected_index >= 0 and _selected_index < _terrain_types.size():
         preview_rect.color = Color(_terrain_types[_selected_index]["color_hex"])
 
+func _on_canvas_pixel_changed(_x: int, _y: int, _color: Color) -> void:
+    _sync_tiled_preview()
+
+func _on_import_png() -> void:
+    var dialog := FileDialog.new()
+    dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+    dialog.add_filter("*.png", "PNG images")
+    dialog.title = "Import Tile Image"
+    add_child(dialog)
+    dialog.file_selected.connect(func(path: String):
+        var img: Image = Image.new()
+        if img.load(path) != OK:
+            push_error("Failed to load: ", path)
+            return
+        if img.get_width() != _tile_px or img.get_height() != _tile_px:
+            img.resize(_tile_px, _tile_px, Image.INTERPOLATE_NEAREST)
+        pixel_canvas.set_image(img)
+        _sync_tiled_preview()
+    )
+    dialog.popup_centered(Vector2i(600, 400))
+
+func _on_export_png() -> void:
+    if _selected_index < 0:
+        return
+    var t := _terrain_types[_selected_index]
+    pixel_canvas.save_png(ProjectSettings.globalize_path(_tile_png_path(t["key"])))
+    print("PNG saved: ", _tile_png_path(t["key"]))
+
+func _on_fill_color() -> void:
+    if _selected_index < 0:
+        return
+    var t := _terrain_types[_selected_index]
+    _make_default_tile_image(t["color_hex"])
+    _sync_tiled_preview()
+
 func _on_save() -> void:
+    _on_export_png()
     var data: Dictionary = {
         "version": "0.1.0",
         "tiles": _terrain_types,
