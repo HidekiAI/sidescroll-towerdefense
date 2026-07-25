@@ -185,6 +185,11 @@ func _input(event: InputEvent) -> void:
 func set_bridge(b: Node) -> void:
     _bridge = b
 
+func set_terrain_types(types: Array[Dictionary]) -> void:
+    _terrain_types = types
+    _refresh_palette()
+    tile_grid.queue_redraw()
+
 func set_grid_config(cfg: Dictionary) -> void:
     _grid_w = cfg.get("max_tiles_per_screen_x", 60)
     _grid_h = cfg.get("max_tiles_per_screen_y", 33)

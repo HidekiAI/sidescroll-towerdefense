@@ -68,8 +68,10 @@ func _wire_editors() -> void:
 func _on_tab_changed(tab: int) -> void:
     current_tab = tab
     if tab == 2:
+        map_editor.set_terrain_types(terrain_editor.get_terrain_types())
         map_editor._populate_grid()
     if tab == 3:
+        placement_editor.set_terrain_types(terrain_editor.get_terrain_types())
         placement_editor.set_entity_defs(entity_editor.get_entity_defs())
 
 func new_project() -> void:

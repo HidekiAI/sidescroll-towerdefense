@@ -6,6 +6,7 @@ var _grid_w: int = 32
 var _grid_h: int = 32
 var selected_color: Color = Color.WHITE
 var _painting: bool = false
+var dirty: bool = false
 
 signal pixel_changed(x: int, y: int, color: Color)
 
@@ -13,8 +14,12 @@ func set_image(img: Image) -> void:
     _image = img
     _grid_w = img.get_width()
     _grid_h = img.get_height()
+    dirty = false
     _auto_zoom()
     queue_redraw()
+
+func mark_clean() -> void:
+    dirty = false
 
 func fill(color: Color) -> void:
     if not _image:
@@ -72,6 +77,7 @@ func _paint_at(pos: Vector2) -> void:
     if current.is_equal_approx(selected_color):
         return
     _image.set_pixel(tx, ty, selected_color)
+    dirty = true
     pixel_changed.emit(tx, ty, selected_color)
     queue_redraw()
 
@@ -81,6 +87,7 @@ func _erase_at(pos: Vector2) -> void:
     if tx < 0 or tx >= _grid_w or ty < 0 or ty >= _grid_h:
         return
     _image.set_pixel(tx, ty, Color(0, 0, 0, 0))
+    dirty = true
     pixel_changed.emit(tx, ty, Color(0, 0, 0, 0))
     queue_redraw()
 
@@ -90,6 +97,7 @@ func save_png(path: String) -> void:
     var dir := path.get_base_dir()
     DirAccess.make_dir_recursive_absolute(dir)
     _image.save_png(path)
+    dirty = false
 
 func load_png(path: String) -> bool:
     var img: Image = Image.new()

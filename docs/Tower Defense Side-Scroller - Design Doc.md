@@ -104,12 +104,24 @@ The keys (`cost_m`, `cost_c`, `rate`) stay the same — only the Rust evaluation
 
 ---
 
-## 3. Combat & Physics
+## 3. Gacha / Loot System
+
+### 3.1 Blacksmith Gacha
+
+**Source**: Blacksmith NPC — the player's primary gacha entry point for weapon/tool acquisition.
+
+**Icons**: Anvil (idle / menu state), Forge (active / rolling state). Both rendered as 32×32 pixel art via the standard pixel pipeline (`assets/tiles/` convention with `_32x32.png`).
+
+**Mechanic**: *TBD — design deferred to Phase 5.* Each pull consumes in-game currency and produces a random weapon or enhancement item.
+
+---
+
+## 4. Combat & Physics
 
 (Reserved — see TDD documents for per-second vs per-tick constants.)
 
 ---
 
-## 4. Config & Constants
+## 5. Config & Constants
 
 All numeric design values above marked *TBD* are stored in `sstd_config.sqlite3` via the population system (see `config.rs`). Once decided, they will be added as a new `populate_NNN` script.

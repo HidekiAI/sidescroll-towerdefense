@@ -306,3 +306,6 @@ static func _hazard_key(i: int) -> String:
         0: return "none"
         1: return "lava"
     return "none"
+
+func get_terrain_types() -> Array[Dictionary]:
+    return _terrain_types

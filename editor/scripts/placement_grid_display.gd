@@ -17,6 +17,20 @@ func reload_textures() -> void:
     _texture_cache.clear()
     queue_redraw()
 
+func _entity_texture(key: String) -> Texture2D:
+    if _texture_cache.has("ent_" + key):
+        return _texture_cache["ent_" + key]
+    var path := "res://assets/entities/%s_32x32.png" % key
+    var abs := ProjectSettings.globalize_path(path)
+    if FileAccess.file_exists(abs):
+        var img: Image = Image.new()
+        if img.load(abs) == OK:
+            var tex: ImageTexture = ImageTexture.create_from_image(img)
+            _texture_cache["ent_" + key] = tex
+            return tex
+    _texture_cache["ent_" + key] = null
+    return null
+
 func _tile_texture(key: String) -> Texture2D:
     if _texture_cache.has(key):
         return _texture_cache[key]
@@ -51,11 +65,16 @@ func _draw() -> void:
 
     for e in placement_editor.get_placements():
         var ex: float = e["tile_x"] * tile_size
-        var ey: float = e["tile_y"] * tile_size
-        var ew: float = e.get("width", 1.0) * tile_size
-        var eh: float = e.get("height", 1.0) * tile_size
+        var eh: float = e.get("height", tile_size)
+        var ey: float = (e["tile_y"] + 1) * tile_size - eh
+        var ew: float = e.get("width", tile_size)
         var ecolor: Color = e.get("color", Color(1, 1, 1, 0.6))
-        draw_rect(Rect2(ex, ey, ew, eh), ecolor)
+        var entity_tex: Texture2D = _entity_texture(e.get("key", "")) if e.has("key") else null
+        if entity_tex:
+            draw_texture_rect(entity_tex, Rect2(ex, ey, ew, eh), false)
+        else:
+            var overlay := Color(ecolor.r, ecolor.g, ecolor.b, 0.3)
+            draw_rect(Rect2(ex, ey, ew, eh), overlay)
         draw_rect(Rect2(ex, ey, ew, eh), Color.WHITE, false, 2)
         if e.has("key"):
             draw_string(ThemeDB.fallback_font, Vector2(ex + 2, ey + 12), e["key"], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
@@ -63,9 +82,17 @@ func _draw() -> void:
     var mouse := get_local_mouse_position()
     var tile := pixel_to_tile(mouse)
     if tile.x >= 0 and tile.x < grid_w and tile.y >= 0 and tile.y < grid_h:
-        var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size)
-        draw_rect(highlight, Color(1, 1, 1, 0.15), true)
-        draw_rect(highlight, Color.YELLOW, false, 2)
+        var fp: Dictionary = placement_editor.get_selected_footprint()
+        if fp["w_tiles"] > 0 and fp["h_tiles"] > 0:
+            var hw: float = ceil(fp["w_tiles"]) * tile_size
+            var hh: float = ceil(fp["h_tiles"]) * tile_size
+            var hx: float = tile.x * tile_size
+            var hy: float = (tile.y - ceil(fp["h_tiles"]) + 1) * tile_size
+            draw_rect(Rect2(hx, hy, hw, hh), Color(1, 1, 0, 0.15), true)
+            draw_rect(Rect2(hx, hy, hw, hh), Color.YELLOW, false, 2)
+        else:
+            draw_rect(Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size), Color(1, 1, 0, 0.15), true)
+            draw_rect(Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size), Color.YELLOW, false, 2)
 
 func _gui_input(event: InputEvent) -> void:
     if event is InputEventMouseButton and event.pressed:

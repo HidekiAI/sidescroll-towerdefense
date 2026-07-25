@@ -83,19 +83,38 @@ func terrain_color(key: String) -> Color:
             return Color(t["color_hex"])
     return Color("#87ceeb")
 
+func _entity_def(key: String) -> Dictionary:
+    for e in _entity_defs:
+        if e["key"] == key:
+            return e
+    return {"width_tiles": 1.0, "height_tiles": 1.0}
+
+func _occupied_tiles(tile_x: int, tile_y: int, w: float, h: float) -> Array[Vector2i]:
+    var tiles: Array[Vector2i] = []
+    var cols := int(ceil(w))
+    var rows := int(ceil(h))
+    for dy in rows:
+        for dx in range(cols):
+            tiles.append(Vector2i(tile_x + dx, tile_y - dy))
+    return tiles
+
 func get_placements() -> Array[Dictionary]:
     var result: Array[Dictionary] = []
     for p in _placements:
         var entry := p.duplicate()
-        for e in _entity_defs:
-            if e["key"] == p["entity_key"]:
-                entry["width"] = e["width_tiles"] * placement_grid.tile_size
-                entry["height"] = e["height_tiles"] * placement_grid.tile_size
-                entry["color"] = _entity_class_color(e["class"])
-                entry["key"] = e["key"]
-                break
+        var def := _entity_def(p["entity_key"])
+        entry["width"] = def["width_tiles"] * placement_grid.tile_size
+        entry["height"] = def["height_tiles"] * placement_grid.tile_size
+        entry["color"] = _entity_class_color(def["class"])
+        entry["key"] = def["key"]
         result.append(entry)
     return result
+
+func get_selected_footprint() -> Dictionary:
+    if _selected_entity_key.is_empty():
+        return {"w": 0, "h": 0}
+    var def := _entity_def(_selected_entity_key)
+    return {"w_tiles": def["width_tiles"], "h_tiles": def["height_tiles"]}
 
 func _on_select_entity(index: int) -> void:
     if index >= 0 and index < _entity_defs.size():
@@ -112,13 +131,19 @@ func place_at(tile_x: int, tile_y: int) -> void:
         return
     if tile_x < 0 or tile_x >= _grid_w or tile_y < 0 or tile_y >= _grid_h:
         return
+    var def := _entity_def(_selected_entity_key)
+    var new_tiles := _occupied_tiles(tile_x, tile_y, def["width_tiles"], def["height_tiles"])
     for p in _placements:
-        if p["tile_x"] == tile_x and int(p["tile_y"]) == tile_y:
-            return  # already occupied
-    var terrain := get_tile(tile_x, tile_y)
-    if terrain == "wall" or terrain == "lava":
-        info_label.text = "Cannot place on %s" % terrain
-        return
+        var pdef := _entity_def(p["entity_key"])
+        for pt in _occupied_tiles(p["tile_x"], int(p["tile_y"]), pdef["width_tiles"], pdef["height_tiles"]):
+            if pt in new_tiles:
+                return
+    for t in new_tiles:
+        if t.x >= 0 and t.x < _grid_w and t.y >= 0 and t.y < _grid_h:
+            var terrain := get_tile(t.x, t.y)
+            if terrain == "wall" or terrain == "lava":
+                info_label.text = "Cannot place on %s at %d,%d" % [terrain, t.x, t.y]
+                return
     _placements.append({
         "entity_key": _selected_entity_key,
         "tile_x": tile_x,
@@ -130,8 +155,12 @@ func place_at(tile_x: int, tile_y: int) -> void:
 
 func remove_at(tile_x: int, tile_y: int) -> void:
     var removed := false
+    var click := Vector2i(tile_x, tile_y)
     for i in range(_placements.size() - 1, -1, -1):
-        if _placements[i]["tile_x"] == tile_x and int(_placements[i]["tile_y"]) == tile_y:
+        var p := _placements[i]
+        var def := _entity_def(p["entity_key"])
+        var tiles := _occupied_tiles(p["tile_x"], int(p["tile_y"]), def["width_tiles"], def["height_tiles"])
+        if click in tiles:
             _placements.remove_at(i)
             removed = true
             break
@@ -224,6 +253,10 @@ func _on_import_file(path: String) -> void:
 
 func set_bridge(b: Node) -> void:
     _bridge = b
+
+func set_terrain_types(types: Array[Dictionary]) -> void:
+    _terrain_types = types
+    placement_grid.queue_redraw()
 
 func set_grid_config(cfg: Dictionary) -> void:
     _grid_w = cfg.get("max_tiles_per_screen_x", 60)
