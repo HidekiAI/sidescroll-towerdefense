@@ -1,12 +1,17 @@
-[gd_scene load_steps=7 format=3 uid="uid://dtn6qocve6qai"]
+[gd_scene load_steps=11 format=3 uid="uid://dtn6qocve6qai"]
 
 [ext_resource type="Script" uid="uid://c40osmgee5nae" path="res://scripts/main.gd" id="1"]
-[ext_resource type="PackedScene" path="res://scenes/terrain_editor.tscn" id="2"]
-[ext_resource type="PackedScene" path="res://scenes/entity_editor.tscn" id="3"]
-[ext_resource type="PackedScene" path="res://scenes/map_editor.tscn" id="4"]
-[ext_resource type="PackedScene" path="res://scenes/placement_editor.tscn" id="5"]
-[ext_resource type="PackedScene" path="res://scenes/simulator.tscn" id="6"]
+[ext_resource type="Script" path="res://scripts/terrain_editor.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/pixel_canvas.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/tiled_preview.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/entity_editor.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/map_editor.gd" id="6"]
+[ext_resource type="Script" path="res://scripts/tile_grid_display.gd" id="7"]
+[ext_resource type="Script" path="res://scripts/placement_editor.gd" id="8"]
+[ext_resource type="Script" path="res://scripts/placement_grid_display.gd" id="9"]
+[ext_resource type="Script" path="res://scripts/simulator.gd" id="10"]
 
+; === Main ===
 [node name="Main" type="Control"]
 layout_mode = 3
 anchors_preset = 15
@@ -21,8 +26,441 @@ layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 
-[node name="TerrainEditor" parent="TabContainer" instance=ExtResource("2")]
-[node name="EntityEditor" parent="TabContainer" instance=ExtResource("3")]
-[node name="MapEditor" parent="TabContainer" instance=ExtResource("4")]
-[node name="PlacementEditor" parent="TabContainer" instance=ExtResource("5")]
-[node name="Simulator" parent="TabContainer" instance=ExtResource("6")]
+; === TerrainEditor (Tile Types) ===
+[node name="TerrainEditor" type="HSplitContainer" parent="TabContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = 0.0
+offset_bottom = 0.0
+script = ExtResource("2")
+tab_title = "Tile Types"
+
+[node name="ListPanel" type="VBoxContainer" parent="TabContainer/TerrainEditor"]
+size_flags_horizontal = 1
+
+[node name="ItemList" type="ItemList" parent="TabContainer/TerrainEditor/ListPanel"]
+size_flags_vertical = 3
+
+[node name="VBox" type="HBoxContainer" parent="TabContainer/TerrainEditor/ListPanel"]
+
+[node name="AddBtn" type="Button" parent="TabContainer/TerrainEditor/ListPanel/VBox"]
+text = "+ Add"
+size_flags_horizontal = 3
+
+[node name="DeleteBtn" type="Button" parent="TabContainer/TerrainEditor/ListPanel/VBox"]
+text = "Delete"
+
+[node name="PropPanel" type="VBoxContainer" parent="TabContainer/TerrainEditor"]
+size_flags_horizontal = 2
+
+[node name="PixelSplit" type="VSplitContainer" parent="TabContainer/TerrainEditor/PropPanel"]
+size_flags_vertical = 3
+
+[node name="VBox" type="ScrollContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+columns = 2
+
+[node name="KeyLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Key"
+[node name="KeyEdit" type="LineEdit" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+[node name="NameLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Display Name"
+[node name="NameEdit" type="LineEdit" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+[node name="WalkableLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Walkable"
+[node name="WalkableCheck" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+[node name="BuildableLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Buildable"
+[node name="BuildableCheck" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+[node name="SurfaceLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Surface"
+[node name="SurfaceOption" type="OptionButton" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+item_count = 0
+[node name="HazardLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Hazard"
+[node name="HazardOption" type="OptionButton" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+item_count = 0
+[node name="ElevLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Elevation"
+[node name="ElevSpin" type="SpinBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+min_value = -10
+max_value = 10
+[node name="ColorLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Color"
+[node name="ColorPicker" type="ColorPickerButton" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+[node name="DmgLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Damage / Tick"
+[node name="HazardDmgSpin" type="SpinBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+min_value = 0
+max_value = 999
+value = 0
+step = 1
+[node name="DestructLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Destructible"
+[node name="DestructCheck" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+[node name="DestructHpLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "Destroy HP"
+[node name="DestructHpSpin" type="SpinBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+min_value = 0
+max_value = 99999
+value = 0
+step = 1
+[node name="OnDestroyLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+text = "On Destroy ->"
+[node name="OnDestroyOption" type="OptionButton" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+item_count = 0
+
+[node name="PreviewRect" type="ColorRect" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+size_flags_horizontal = 3
+size_flags_vertical = 0
+custom_minimum_size = Vector2(128, 64)
+
+[node name="CollisionGroup" type="VBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CollisionLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup"]
+text = "Sub-Tile Collision Mask"
+size_flags_horizontal = 3
+
+[node name="MaskContainer" type="HBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup"]
+size_flags_horizontal = 3
+
+[node name="MaskPreview" type="TextureRect" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer"]
+custom_minimum_size = Vector2(72, 72)
+size_flags_horizontal = 0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 1
+
+[node name="MaskGrid" type="GridContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer"]
+columns = 2
+
+[node name="TLToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+text = "TL"
+button_pressed = true
+[node name="TRToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+text = "TR"
+button_pressed = true
+[node name="BLToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+text = "BL"
+button_pressed = true
+[node name="BRToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+text = "BR"
+button_pressed = true
+
+[node name="AutoDetectBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup"]
+text = "Auto-Detect from Luminance"
+size_flags_horizontal = 3
+
+[node name="TileSetSep" type="HSeparator" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+[node name="TileSetLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+text = "TileSets using this terrain"
+size_flags_horizontal = 3
+
+[node name="TileSetPreviewList" type="ItemList" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+size_flags_vertical = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 60)
+select_mode = 0
+allow_reselect = false
+icon_mode = 0
+icon_scale = 1.0
+fixed_column_width = 0
+max_text_lines = 1
+
+[node name="ArtPanel" type="VBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="ArtToolbar" type="HBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/ArtPanel"]
+
+[node name="ImportPngBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Import PNG"
+[node name="ExportPngBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Export PNG"
+[node name="FillColorBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Fill w/ Color"
+
+[node name="PixelCanvas" type="Control" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(256, 128)
+size_flags_vertical = 3
+mouse_filter = 0
+script = ExtResource("3")
+
+[node name="Preview3x3" type="Control" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(192, 64)
+mouse_filter = 2
+script = ExtResource("4")
+
+[node name="HSave" type="HBoxContainer" parent="TabContainer/TerrainEditor/PropPanel"]
+
+[node name="SaveBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/HSave"]
+text = "Save"
+[node name="ImportBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/HSave"]
+text = "Import..."
+[node name="ExportBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/HSave"]
+text = "Export..."
+[node name="ImportSpriteBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/HSave"]
+text = "Spritesheet..."
+
+; === EntityEditor (Entity Types) ===
+[node name="EntityEditor" type="HSplitContainer" parent="TabContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("5")
+tab_title = "Entity Types"
+
+[node name="ListPanel" type="VBoxContainer" parent="TabContainer/EntityEditor"]
+size_flags_horizontal = 1
+
+[node name="ItemList" type="ItemList" parent="TabContainer/EntityEditor/ListPanel"]
+size_flags_vertical = 3
+
+[node name="VBox" type="HBoxContainer" parent="TabContainer/EntityEditor/ListPanel"]
+
+[node name="AddBtn" type="Button" parent="TabContainer/EntityEditor/ListPanel/VBox"]
+text = "+ Add"
+size_flags_horizontal = 3
+
+[node name="DeleteBtn" type="Button" parent="TabContainer/EntityEditor/ListPanel/VBox"]
+text = "Delete"
+
+[node name="PropPanel" type="VBoxContainer" parent="TabContainer/EntityEditor"]
+size_flags_horizontal = 2
+
+[node name="PixelSplit" type="VSplitContainer" parent="TabContainer/EntityEditor/PropPanel"]
+size_flags_vertical = 3
+
+[node name="Scroll" type="ScrollContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+columns = 2
+
+[node name="KeyLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Key"
+[node name="KeyEdit" type="LineEdit" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ClassLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Class"
+[node name="ClassOption" type="OptionButton" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+item_count = 0
+[node name="WidthLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Width (tiles)"
+[node name="WidthSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 0.5
+max_value = 8.0
+step = 0.5
+value = 1.0
+[node name="HeightLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Height (tiles)"
+[node name="HeightSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 0.5
+max_value = 8.0
+step = 0.5
+value = 1.0
+[node name="HpLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Max HP"
+[node name="HpSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 1
+max_value = 9999
+value = 500
+[node name="SpeedLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Speed (pps)"
+[node name="SpeedSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 0
+max_value = 9999
+value = 0
+[node name="RangeLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Range (tiles)"
+[node name="RangeSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 0
+max_value = 64
+value = 3
+[node name="DamageLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Attack Power"
+[node name="DamageSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 0
+max_value = 9999
+value = 50
+[node name="ElementLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Element"
+[node name="ElementOption" type="OptionButton" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+item_count = 0
+[node name="CooldownLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Cooldown (ticks)"
+[node name="CooldownSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+min_value = 0
+max_value = 999
+value = 60
+[node name="ProjectileLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Projectile Type"
+[node name="ProjectileEdit" type="LineEdit" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="GroundLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Requires Ground"
+[node name="GroundCheck" type="CheckBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="CeilingLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+text = "Requires Ceiling"
+[node name="CeilingCheck" type="CheckBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+
+[node name="PreviewLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+text = "Footprint"
+position = Vector2(0, 364)
+
+[node name="FootprintRect" type="ColorRect" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+color = Color(1, 1, 1, 0.15)
+custom_minimum_size = Vector2(32, 32)
+mouse_filter = 2
+
+[node name="ArtPanel" type="VBoxContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit"]
+size_flags_vertical = 3
+
+[node name="ArtToolbar" type="HBoxContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/ArtPanel"]
+
+[node name="ImportPngBtn" type="Button" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Import PNG"
+[node name="ExportPngBtn" type="Button" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/ArtPanel/ArtToolbar"]
+text = "Export PNG"
+
+[node name="PixelCanvas" type="Control" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(256, 128)
+size_flags_vertical = 3
+mouse_filter = 0
+script = ExtResource("3")
+
+[node name="Preview3x3" type="Control" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/ArtPanel"]
+custom_minimum_size = Vector2(192, 64)
+mouse_filter = 2
+script = ExtResource("4")
+
+[node name="HSave" type="HBoxContainer" parent="TabContainer/EntityEditor/PropPanel"]
+
+[node name="SaveBtn" type="Button" parent="TabContainer/EntityEditor/PropPanel/HSave"]
+text = "Save"
+[node name="ImportBtn" type="Button" parent="TabContainer/EntityEditor/PropPanel/HSave"]
+text = "Import..."
+[node name="ExportBtn" type="Button" parent="TabContainer/EntityEditor/PropPanel/HSave"]
+text = "Export..."
+
+; === MapEditor (Map Editor) ===
+[node name="MapEditor" type="HSplitContainer" parent="TabContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("6")
+tab_title = "Map Editor"
+
+[node name="LeftPanel" type="VBoxContainer" parent="TabContainer/MapEditor"]
+size_flags_horizontal = 0
+custom_minimum_size = Vector2(200, 0)
+
+[node name="TopBar" type="HBoxContainer" parent="TabContainer/MapEditor/LeftPanel"]
+
+[node name="ScreenLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel/TopBar"]
+text = "Screen"
+[node name="ScreenSpin" type="SpinBox" parent="TabContainer/MapEditor/LeftPanel/TopBar"]
+min_value = 1
+max_value = 99
+value = 1
+size_flags_horizontal = 3
+[node name="PaintBtn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/TopBar"]
+text = "Paint"
+size_flags_horizontal = 3
+[node name="EraseBtn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/TopBar"]
+text = "Erase"
+size_flags_horizontal = 3
+[node name="CollisionBtn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/TopBar"]
+text = "Collision"
+size_flags_horizontal = 3
+
+[node name="PaletteList" type="ItemList" parent="TabContainer/MapEditor/LeftPanel"]
+size_flags_vertical = 3
+
+[node name="TileSetLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel"]
+text = "— TileSets —"
+custom_minimum_size = Vector2(0, 22)
+
+[node name="TileSetPalette" type="ItemList" parent="TabContainer/MapEditor/LeftPanel"]
+size_flags_vertical = 2
+custom_minimum_size = Vector2(0, 100)
+
+[node name="BottomBar" type="VBoxContainer" parent="TabContainer/MapEditor/LeftPanel"]
+
+[node name="InfoLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+text = ""
+[node name="CursorLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+text = "Tile: -, -"
+[node name="SaveBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+text = "Save"
+[node name="ImportBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+text = "Import..."
+[node name="ExportBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+text = "Export..."
+
+[node name="RightPanel" type="VBoxContainer" parent="TabContainer/MapEditor"]
+size_flags_horizontal = 3
+
+[node name="Scroll" type="ScrollContainer" parent="TabContainer/MapEditor/RightPanel"]
+size_flags_vertical = 3
+
+[node name="TileGrid" type="Control" parent="TabContainer/MapEditor/RightPanel/Scroll"]
+custom_minimum_size = Vector2(1920, 1056)
+mouse_filter = 0
+script = ExtResource("7")
+
+; === PlacementEditor (Placement Editor) ===
+[node name="PlacementEditor" type="HSplitContainer" parent="TabContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("8")
+tab_title = "Placement Editor"
+
+[node name="LeftPanel" type="VBoxContainer" parent="TabContainer/PlacementEditor"]
+size_flags_horizontal = 0
+custom_minimum_size = Vector2(200, 0)
+
+[node name="TopBar" type="HBoxContainer" parent="TabContainer/PlacementEditor/LeftPanel"]
+
+[node name="ScreenLabel" type="Label" parent="TabContainer/PlacementEditor/LeftPanel/TopBar"]
+text = "Screen"
+[node name="ScreenSpin" type="SpinBox" parent="TabContainer/PlacementEditor/LeftPanel/TopBar"]
+min_value = 1
+max_value = 99
+value = 1
+size_flags_horizontal = 3
+
+[node name="EntityPalette" type="ItemList" parent="TabContainer/PlacementEditor/LeftPanel"]
+size_flags_vertical = 3
+
+[node name="BottomBar" type="VBoxContainer" parent="TabContainer/PlacementEditor/LeftPanel"]
+
+[node name="InfoLabel" type="Label" parent="TabContainer/PlacementEditor/LeftPanel/BottomBar"]
+text = "Select an entity"
+[node name="SaveBtn" type="Button" parent="TabContainer/PlacementEditor/LeftPanel/BottomBar"]
+text = "Save"
+[node name="ImportMapBtn" type="Button" parent="TabContainer/PlacementEditor/LeftPanel/BottomBar"]
+text = "Import Map..."
+[node name="ClearBtn" type="Button" parent="TabContainer/PlacementEditor/LeftPanel/BottomBar"]
+text = "Clear All"
+
+[node name="RightPanel" type="VBoxContainer" parent="TabContainer/PlacementEditor"]
+size_flags_horizontal = 3
+
+[node name="Scroll" type="ScrollContainer" parent="TabContainer/PlacementEditor/RightPanel"]
+size_flags_vertical = 3
+
+[node name="PlacementGrid" type="Control" parent="TabContainer/PlacementEditor/RightPanel/Scroll"]
+custom_minimum_size = Vector2(1920, 1056)
+mouse_filter = 0
+script = ExtResource("9")
+
+; === Simulator ===
+[node name="Simulator" type="Control" parent="TabContainer"]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("10")
+tab_title = "Simulator"

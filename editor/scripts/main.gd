@@ -34,16 +34,11 @@ func log_warning(msg: String) -> void:
 
 func _ready() -> void:
     tabs = $TabContainer
-    if tabs.get_child_count() == 5:
-        terrain_editor = tabs.get_child(0)
-        entity_editor = tabs.get_child(1)
-        map_editor = tabs.get_child(2)
-        placement_editor = tabs.get_child(3)
-        simulator = tabs.get_child(4)
-        for i in 5:
-            tabs.set_tab_title(i, TAB_LABELS[i])
-    else:
-        _instantiate_tabs()
+    terrain_editor = tabs.get_child(0)
+    entity_editor = tabs.get_child(1)
+    map_editor = tabs.get_child(2)
+    placement_editor = tabs.get_child(3)
+    simulator = tabs.get_child(4)
     _load_bridge()
     _init_config_db()
     _load_grid_config()
