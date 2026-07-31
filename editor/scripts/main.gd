@@ -13,14 +13,43 @@ var map_editor: Node
 var placement_editor: Node
 var simulator: Node
 
+const TAB_NAMES: Array[String] = [
+    "tile", "entity", "map", "placement", "simulator",
+]
+const TAB_LABELS: Array[String] = [
+    "Tile Types", "Entity Types", "Map Editor", "Placement Editor", "Simulator",
+]
+
+func get_current_tab_name() -> String:
+    return TAB_NAMES[current_tab]
+
+func log(msg: String) -> void:
+    print("[%s] %s" % [get_current_tab_name(), msg])
+
+func log_error(msg: String) -> void:
+    push_error("[%s] %s" % [get_current_tab_name(), msg])
+
+func log_warning(msg: String) -> void:
+    push_warning("[%s] %s" % [get_current_tab_name(), msg])
+
 func _ready() -> void:
     tabs = $TabContainer
-    _instantiate_tabs()
+    if tabs.get_child_count() == 5:
+        terrain_editor = tabs.get_child(0)
+        entity_editor = tabs.get_child(1)
+        map_editor = tabs.get_child(2)
+        placement_editor = tabs.get_child(3)
+        simulator = tabs.get_child(4)
+        for i in 5:
+            tabs.set_tab_title(i, TAB_LABELS[i])
+    else:
+        _instantiate_tabs()
     _load_bridge()
     _init_config_db()
     _load_grid_config()
     tabs.tab_changed.connect(_on_tab_changed)
     _wire_editors()
+    _auto_load_last_map()
 
 func _instantiate_tabs() -> void:
     var scenes := {
@@ -30,10 +59,12 @@ func _instantiate_tabs() -> void:
         placement_editor = preload("res://scenes/placement_editor.tscn"),
         simulator = preload("res://scenes/simulator.tscn"),
     }
-    for key in scenes:
-        var instance = scenes[key].instantiate()
+    var keys: Array[String] = ["terrain_editor", "entity_editor", "map_editor", "placement_editor", "simulator"]
+    for i in keys.size():
+        var instance = scenes[keys[i]].instantiate()
         tabs.add_child(instance)
-        set(key, instance)
+        tabs.set_tab_title(i, TAB_LABELS[i])
+        set(keys[i], instance)
 
 func _load_bridge() -> void:
     if ClassDB.class_exists("SstdBridge"):
@@ -64,15 +95,50 @@ func _wire_editors() -> void:
             ed.set_bridge(_bridge)
         if ed.has_method("set_grid_config"):
             ed.set_grid_config(_grid_config)
+        if ed.has_method("set_main_reference"):
+            ed.set_main_reference(self)
+
+func _sync_tile_set_categories_to_db() -> void:
+    if not _bridge or not _bridge.has_method("set_tile_set_category"):
+        return
+    for ts in map_editor._tile_set_groupings:
+        for tag in ts.tags:
+            if tag.begins_with("category:"):
+                var terrain_key: String = tag.trim_prefix("category:")
+                _bridge.set_tile_set_category(ts.key, terrain_key)
+
+func _save_last_map_path(path: String) -> void:
+    if _bridge and _bridge.has_method("set_config_value"):
+        _bridge.set_config_value("last_map_path", path)
+
+func _get_last_map_path() -> String:
+    if _bridge and _bridge.has_method("get_config_value"):
+        return _bridge.get_config_value("last_map_path") as String
+    return ""
+
+func _auto_load_last_map() -> void:
+    var path := _get_last_map_path()
+    if path.is_empty():
+        return
+    if path.begins_with("res://"):
+        path = ProjectSettings.globalize_path(path)
+    if FileAccess.file_exists(path):
+        map_editor._on_import_file(path)
+        print("[load] Auto-loaded last map: " + path)
 
 func _on_tab_changed(tab: int) -> void:
     current_tab = tab
+    print("[%s] Switched to tab" % get_current_tab_name())
+    if tab == 0:
+        terrain_editor.set_tile_set_groupings(map_editor._tile_set_groupings)
+        _sync_tile_set_categories_to_db()
     if tab == 2:
         map_editor.set_terrain_types(terrain_editor.get_terrain_types())
-        map_editor._populate_grid()
     if tab == 3:
         placement_editor.set_terrain_types(terrain_editor.get_terrain_types())
         placement_editor.set_entity_defs(entity_editor.get_entity_defs())
+        var grid: Dictionary = map_editor.get_tile_grid()
+        placement_editor.set_tile_grid(grid["tiles"], grid["tile_data"])
 
 func new_project() -> void:
     if is_dirty:
@@ -87,6 +153,10 @@ func save_project() -> void:
 
 func save_project_as(path: String) -> void:
     pass
+
+func navigate_to_tileset(tileset_key: String) -> void:
+    tabs.current_tab = 2
+    map_editor.select_tile_set(tileset_key)
 
 func export_json(path: String) -> void:
     pass

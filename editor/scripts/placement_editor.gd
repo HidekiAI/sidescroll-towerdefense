@@ -6,12 +6,14 @@ var _tile_w: int = 32
 var _tile_h: int = 32
 
 var _tiles: Dictionary = {}
+var _tile_data: Dictionary = {}  # "x,y" -> {sub_tile_mask, elevation_tiles, z_depth}
 var _terrain_types: Array[Dictionary] = []
 var _entity_defs: Array[Dictionary] = []
 var _placements: Array[Dictionary] = []
 var _selected_entity_key: String = ""
 var _screen_id: int = 1
 var _bridge: Node
+var _main: Node
 
 @onready var entity_palette: ItemList = $LeftPanel/EntityPalette
 @onready var placement_grid: Control = $RightPanel/Scroll/PlacementGrid
@@ -44,7 +46,7 @@ func _load_defaults() -> void:
     _entity_defs = [
         {"key": "arrow_tower", "class": "tower",  "width_tiles": 1.0, "height_tiles": 1.5},
         {"key": "ballista",    "class": "tower",  "width_tiles": 1.0, "height_tiles": 1.5},
-        {"key": "catapult",    "class": "tower",  "width_tiles": 2.0, "height_tiles": 2.0},
+        {"key": "catapult",    "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.0},
         {"key": "wall",        "class": "structure", "width_tiles": 1.0, "height_tiles": 1.0},
         {"key": "bridge",      "class": "structure", "width_tiles": 2.0, "height_tiles": 0.5},
         {"key": "tarpit",      "class": "trap",   "width_tiles": 1.0, "height_tiles": 0.5},
@@ -57,6 +59,8 @@ func _refresh_palette() -> void:
         var idx := entity_palette.add_item(e["key"] + " (%s)" % e["class"])
         entity_palette.set_item_custom_fg_color(idx, _entity_class_color(e["class"]))
 
+
+
 func _entity_class_color(c: String) -> Color:
     match c:
         "tower": return Color(1, 0.8, 0.2)
@@ -66,6 +70,7 @@ func _entity_class_color(c: String) -> Color:
 
 func _populate_terrain() -> void:
     _tiles.clear()
+    _tile_data.clear()
     for y in _grid_h:
         for x in _grid_w:
             _tiles["%d,%d" % [x, y]] = "air"
@@ -77,10 +82,15 @@ func _populate_terrain() -> void:
 func get_tile(x: int, y: int) -> String:
     return _tiles.get("%d,%d" % [x, y], "air")
 
+func get_tile_data(x: int, y: int) -> Dictionary:
+    return _tile_data.get("%d,%d" % [x, y], {})
+
 func terrain_color(key: String) -> Color:
     for t in _terrain_types:
         if t["key"] == key:
             return Color(t["color_hex"])
+    if key.begins_with("slope_"):
+        return Color("#4a7c3f")
     return Color("#87ceeb")
 
 func _entity_def(key: String) -> Dictionary:
@@ -112,7 +122,7 @@ func get_placements() -> Array[Dictionary]:
 
 func get_selected_footprint() -> Dictionary:
     if _selected_entity_key.is_empty():
-        return {"w": 0, "h": 0}
+        return {"w_tiles": 0, "h_tiles": 0}
     var def := _entity_def(_selected_entity_key)
     return {"w_tiles": def["width_tiles"], "h_tiles": def["height_tiles"]}
 
@@ -127,10 +137,12 @@ func _on_screen_changed(value: float) -> void:
     info_label.text = "Screen %d" % _screen_id
 
 func place_at(tile_x: int, tile_y: int) -> void:
-    if _selected_entity_key.is_empty():
-        return
     if tile_x < 0 or tile_x >= _grid_w or tile_y < 0 or tile_y >= _grid_h:
         return
+
+    if _selected_entity_key.is_empty():
+        return
+
     var def := _entity_def(_selected_entity_key)
     var new_tiles := _occupied_tiles(tile_x, tile_y, def["width_tiles"], def["height_tiles"])
     for p in _placements:
@@ -170,8 +182,8 @@ func remove_at(tile_x: int, tile_y: int) -> void:
 
 func _on_clear() -> void:
     _placements.clear()
-    placement_grid.queue_redraw()
-    info_label.text = "Placements cleared"
+    _populate_terrain()
+    info_label.text = "Reset to default"
 
 func _serialize() -> Dictionary:
     var tiles_out: Array[Dictionary] = []
@@ -179,7 +191,15 @@ func _serialize() -> Dictionary:
         for x in _grid_w:
             var key := get_tile(x, y)
             if key != "air":
-                tiles_out.append({"x": x, "y": y, "terrain": key})
+                var td: Dictionary = _tile_data.get("%d,%d" % [x, y], {})
+                var entry := {"x": x, "y": y, "terrain": key}
+                if td.has("sub_tile_mask"):
+                    entry["sub_tile_mask"] = td["sub_tile_mask"]
+                if td.has("elevation_tiles"):
+                    entry["elevation_tiles"] = td["elevation_tiles"]
+                if td.has("z_depth"):
+                    entry["z_depth"] = td["z_depth"]
+                tiles_out.append(entry)
     var ents_out: Array[Dictionary] = []
     for p in _placements:
         ents_out.append({
@@ -203,13 +223,28 @@ func _serialize() -> Dictionary:
 func _on_save() -> void:
     var data := _serialize()
     var json_str := JSON.stringify(data, "\t")
-    if _bridge and _bridge.has_method("validate_screen"):
-        var result: Variant = _bridge.validate_screen(json_str)
-        var parsed = JSON.parse_string(result)
-        if parsed and parsed.get("valid", false) == false:
-            push_error("Validation: ", parsed.get("error", "unknown"))
+    var dialog := FileDialog.new()
+    dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+    dialog.add_filter("*.json", "Screen JSON")
+    dialog.title = "Save screen_%d.json" % _screen_id
+    dialog.current_file = "screen_%d.json" % _screen_id
+    add_child(dialog)
+    dialog.file_selected.connect(func(path: String):
+        if _bridge and _bridge.has_method("validate_screen"):
+            var result: Variant = _bridge.validate_screen(json_str)
+            var parsed = JSON.parse_string(result)
+            if parsed and parsed.get("valid", false) == false:
+                push_error("Validation: ", parsed.get("error", "unknown"))
+                return
+        var f := FileAccess.open(path, FileAccess.WRITE)
+        if not f:
+            push_error("Cannot write: ", path)
             return
-    print("Screen %d saved: %d tiles, %d entities" % [_screen_id, data["tiles"].size(), data["placed_entities"].size()])
+        f.store_string(json_str)
+        f.close()
+        info_label.text = "Saved: %s (%d tiles, %d entities)" % [path.get_file(), data["tiles"].size(), data["placed_entities"].size()]
+    )
+    dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_map() -> void:
     var dialog := FileDialog.new()
@@ -232,6 +267,7 @@ func _on_import_file(path: String) -> void:
         push_error("Invalid JSON")
         return
     _tiles.clear()
+    _tile_data.clear()
     for y in _grid_h:
         for x in _grid_w:
             _tiles["%d,%d" % [x, y]] = "air"
@@ -239,6 +275,15 @@ func _on_import_file(path: String) -> void:
         for t in parsed["tiles"]:
             if t.has("x") and t.has("y") and t.has("terrain"):
                 _tiles["%d,%d" % [t["x"], t["y"]]] = t["terrain"]
+                var td: Dictionary = {}
+                if t.has("sub_tile_mask"):
+                    td["sub_tile_mask"] = t["sub_tile_mask"]
+                if t.has("elevation_tiles"):
+                    td["elevation_tiles"] = t["elevation_tiles"]
+                if t.has("z_depth"):
+                    td["z_depth"] = t["z_depth"]
+                if not td.is_empty():
+                    _tile_data["%d,%d" % [t["x"], t["y"]]] = td
     _placements.clear()
     if parsed.has("placed_entities"):
         for e in parsed["placed_entities"]:
@@ -254,8 +299,22 @@ func _on_import_file(path: String) -> void:
 func set_bridge(b: Node) -> void:
     _bridge = b
 
+func set_main_reference(m: Node) -> void:
+    _main = m
+
+func _log(msg: String) -> void:
+    if _main:
+        _main.log(msg)
+    else:
+        print(msg)
+
 func set_terrain_types(types: Array[Dictionary]) -> void:
     _terrain_types = types
+    placement_grid.queue_redraw()
+
+func set_tile_grid(tiles: Dictionary, tile_data: Dictionary) -> void:
+    _tiles = tiles.duplicate()
+    _tile_data = tile_data.duplicate()
     placement_grid.queue_redraw()
 
 func set_grid_config(cfg: Dictionary) -> void:
