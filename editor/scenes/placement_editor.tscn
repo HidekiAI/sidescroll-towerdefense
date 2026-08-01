@@ -1,7 +1,14 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/placement_editor.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/placement_grid_display.gd" id="2"]
+
+[sub_resource type="StyleBoxFlat" id="hud_bg"]
+bg_color = Color(0, 0, 0, 0.62)
+content_margin_left = 8.0
+content_margin_top = 6.0
+content_margin_right = 8.0
+content_margin_bottom = 6.0
 
 [node name="PlacementEditor" type="HSplitContainer"]
 anchors_preset = 15
@@ -32,6 +39,18 @@ size_flags_vertical = 3
 [node name="InfoLabel" type="Label" parent="LeftPanel/BottomBar"]
 text = "Select an entity"
 
+[node name="AddBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Add Screen"
+
+[node name="DeleteBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Delete Screen"
+
+[node name="MoveBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Move Screen..."
+
+[node name="CloneBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Clone Screen..."
+
 [node name="SaveBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Save"
 
@@ -51,3 +70,23 @@ size_flags_vertical = 3
 custom_minimum_size = Vector2(1920, 1056)
 mouse_filter = 0
 script = ExtResource("2")
+
+[node name="HUD" type="Label" parent="."]
+top_level = true
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -430.0
+offset_top = -120.0
+offset_right = -12.0
+offset_bottom = -12.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 12
+theme_override_styles/normal = SubResource("hud_bg")
+text = "Screen - @ (-, -) [unplaced]
+Tile (-, -)  World (-, -)
+Brush: —
+Under: —"

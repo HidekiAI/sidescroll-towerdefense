@@ -1,5 +1,8 @@
 extends Control
 
+const _ScreenMinimapDialog := preload("res://scenes/screen_minimap_dialog.tscn")
+const WORLD_PATH := "res://world.json"
+
 var _grid_w: int = 60
 var _grid_h: int = 33
 var _tile_w: int = 32
@@ -15,6 +18,10 @@ var _screen_id: int = 1
 var _bridge: Node
 var _main: Node
 
+var _store: ScreenStore
+var _screen_pos: Vector2i = Vector2i.ZERO
+var _clipboard: Dictionary = {}
+
 @onready var entity_palette: ItemList = $LeftPanel/EntityPalette
 @onready var placement_grid: Control = $RightPanel/Scroll/PlacementGrid
 @onready var screen_spin: SpinBox = $LeftPanel/TopBar/ScreenSpin
@@ -22,6 +29,11 @@ var _main: Node
 @onready var import_map_btn: Button = $LeftPanel/BottomBar/ImportMapBtn
 @onready var clear_btn: Button = $LeftPanel/BottomBar/ClearBtn
 @onready var info_label: Label = $LeftPanel/BottomBar/InfoLabel
+@onready var hud_label: Label = $HUD
+@onready var add_btn: Button = $LeftPanel/BottomBar/AddBtn
+@onready var delete_btn: Button = $LeftPanel/BottomBar/DeleteBtn
+@onready var move_btn: Button = $LeftPanel/BottomBar/MoveBtn
+@onready var clone_btn: Button = $LeftPanel/BottomBar/CloneBtn
 
 func _ready() -> void:
     _load_defaults()
@@ -33,6 +45,10 @@ func _ready() -> void:
     save_btn.pressed.connect(_on_save)
     import_map_btn.pressed.connect(_on_import_map)
     clear_btn.pressed.connect(_on_clear)
+    add_btn.pressed.connect(_on_add_screen)
+    delete_btn.pressed.connect(_on_delete_screen)
+    move_btn.pressed.connect(_on_move_screen)
+    clone_btn.pressed.connect(_on_clone_screen)
     placement_grid.placement_editor = self
 
 func _load_defaults() -> void:
@@ -132,9 +148,216 @@ func _on_select_entity(index: int) -> void:
         info_label.text = "Selected: %s" % _selected_entity_key
 
 func _on_screen_changed(value: float) -> void:
+    _cache_current()
     _screen_id = int(value)
+    _restore_screen()
+    _update_hud()
+
+func set_screen_store(s: ScreenStore) -> void:
+    _store = s
+    _sync_position_from_id()
+    _restore_screen()
+    _update_hud()
+
+func cache_current_screen() -> void:
+    _cache_current()
+
+func _screen_pos_of_current() -> Vector2i:
+    if _store:
+        var p := _store.position_of_id(_screen_id)
+        if p.x >= 0:
+            return p
+    return Vector2i(-1, -1)
+
+func _sync_position_from_id() -> void:
+    _screen_pos = _screen_pos_of_current()
+
+func _is_current_placed() -> bool:
+    return _screen_pos.x >= 0 and _store != null and _store.is_occupied(_screen_pos.x, _screen_pos.y)
+
+func _cache_current() -> void:
+    if _is_current_placed():
+        _store.set_cache(_screen_pos.x, _screen_pos.y, _serialize())
+
+func _load_screen_file(path: String) -> Dictionary:
+    if path.is_empty() or not FileAccess.file_exists(path):
+        return {}
+    var f := FileAccess.open(path, FileAccess.READ)
+    if not f:
+        return {}
+    var parsed = JSON.parse_string(f.get_as_text())
+    f.close()
+    if typeof(parsed) != TYPE_DICTIONARY:
+        return {}
+    return parsed
+
+func _apply_screen(parsed: Dictionary) -> void:
+    _tiles.clear()
+    _tile_data.clear()
+    if parsed.has("width_tiles"):
+        _grid_w = parsed["width_tiles"]
+    if parsed.has("height_tiles"):
+        _grid_h = parsed["height_tiles"]
+    for y in _grid_h:
+        for x in _grid_w:
+            _tiles["%d,%d" % [x, y]] = "air"
+    for t in parsed.get("tiles", []):
+        if t.has("x") and t.has("y") and t.has("terrain"):
+            _tiles["%d,%d" % [t["x"], t["y"]]] = t["terrain"]
+            var td: Dictionary = {}
+            if t.has("tile_data"):
+                td = t["tile_data"]
+            else:
+                if t.has("sub_tile_mask"):
+                    td["sub_tile_mask"] = t["sub_tile_mask"]
+                if t.has("elevation_tiles"):
+                    td["elevation_tiles"] = t["elevation_tiles"]
+                if t.has("z_depth"):
+                    td["z_depth"] = t["z_depth"]
+            if not td.is_empty():
+                _tile_data["%d,%d" % [t["x"], t["y"]]] = td
     _placements.clear()
-    info_label.text = "Screen %d" % _screen_id
+    for e in parsed.get("placed_entities", []):
+        _placements.append({
+            "entity_key": e["entity_key"],
+            "tile_x": e["world_tile_x"],
+            "tile_y": float(e["world_tile_y"]),
+            "rotation": e.get("rotation", 0.0),
+        })
+    placement_grid.queue_redraw()
+
+func _restore_screen() -> void:
+    _sync_position_from_id()
+    if _is_current_placed():
+        var cached: Dictionary = _store.get_cache(_screen_pos.x, _screen_pos.y)
+        var parsed: Dictionary = cached if not cached.is_empty() \
+                else _load_screen_file(_store.screen_path(_screen_pos.x, _screen_pos.y))
+        if not parsed.is_empty() and parsed.has("tiles"):
+            _apply_screen(parsed)
+            return
+    _populate_terrain()
+
+func _save_world() -> void:
+    if _store:
+        _store.save_world(WORLD_PATH)
+
+func _open_minimap(mode: String, on_pick: Callable) -> void:
+    if not _store:
+        push_error("ScreenStore not set")
+        return
+    var dialog: Window = _ScreenMinimapDialog.instantiate()
+    add_child(dialog)
+    var grid: ScreenMinimap = dialog.get_node("Panel/VBox/Grid")
+    grid.setup(_store, mode, _screen_pos)
+    var title: Label = dialog.get_node("Panel/VBox/Title")
+    var hint: Label = dialog.get_node("Panel/VBox/Hint")
+    match mode:
+        "add":
+            title.text = "Add screen — click where to place it"
+            hint.text = "Empty cells create a new screen at that position"
+        "move":
+            title.text = "Move screen %d (%d, %d) — click target" % [_screen_id, _screen_pos.x, _screen_pos.y]
+            hint.text = "Yellow cell is the source; empty cells are valid targets"
+        "clone":
+            title.text = "Clone screen %d — click target" % _screen_id
+            hint.text = "Creates a copy at the clicked empty cell"
+    grid.position_picked.connect(func(x: int, y: int):
+        dialog.queue_free()
+        on_pick.call(x, y)
+    )
+    dialog.get_node("Panel/VBox/Buttons/CancelBtn").pressed.connect(dialog.queue_free)
+    dialog.popup_centered()
+
+func _on_add_screen() -> void:
+    _open_minimap("add", _on_add_screen_at)
+
+func _on_add_screen_at(x: int, y: int) -> void:
+    _cache_current()
+    _screen_id = _store.next_id()
+    _store.register(x, y, _screen_id, "")
+    _screen_pos = Vector2i(x, y)
+    screen_spin.set_value_no_signal(_screen_id)
+    _populate_terrain()
+    _save_world()
+    info_label.text = "Added empty screen %d at (%d, %d)" % [_screen_id, x, y]
+    _update_hud()
+
+func _on_delete_screen() -> void:
+    if not _store or not _store.is_occupied(_screen_pos.x, _screen_pos.y):
+        info_label.text = "Screen %d is not placed — nothing to delete" % _screen_id
+        return
+    var confirm := ConfirmationDialog.new()
+    confirm.dialog_text = "Delete screen %d at (%d, %d)? Its JSON file will be removed too." \
+            % [_screen_id, _screen_pos.x, _screen_pos.y]
+    confirm.ok_button_text = "Delete"
+    confirm.confirmed.connect(func():
+        var path := _store.screen_path(_screen_pos.x, _screen_pos.y)
+        if not path.is_empty() and FileAccess.file_exists(path):
+            DirAccess.remove_absolute(path)
+        _store.remove(_screen_pos.x, _screen_pos.y)
+        _save_world()
+        _populate_terrain()
+        _update_hud()
+    )
+    add_child(confirm)
+    confirm.popup_centered()
+
+func _on_move_screen() -> void:
+    if not _store or not _store.is_occupied(_screen_pos.x, _screen_pos.y):
+        info_label.text = "Screen %d is not placed — add it first" % _screen_id
+        return
+    _open_minimap("move", _on_move_screen_at)
+
+func _on_move_screen_at(x: int, y: int) -> void:
+    var from := _screen_pos
+    if _store.move(from, Vector2i(x, y)):
+        _screen_pos = Vector2i(x, y)
+        _save_world()
+        info_label.text = "Moved screen %d to (%d, %d)" % [_screen_id, x, y]
+    else:
+        push_error("Move failed")
+    _update_hud()
+
+func _on_clone_screen() -> void:
+    _clipboard = _serialize()
+    _open_minimap("clone", _on_clone_screen_at)
+
+func _on_clone_screen_at(x: int, y: int) -> void:
+    var new_id := _store.next_id()
+    var data: Dictionary = _clipboard.duplicate(true)
+    data["screen_id"] = new_id
+    var file_name := "screen_%d.json" % new_id
+    var path := _store.get_dir().path_join(file_name) if not _store.get_dir().is_empty() else file_name
+    var f := FileAccess.open(path, FileAccess.WRITE)
+    if f:
+        f.store_string(JSON.stringify(data, "\t"))
+        f.close()
+    _store.register(x, y, new_id, file_name, data)
+    _save_world()
+    info_label.text = "Cloned screen %d -> %d at (%d, %d)" % [_screen_id, new_id, x, y]
+    _update_hud()
+
+func _update_hud() -> void:
+    var pos := placement_grid.get_local_mouse_position()
+    var tx := clampi(int(pos.x / placement_grid.tile_size), 0, _grid_w - 1)
+    var ty := clampi(int(pos.y / placement_grid.tile_size), 0, _grid_h - 1)
+    var base := _screen_pos if _screen_pos.x >= 0 else Vector2i.ZERO
+    var wx := base.x * _grid_w + tx
+    var wy := base.y * _grid_h + ty
+    var brush := _selected_entity_key if not _selected_entity_key.is_empty() else "—"
+    var under := get_tile(tx, ty)
+    var under_desc := under
+    var td := get_tile_data(tx, ty)
+    if not td.is_empty():
+        under_desc += "  mask:%s elev:%s" % [td.get("sub_tile_mask", "-"), td.get("elevation_tiles", "-")]
+    var placed := "placed" if _is_current_placed() else "unplaced"
+    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s" % [
+        _screen_id, base.x, base.y, placed, tx, ty, wx, wy, brush, under_desc,
+    ]
+
+func _input(event: InputEvent) -> void:
+    if event is InputEventMouseMotion:
+        _update_hud()
 
 func place_at(tile_x: int, tile_y: int) -> void:
     if tile_x < 0 or tile_x >= _grid_w or tile_y < 0 or tile_y >= _grid_h:
@@ -242,7 +465,14 @@ func _on_save() -> void:
             return
         f.store_string(json_str)
         f.close()
+        _cache_current()
+        if _store:
+            if _screen_pos.x < 0:
+                _screen_pos = _store.next_free_position()
+            _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), data)
+            _save_world()
         info_label.text = "Saved: %s (%d tiles, %d entities)" % [path.get_file(), data["tiles"].size(), data["placed_entities"].size()]
+        _update_hud()
     )
     dialog.popup_centered(Vector2i(600, 400))
 
@@ -256,45 +486,22 @@ func _on_import_map() -> void:
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_file(path: String) -> void:
-    var f := FileAccess.open(path, FileAccess.READ)
-    if not f:
-        push_error("Cannot open: ", path)
-        return
-    var json_str := f.get_as_text()
-    f.close()
-    var parsed = JSON.parse_string(json_str)
-    if not parsed:
+    var parsed := _load_screen_file(path)
+    if parsed.is_empty() or not parsed.has("tiles"):
         push_error("Invalid JSON")
         return
-    _tiles.clear()
-    _tile_data.clear()
-    for y in _grid_h:
-        for x in _grid_w:
-            _tiles["%d,%d" % [x, y]] = "air"
-    if parsed.has("tiles"):
-        for t in parsed["tiles"]:
-            if t.has("x") and t.has("y") and t.has("terrain"):
-                _tiles["%d,%d" % [t["x"], t["y"]]] = t["terrain"]
-                var td: Dictionary = {}
-                if t.has("sub_tile_mask"):
-                    td["sub_tile_mask"] = t["sub_tile_mask"]
-                if t.has("elevation_tiles"):
-                    td["elevation_tiles"] = t["elevation_tiles"]
-                if t.has("z_depth"):
-                    td["z_depth"] = t["z_depth"]
-                if not td.is_empty():
-                    _tile_data["%d,%d" % [t["x"], t["y"]]] = td
-    _placements.clear()
-    if parsed.has("placed_entities"):
-        for e in parsed["placed_entities"]:
-            _placements.append({
-                "entity_key": e["entity_key"],
-                "tile_x": e["world_tile_x"],
-                "tile_y": float(e["world_tile_y"]),
-                "rotation": e.get("rotation", 0.0),
-            })
-    placement_grid.queue_redraw()
+    _apply_screen(parsed)
+    if parsed.has("screen_id"):
+        _screen_id = int(parsed["screen_id"])
+        screen_spin.set_value_no_signal(_screen_id)
+    _sync_position_from_id()
+    if _store:
+        if _screen_pos.x < 0:
+            _screen_pos = _store.next_free_position()
+        _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), parsed)
+        _save_world()
     info_label.text = "Imported %d tiles, %d entities" % [parsed.get("tiles", []).size(), _placements.size()]
+    _update_hud()
 
 func set_bridge(b: Node) -> void:
     _bridge = b

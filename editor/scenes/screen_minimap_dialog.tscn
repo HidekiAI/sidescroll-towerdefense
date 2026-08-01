@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/screen_minimap.gd" id="1"]
+
+[node name="ScreenMinimapDialog" type="Window"]
+title = "Screen Map"
+size = Vector2i(640, 480)
+unresizable = true
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+
+[node name="Title" type="Label" parent="Panel/VBox"]
+text = "Select a screen position"
+
+[node name="Hint" type="Label" parent="Panel/VBox"]
+text = "Click an empty cell"
+
+[node name="Grid" type="Control" parent="Panel/VBox"]
+size_flags_vertical = 3
+script = ExtResource("1")
+
+[node name="Buttons" type="HBoxContainer" parent="Panel/VBox"]
+
+[node name="CancelBtn" type="Button" parent="Panel/VBox/Buttons"]
+text = "Cancel"
