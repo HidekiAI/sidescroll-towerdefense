@@ -21,8 +21,9 @@ Side Scrolling Tower Defense — hybrid base-management and side-scrolling tacti
 │       └── README.md
 ├── editor/                     # Godot 4 editor project
 │   ├── project.godot
-│   ├── scenes/                 # 5 editor tab scenes
-│   ├── scripts/                # GDScript UI logic
+│   ├── scenes/                 # 5 editor tab scenes (+ screen minimap dialog)
+│   ├── scripts/                # GDScript UI logic (+ ScreenStore registry)
+│   ├── tests/                  # Headless GDScript regression tests
 │   └── rust/                   # GDExtension bridge config
 ├── scripts/
 │   ├── setup.sh                # Install Godot 4 + create editor skeleton
@@ -47,6 +48,9 @@ cargo build -p sstd-core
 
 # Run tests
 cargo test -p sstd-core
+
+# Run the editor's headless GDScript regression suite
+godot4 --headless --path editor --script res://tests/test_screen_store.gd
 
 # Launch editor
 godot4 --path editor
