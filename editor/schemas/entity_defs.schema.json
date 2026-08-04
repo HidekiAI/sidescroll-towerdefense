@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EntityDefsFile",
+  "type": "object",
+  "required": [
+    "entities",
+    "version"
+  ],
+  "properties": {
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/EntityDefEditor"
+      }
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Element": {
+      "description": "Elemental affinity of an entity def. Exact, case-sensitive values; unknown values fail deserialization (no fallback).",
+      "type": "string",
+      "enum": [
+        "physical",
+        "fire",
+        "ice",
+        "lightning",
+        "holy",
+        "dark"
+      ]
+    },
+    "EntityDefEditor": {
+      "type": "object",
+      "required": [
+        "action_cooldown_ticks",
+        "attack_power",
+        "attack_range_tiles",
+        "class",
+        "element",
+        "height_tiles",
+        "key",
+        "max_hp",
+        "projectile_type",
+        "requires_ceiling",
+        "requires_ground",
+        "speed_pps",
+        "width_tiles"
+      ],
+      "properties": {
+        "action_cooldown_ticks": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "attack_power": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "attack_range_tiles": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "class": {
+          "type": "string"
+        },
+        "element": {
+          "$ref": "#/definitions/Element"
+        },
+        "height_tiles": {
+          "type": "number",
+          "format": "double"
+        },
+        "key": {
+          "type": "string"
+        },
+        "max_hp": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "max_weight": {
+          "default": 0.0,
+          "type": "number",
+          "format": "double"
+        },
+        "projectile_type": {
+          "type": "string"
+        },
+        "requires_ceiling": {
+          "type": "boolean"
+        },
+        "requires_ground": {
+          "type": "boolean"
+        },
+        "speed_pps": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "weight": {
+          "default": 0.0,
+          "type": "number",
+          "format": "double"
+        },
+        "width_tiles": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

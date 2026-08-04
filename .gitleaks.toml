@@ -1,0 +1,13 @@
+# Extend the default Gitleaks ruleset and allow known false positives.
+# The SSTD repo uses "key" string fields in game-data files (Rust storage,
+# tile_set JSON, Godot .tres) that the generic-api-key rule misreads as secrets.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "SSTD game-data 'key' string fields (not secrets)"
+regexTarget = "line"
+regexes = [
+  '''(?i)key\s*[:=]\s*"[a-z0-9_]+"''',
+  '''(?i)"key"\s*:\s*"[a-z0-9_]+"''',
+]

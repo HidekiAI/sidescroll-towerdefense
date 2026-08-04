@@ -56,6 +56,26 @@ All gRPC services must honor the **Config-Control-Model-View** (CCMV) architectu
 - Linear corridor segments: entities just walk forward, no pathfinding needed
 - Waypoint-route system: entities follow waypoint chains; at junctions, fork-priority AI decides which branch to take
 
+## Column Naming Convention
+
+All SQL column names follow `snake_case` (code-enforced). Fixed `descriptionID` → `description_id` across wiki 2026-08-01 (TDD_Localization-System, TDD_Skill-Dependency-Graph, TDD_Skill-Designer-Templating).
+
+## Status Badges
+
+As of 2026-08-01 audit, most TDD/GDD pages describe planned systems with no code implementation (~80% design target). Recommended badge format for page headers: `**Status:** ✅ Implemented` / `⬜ Design Target` / `🔧 In Progress`. Not yet applied.
+
+## Element Enums
+
+Code has 6 (`Physical`/`Fire`/`Ice`/`Lightning`/`Holy`/`Dark`). Wiki documents 14 elements total (6 implemented ✅ + 8 planned ⬜) with 2 extra combo-only elements (Wind, Oil). Wiki header clarified 2026-08-01: dropped "12-element" claim, added explicit "8 planned" count.
+
+## Config Key Naming Convention
+
+All config keys follow `domain.snake_case` format (code-enforced). The wiki's `TDD_GM-Config.md` had bare `camelCase` keys in presets/cheatsheet (e.g. `baseDamage`, `mineSpawnRate`). Fixed 2026-08-01:
+- Preset tables: `difficultyMultiplier` → `difficulty.multiplier`, `enemyHpMultiplier` → `difficulty.enemy_hp_multiplier`, etc.
+- SQL examples: per-domain tables (`inventory_config`) → single `config` table per code
+- Cheatsheet: all keys prefixed with domain + snake_cased
+- Attribute keys in `TDD_Entity-Instance-System` (e.g. `attackRange`, `elementAffinity`) remain camelCase — those are entity attribute keys, not config keys.
+
 ## Config Population Versioning
 
 - Schema version bumps happen **only** when the editor has a "save configs" feature that can persist changes.

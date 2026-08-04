@@ -4,6 +4,7 @@ var map_editor: Control
 var tile_size: int = 32
 var grid_w: int = 60
 var grid_h: int = 33
+var show_collision: bool = false
 var _texture_cache: Dictionary = {}
 
 func set_grid_config(cfg: Dictionary) -> void:
@@ -31,6 +32,20 @@ func _tile_texture(key: String) -> Texture2D:
     _texture_cache[key] = null
     return null
 
+func _sprite_sheet_texture(path: String) -> Texture2D:
+    var cache_key := "sheet_" + path
+    if _texture_cache.has(cache_key):
+        return _texture_cache[cache_key]
+    var abs := ProjectSettings.globalize_path(path)
+    if FileAccess.file_exists(abs):
+        var img: Image = Image.new()
+        if img.load(abs) == OK:
+            var tex: ImageTexture = ImageTexture.create_from_image(img)
+            _texture_cache[cache_key] = tex
+            return tex
+    _texture_cache[cache_key] = null
+    return null
+
 func pixel_to_tile(pos: Vector2) -> Vector2i:
     return Vector2i(
         int(pos.x / tile_size),
@@ -45,12 +60,50 @@ func _draw() -> void:
         for x in grid_w:
             var key: String = map_editor.get_tile(x, y)
             var rect := Rect2(x * tile_size, y * tile_size, tile_size, tile_size)
-            var tex: Texture2D = _tile_texture(key)
-            if tex:
-                draw_texture_rect(tex, rect, false)
-            else:
-                draw_rect(rect, map_editor.terrain_color(key))
+            if not key.is_empty():
+                var td: Dictionary = map_editor.get_tile_data(x, y)
+                var flip_h := bool(td.get("flip_h", false))
+                var flip_v := bool(td.get("flip_v", false))
+                var use_flip := flip_h or flip_v
+                var drawn := false
+                var tex: Texture2D = _tile_texture(key)
+                if tex:
+                    if use_flip:
+                        var sx := -1.0 if flip_h else 1.0
+                        var sy := -1.0 if flip_v else 1.0
+                        var ox := rect.position.x + (tile_size if flip_h else 0)
+                        var oy := rect.position.y + (tile_size if flip_v else 0)
+                        draw_set_transform(Vector2(ox, oy), 0.0, Vector2(sx, sy))
+                        draw_texture_rect(tex, Rect2(0, 0, tile_size, tile_size), false)
+                        draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+                    else:
+                        draw_texture_rect(tex, rect, false)
+                    drawn = true
+                if not drawn and td.has("source_image") and td.has("source_rect"):
+                    var sr: Dictionary = td["source_rect"]
+                    var sw := int(sr.get("w", 0))
+                    var sh := int(sr.get("h", 0))
+                    if sw > 0 and sh > 0:
+                        var sheet_tex: Texture2D = _sprite_sheet_texture(td["source_image"])
+                        if sheet_tex:
+                            var src := Rect2(sr["x"], sr["y"], sw, sh)
+                            if use_flip:
+                                var sx := -1.0 if flip_h else 1.0
+                                var sy := -1.0 if flip_v else 1.0
+                                var ox := rect.position.x + (tile_size if flip_h else 0)
+                                var oy := rect.position.y + (tile_size if flip_v else 0)
+                                draw_set_transform(Vector2(ox, oy), 0.0, Vector2(sx, sy))
+                                draw_texture_rect_region(sheet_tex, Rect2(0, 0, tile_size, tile_size), src)
+                                draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+                            else:
+                                draw_texture_rect_region(sheet_tex, rect, src)
+                            drawn = true
+                if not drawn:
+                    draw_rect(rect, map_editor.terrain_color(key))
             draw_rect(rect, Color(0.2, 0.2, 0.2, 0.3), false, 1)
+
+    if show_collision:
+        _draw_collision_overlay()
 
     var mouse := get_local_mouse_position()
     var tile := pixel_to_tile(mouse)
@@ -58,6 +111,26 @@ func _draw() -> void:
         var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size)
         draw_rect(highlight, Color(1, 1, 1, 0.25), true)
         draw_rect(highlight, Color.WHITE, false, 2)
+
+func _draw_collision_overlay() -> void:
+    var hw := tile_size / 2
+    var hh := tile_size / 2
+    for y in grid_h:
+        for x in grid_w:
+            var td: Dictionary = map_editor.get_tile_data(x, y)
+            if not td.has("sub_tile_mask"):
+                continue
+            var mask: int = int(td["sub_tile_mask"])
+            for qy in 2:
+                for qx in 2:
+                    var bit := qy * 2 + qx
+                    var solid := (mask >> bit) & 1 == 1
+                    var qrect := Rect2(
+                        x * tile_size + qx * hw,
+                        y * tile_size + qy * hh,
+                        hw, hh
+                    )
+                    draw_rect(qrect, Color(0, 1, 0, 0.5) if solid else Color(1, 0, 0, 0.5), true, 0)
 
 func _gui_input(event: InputEvent) -> void:
     if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:

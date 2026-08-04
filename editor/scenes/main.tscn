@@ -12,18 +12,18 @@
 [ext_resource type="Script" uid="uid://cic7l3yynx57q" path="res://scripts/simulator.gd" id="10"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg_map"]
-bg_color = Color(0, 0, 0, 0.62)
 content_margin_left = 8.0
 content_margin_top = 6.0
 content_margin_right = 8.0
 content_margin_bottom = 6.0
+bg_color = Color(0, 0, 0, 0.62)
 
 [sub_resource type="StyleBoxFlat" id="hud_bg_placement"]
-bg_color = Color(0, 0, 0, 0.62)
 content_margin_left = 8.0
 content_margin_top = 6.0
 content_margin_right = 8.0
 content_margin_bottom = 6.0
+bg_color = Color(0, 0, 0, 0.62)
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -67,10 +67,12 @@ text = "Delete"
 [node name="PropPanel" type="VBoxContainer" parent="TabContainer/TerrainEditor"]
 layout_mode = 2
 size_flags_horizontal = 2
+size_flags_stretch_ratio = 2.16
 
 [node name="PixelSplit" type="VSplitContainer" parent="TabContainer/TerrainEditor/PropPanel"]
 layout_mode = 2
 size_flags_vertical = 3
+size_flags_stretch_ratio = 3.51
 
 [node name="VBox" type="ScrollContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit"]
 layout_mode = 2
@@ -78,6 +80,8 @@ size_flags_vertical = 3
 
 [node name="Grid" type="GridContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
 layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 columns = 2
 
 [node name="KeyLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
@@ -168,26 +172,26 @@ text = "On Destroy ->"
 [node name="OnDestroyOption" type="OptionButton" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
 layout_mode = 2
 
-[node name="PreviewRect" type="ColorRect" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+[node name="PreviewRect" type="ColorRect" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
 custom_minimum_size = Vector2(128, 64)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 0
 
-[node name="CollisionGroup" type="VBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+[node name="CollisionGroup" type="VBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="CollisionLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup"]
+[node name="CollisionLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Sub-Tile Collision Mask"
 
-[node name="MaskContainer" type="HBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup"]
+[node name="MaskContainer" type="HBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="MaskPreview" type="TextureRect" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer"]
+[node name="MaskPreview" type="TextureRect" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer"]
 custom_minimum_size = Vector2(72, 72)
 layout_mode = 2
 size_flags_horizontal = 0
@@ -195,49 +199,49 @@ mouse_filter = 2
 expand_mode = 1
 stretch_mode = 1
 
-[node name="MaskGrid" type="GridContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer"]
+[node name="MaskGrid" type="GridContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer"]
 layout_mode = 2
 columns = 2
 
-[node name="TLToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="TLToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 layout_mode = 2
 button_pressed = true
 text = "TL"
 
-[node name="TRToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="TRToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 layout_mode = 2
 button_pressed = true
 text = "TR"
 
-[node name="BLToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="BLToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 layout_mode = 2
 button_pressed = true
 text = "BL"
 
-[node name="BRToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="BRToggle" type="CheckBox" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 layout_mode = 2
 button_pressed = true
 text = "BR"
 
-[node name="AutoDetectBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/CollisionGroup"]
+[node name="AutoDetectBtn" type="Button" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid/CollisionGroup"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Auto-Detect from Luminance"
 
-[node name="TileSetSep" type="HSeparator" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
-layout_mode = 2
-
-[node name="TileSetLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+[node name="TileSetLabel" type="Label" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "TileSets using this terrain"
 
-[node name="TileSetPreviewList" type="ItemList" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox"]
+[node name="TileSetPreviewList" type="ItemList" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 2
 icon_mode = 0
+
+[node name="TileSetSep" type="HSeparator" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit/VBox/Grid"]
+layout_mode = 2
 
 [node name="ArtPanel" type="VBoxContainer" parent="TabContainer/TerrainEditor/PropPanel/PixelSplit"]
 layout_mode = 2
@@ -326,124 +330,129 @@ size_flags_vertical = 3
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="Grid" type="GridContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+[node name="VBox" type="VBoxContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox"]
 layout_mode = 2
 columns = 2
 
-[node name="KeyLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="KeyLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Key"
 
-[node name="KeyEdit" type="LineEdit" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="KeyEdit" type="LineEdit" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 
-[node name="ClassLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ClassLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Class"
 
-[node name="ClassOption" type="OptionButton" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ClassOption" type="OptionButton" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 
-[node name="WidthLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="WidthLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Width (tiles)"
 
-[node name="WidthSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="WidthSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 min_value = 0.5
 max_value = 8.0
 step = 0.5
 value = 1.0
 
-[node name="HeightLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="HeightLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Height (tiles)"
 
-[node name="HeightSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="HeightSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 min_value = 0.5
 max_value = 8.0
 step = 0.5
 value = 1.0
 
-[node name="HpLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="HpLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Max HP"
 
-[node name="HpSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="HpSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 min_value = 1.0
 max_value = 9999.0
 value = 500.0
 
-[node name="SpeedLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="SpeedLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Speed (pps)"
 
-[node name="SpeedSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="SpeedSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 max_value = 9999.0
 
-[node name="RangeLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="RangeLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Range (tiles)"
 
-[node name="RangeSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="RangeSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 max_value = 64.0
 value = 3.0
 
-[node name="DamageLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="DamageLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Attack Power"
 
-[node name="DamageSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="DamageSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 max_value = 9999.0
 value = 50.0
 
-[node name="ElementLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ElementLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Element"
 
-[node name="ElementOption" type="OptionButton" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ElementOption" type="OptionButton" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 
-[node name="CooldownLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="CooldownLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Cooldown (ticks)"
 
-[node name="CooldownSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="CooldownSpin" type="SpinBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 max_value = 999.0
 value = 60.0
 
-[node name="ProjectileLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ProjectileLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Projectile Type"
 
-[node name="ProjectileEdit" type="LineEdit" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="ProjectileEdit" type="LineEdit" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 
-[node name="GroundLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="GroundLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Requires Ground"
 
-[node name="GroundCheck" type="CheckBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="GroundCheck" type="CheckBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 
-[node name="CeilingLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="CeilingLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 text = "Requires Ceiling"
 
-[node name="CeilingCheck" type="CheckBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/Grid"]
+[node name="CeilingCheck" type="CheckBox" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox/Grid"]
 layout_mode = 2
 
-[node name="PreviewLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+[node name="PreviewLabel" type="Label" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox"]
 layout_mode = 2
 text = "Footprint"
 
-[node name="FootprintRect" type="ColorRect" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll"]
+[node name="FootprintRect" type="ColorRect" parent="TabContainer/EntityEditor/PropPanel/PixelSplit/Scroll/VBox"]
 custom_minimum_size = Vector2(32, 32)
 layout_mode = 2
 mouse_filter = 2
@@ -597,19 +606,8 @@ layout_mode = 2
 script = ExtResource("7")
 
 [node name="HUD" type="Label" parent="TabContainer/MapEditor"]
-layout_mode = 1
-anchors_preset = 3
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -430.0
-offset_top = -120.0
-offset_right = -12.0
-offset_bottom = -12.0
-grow_horizontal = 0
-grow_vertical = 0
-mouse_filter = 2
+top_level = true
+layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 12
 theme_override_styles/normal = SubResource("hud_bg_map")
@@ -696,19 +694,8 @@ layout_mode = 2
 script = ExtResource("9")
 
 [node name="HUD" type="Label" parent="TabContainer/PlacementEditor"]
-layout_mode = 1
-anchors_preset = 3
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -430.0
-offset_top = -120.0
-offset_right = -12.0
-offset_bottom = -12.0
-grow_horizontal = 0
-grow_vertical = 0
-mouse_filter = 2
+top_level = true
+layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 12
 theme_override_styles/normal = SubResource("hud_bg_placement")

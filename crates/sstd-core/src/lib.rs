@@ -6,9 +6,10 @@ pub mod storage;
 pub mod terrain;
 
 pub use entity::{
-    resolve_attribute, AttributeDef, EntityClass, EntityDef, EntityDefEditor, EntityInstance,
-    EntityLimits, EntityRuntimeState, InstanceModifier, InstanceStatus, MobileSubClass,
-    ModifierDef, ModifierGroup, ModifierOperation, OrganicSubClass, StationarySubClass,
+    resolve_attribute, AttributeDef, Element, EntityClass, EntityDef, EntityDefEditor,
+    EntityInstance, EntityLimits, EntityRuntimeState, InstanceModifier, InstanceStatus,
+    MobileSubClass, ModifierDef, ModifierGroup, ModifierOperation, OrganicSubClass,
+    StationarySubClass,
 };
 pub use error::{SstdResult, StorageError, ValidationMessage, ValidationResult};
 pub use map::{
@@ -17,6 +18,7 @@ pub use map::{
 };
 pub use storage::{check_schema_version, CURRENT_SCHEMA_VERSION};
 pub use terrain::{
-    BiomeType, EntityStateType, GridConfig, HazardType, OwnershipType, SurfaceType, TerrainTile,
-    TerrainType, TerrainTypeDef, TimeConfig, ZoneType,
+    sub_tile_mask_flip_x, sub_tile_mask_flip_y, sub_tile_mask_is_set, BiomeType, EntityStateType,
+    GridConfig, HazardType, OwnershipType, SurfaceType, TerrainTile, TerrainType, TerrainTypeDef,
+    TileSet, TileSetEntry, TimeConfig, ZoneType, SUB_BL, SUB_BR, SUB_TL, SUB_TR,
 };

@@ -1,0 +1,45 @@
+{
+  "input": "editor/assets/samples/tileset_1-0.png",
+  "output_dir": "editor/assets/imported",
+  "tile_size_px": 32,
+  "grid_cols": 21,
+  "grid_rows": 12,
+  "offset_x": 3,
+  "offset_y": 3,
+  "margin": 0,
+  "auto_detect_collision": true,
+  "luminance_threshold": 0.45,
+  "terrain_map": {
+    "grass": {
+      "key": "grass",
+      "display_name": "Grass",
+      "is_walkable": true,
+      "is_buildable": true,
+      "surface": "normal",
+      "hazard": "none",
+      "color_hex": "#4a7c3f",
+      "indices": [0, 1, 2, 3, 4, 5, 6, 7, 20, 21, 22]
+    },
+    "wall": {
+      "key": "wall",
+      "display_name": "Wall",
+      "is_walkable": false,
+      "is_buildable": false,
+      "surface": "normal",
+      "hazard": "none",
+      "color_hex": "#555555",
+      "indices": [84, 85, 86, 105, 106, 107]
+    }
+  },
+  "tile_sets": [
+    {
+      "key": "sample_cliff_2x1",
+      "display_name": "Sample Cliff 2x1",
+      "col_start": 8,
+      "row_start": 2,
+      "width": 2,
+      "height": 1,
+      "tags": ["cliff", "sample"]
+    }
+  ]
+}

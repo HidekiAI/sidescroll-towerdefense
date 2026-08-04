@@ -3,28 +3,29 @@ extends Control
 var _entity_defs: Array[Dictionary] = []
 var _selected_index: int = -1
 var _bridge: Node
+var _main: Node
 var _sprite_px: int = 32
 
 @onready var entity_list: ItemList = $ListPanel/ItemList
 @onready var add_btn: Button = $ListPanel/VBox/AddBtn
 @onready var delete_btn: Button = $ListPanel/VBox/DeleteBtn
-@onready var key_edit: LineEdit = $PropPanel/PixelSplit/Scroll/Grid/KeyEdit
-@onready var class_option: OptionButton = $PropPanel/PixelSplit/Scroll/Grid/ClassOption
-@onready var width_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/WidthSpin
-@onready var height_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/HeightSpin
-@onready var hp_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/HpSpin
-@onready var speed_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/SpeedSpin
-@onready var range_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/RangeSpin
-@onready var damage_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/DamageSpin
-@onready var element_option: OptionButton = $PropPanel/PixelSplit/Scroll/Grid/ElementOption
-@onready var cooldown_spin: SpinBox = $PropPanel/PixelSplit/Scroll/Grid/CooldownSpin
-@onready var projectile_edit: LineEdit = $PropPanel/PixelSplit/Scroll/Grid/ProjectileEdit
-@onready var ground_check: CheckBox = $PropPanel/PixelSplit/Scroll/Grid/GroundCheck
-@onready var ceiling_check: CheckBox = $PropPanel/PixelSplit/Scroll/Grid/CeilingCheck
+@onready var key_edit: LineEdit = $PropPanel/PixelSplit/Scroll/VBox/Grid/KeyEdit
+@onready var class_option: OptionButton = $PropPanel/PixelSplit/Scroll/VBox/Grid/ClassOption
+@onready var width_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/WidthSpin
+@onready var height_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/HeightSpin
+@onready var hp_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/HpSpin
+@onready var speed_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/SpeedSpin
+@onready var range_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/RangeSpin
+@onready var damage_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/DamageSpin
+@onready var element_option: OptionButton = $PropPanel/PixelSplit/Scroll/VBox/Grid/ElementOption
+@onready var cooldown_spin: SpinBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/CooldownSpin
+@onready var projectile_edit: LineEdit = $PropPanel/PixelSplit/Scroll/VBox/Grid/ProjectileEdit
+@onready var ground_check: CheckBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/GroundCheck
+@onready var ceiling_check: CheckBox = $PropPanel/PixelSplit/Scroll/VBox/Grid/CeilingCheck
 @onready var save_btn: Button = $PropPanel/HSave/SaveBtn
 @onready var import_btn: Button = $PropPanel/HSave/ImportBtn
 @onready var export_btn: Button = $PropPanel/HSave/ExportBtn
-@onready var footprint_rect: ColorRect = $PropPanel/PixelSplit/Scroll/FootprintRect
+@onready var footprint_rect: ColorRect = $PropPanel/PixelSplit/Scroll/VBox/FootprintRect
 @onready var pixel_canvas: Control = $PropPanel/PixelSplit/ArtPanel/PixelCanvas
 @onready var preview_3x3: Control = $PropPanel/PixelSplit/ArtPanel/Preview3x3
 @onready var import_png_btn: Button = $PropPanel/PixelSplit/ArtPanel/ArtToolbar/ImportPngBtn
@@ -222,7 +223,7 @@ func _on_export_png() -> void:
         return
     var e := _entity_defs[_selected_index]
     pixel_canvas.save_png(ProjectSettings.globalize_path(_sprite_png_path(e["key"])))
-    print("PNG saved: ", _sprite_png_path(e["key"]))
+    _log("PNG saved: " + _sprite_png_path(e["key"]))
 
 func _on_save() -> void:
     _on_export_png()
@@ -234,7 +235,7 @@ func _on_save() -> void:
         if parsed and parsed.has("error"):
             push_error("Bridge validation: ", parsed["error"])
             return
-    print("Entity defs saved: %d entities" % _entity_defs.size())
+            _log("Entity defs saved: %d entities" % _entity_defs.size())
 
 func _on_import() -> void:
     var dialog := FileDialog.new()
@@ -279,6 +280,15 @@ func _on_export() -> void:
 
 func set_bridge(b: Node) -> void:
     _bridge = b
+
+func set_main_reference(m: Node) -> void:
+    _main = m
+
+func _log(msg: String) -> void:
+    if _main:
+        _main.log(msg)
+    else:
+        print(msg)
 
 func get_entity_defs() -> Array[Dictionary]:
     return _entity_defs

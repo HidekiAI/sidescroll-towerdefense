@@ -95,6 +95,87 @@ impl SstdBridge {
     }
 
     #[func]
+    fn set_tile_set_category(&self, tile_set_key: GString, terrain_key: GString) -> GString {
+        let store = match &self.config_store {
+            Some(s) => s,
+            None => return GString::from("{\"error\": \"config store not initialized\"}"),
+        };
+        match store.set_tile_set_category(&tile_set_key.to_string(), &terrain_key.to_string()) {
+            Ok(_) => GString::from("{\"ok\": true}"),
+            Err(e) => GString::from(format!("{{\"error\": \"{}\"}}", e).as_str()),
+        }
+    }
+
+    #[func]
+    fn remove_tile_set_category(&self, tile_set_key: GString, terrain_key: GString) -> GString {
+        let store = match &self.config_store {
+            Some(s) => s,
+            None => return GString::from("{\"error\": \"config store not initialized\"}"),
+        };
+        match store.remove_tile_set_category(&tile_set_key.to_string(), &terrain_key.to_string()) {
+            Ok(_) => GString::from("{\"ok\": true}"),
+            Err(e) => GString::from(format!("{{\"error\": \"{}\"}}", e).as_str()),
+        }
+    }
+
+    #[func]
+    fn get_tile_sets_for_terrain(&self, terrain_key: GString) -> GString {
+        let store = match &self.config_store {
+            Some(s) => s,
+            None => return GString::from("[]"),
+        };
+        let result = match store.get_tile_sets_for_terrain(&terrain_key.to_string()) {
+            Ok(keys) => serde_json::to_string(&keys).unwrap_or_else(|_| "[]".to_string()),
+            Err(_) => "[]".to_string(),
+        };
+        GString::from(result.as_str())
+    }
+
+    #[func]
+    fn get_all_tile_set_categories(&self) -> GString {
+        let store = match &self.config_store {
+            Some(s) => s,
+            None => return GString::from("{}"),
+        };
+        let result = match store.get_all_tile_set_categories() {
+            Ok(entries) => {
+                let mut map: std::collections::BTreeMap<String, Vec<String>> =
+                    std::collections::BTreeMap::new();
+                for (ts_key, t_key) in &entries {
+                    map.entry(ts_key.clone()).or_default().push(t_key.clone());
+                }
+                serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+            }
+            Err(_) => "{}".to_string(),
+        };
+        GString::from(result.as_str())
+    }
+
+    #[func]
+    fn set_config_value(&self, key: GString, value: GString) -> GString {
+        let store = match &self.config_store {
+            Some(s) => s,
+            None => return GString::from("{\"error\": \"config store not initialized\"}"),
+        };
+        match store.set_config(&key.to_string(), &value.to_string()) {
+            Ok(_) => GString::from("{\"ok\": true}"),
+            Err(e) => GString::from(format!("{{\"error\": \"{}\"}}", e).as_str()),
+        }
+    }
+
+    #[func]
+    fn get_config_value(&self, key: GString) -> GString {
+        let store = match &self.config_store {
+            Some(s) => s,
+            None => return GString::from(""),
+        };
+        match store.get_str(&key.to_string()) {
+            Ok(v) => GString::from(v.as_str()),
+            Err(_) => GString::from(""),
+        }
+    }
+
+    #[func]
     fn get_grid_config(&self) -> GString {
         let config = match &self.config_store {
             Some(store) => store.grid_config().ok().unwrap_or_default(),

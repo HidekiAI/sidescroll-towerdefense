@@ -216,20 +216,27 @@ impl ClearanceResult {
     }
 }
 
-pub fn tile_to_world(screen_id: i32, local_tile_x: i32, max_tiles_per_screen_x: i32) -> i32 {
-    screen_id * max_tiles_per_screen_x + local_tile_x
+/// Convert a screen's **grid position** and a local tile offset to a world tile coordinate.
+///
+/// `grid_x` is the screen's position in the 2D screen map and **may be negative**
+/// (screens west of the village hub at grid `(0,0)`). World coordinates are therefore signed.
+pub fn tile_to_world(grid_x: i32, local_tile_x: i32, max_tiles_per_screen_x: i32) -> i32 {
+    grid_x * max_tiles_per_screen_x + local_tile_x
 }
 
+/// Convert a (possibly negative) world tile coordinate back to `(screen grid position, local tile)`.
+///
+/// Uses Euclidean division so negative worlds map correctly: `world -1, max 30` → `(-1, 29)`.
 pub fn world_to_screen(world_tile_x: i32, max_tiles_per_screen_x: i32) -> (i32, i32) {
-    let screen_id = world_tile_x / max_tiles_per_screen_x;
-    let local_tile_x = world_tile_x % max_tiles_per_screen_x;
-    (screen_id, local_tile_x)
+    let grid_x = world_tile_x.div_euclid(max_tiles_per_screen_x);
+    let local_tile_x = world_tile_x.rem_euclid(max_tiles_per_screen_x);
+    (grid_x, local_tile_x)
 }
 
 pub fn pixel_to_tile(world_pixel_x: f64, tile_width_in_pixels: i32) -> (i32, f64) {
     let tw = tile_width_in_pixels as f64;
     let tile_x = (world_pixel_x / tw).floor() as i32;
-    let offset = world_pixel_x % tw;
+    let offset = world_pixel_x - tile_x as f64 * tw;
     (tile_x, offset)
 }
 
@@ -242,9 +249,35 @@ mod tests {
         let result = tile_to_world(2, 5, 30);
         assert_eq!(result, 65);
 
-        let (screen_id, local_x) = world_to_screen(65, 30);
-        assert_eq!(screen_id, 2);
+        let (grid_x, local_x) = world_to_screen(65, 30);
+        assert_eq!(grid_x, 2);
         assert_eq!(local_x, 5);
+    }
+
+    #[test]
+    fn test_tile_to_world_negative_screen() {
+        // Mine one screen west of the village (grid -1): world is negative.
+        let result = tile_to_world(-1, 5, 30);
+        assert_eq!(result, -25);
+
+        let (grid_x, local_x) = world_to_screen(-25, 30);
+        assert_eq!(grid_x, -1);
+        assert_eq!(local_x, 5);
+    }
+
+    #[test]
+    fn test_world_to_screen_negative_floor_division() {
+        // world -1 belongs to grid -1, local 29 (not local -1).
+        let (grid_x, local_x) = world_to_screen(-1, 30);
+        assert_eq!(grid_x, -1);
+        assert_eq!(local_x, 29);
+    }
+
+    #[test]
+    fn test_pixel_to_tile_negative() {
+        let (tile_x, offset) = pixel_to_tile(-40.0, 32);
+        assert_eq!(tile_x, -2);
+        assert!((offset - 24.0).abs() < 1e-9);
     }
 
     #[test]

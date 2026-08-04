@@ -37,6 +37,8 @@ size_flags_vertical = 3
 size_flags_vertical = 3
 
 [node name="Grid" type="GridContainer" parent="PropPanel/PixelSplit/VBox"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
 columns = 2
 
 [node name="KeyLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
@@ -112,59 +114,59 @@ text = "On Destroy ->"
 [node name="OnDestroyOption" type="OptionButton" parent="PropPanel/PixelSplit/VBox/Grid"]
 item_count = 0
 
-[node name="PreviewRect" type="ColorRect" parent="PropPanel/PixelSplit/VBox"]
+[node name="PreviewRect" type="ColorRect" parent="PropPanel/PixelSplit/VBox/Grid"]
 size_flags_horizontal = 3
 size_flags_vertical = 0
 custom_minimum_size = Vector2(128, 64)
 
-[node name="CollisionGroup" type="VBoxContainer" parent="PropPanel/PixelSplit/VBox"]
+[node name="CollisionGroup" type="VBoxContainer" parent="PropPanel/PixelSplit/VBox/Grid"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="CollisionLabel" type="Label" parent="PropPanel/PixelSplit/VBox/CollisionGroup"]
+[node name="CollisionLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup"]
 text = "Sub-Tile Collision Mask"
 size_flags_horizontal = 3
 
-[node name="MaskContainer" type="HBoxContainer" parent="PropPanel/PixelSplit/VBox/CollisionGroup"]
+[node name="MaskContainer" type="HBoxContainer" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup"]
 size_flags_horizontal = 3
 
-[node name="MaskPreview" type="TextureRect" parent="PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer"]
+[node name="MaskPreview" type="TextureRect" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer"]
 custom_minimum_size = Vector2(72, 72)
 size_flags_horizontal = 0
 mouse_filter = 2
 expand_mode = 1
 stretch_mode = 1
 
-[node name="MaskGrid" type="GridContainer" parent="PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer"]
+[node name="MaskGrid" type="GridContainer" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer"]
 columns = 2
 
-[node name="TLToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="TLToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 text = "TL"
 button_pressed = true
 
-[node name="TRToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="TRToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 text = "TR"
 button_pressed = true
 
-[node name="BLToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="BLToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 text = "BL"
 button_pressed = true
 
-[node name="BRToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/CollisionGroup/MaskContainer/MaskGrid"]
+[node name="BRToggle" type="CheckBox" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup/MaskContainer/MaskGrid"]
 text = "BR"
 button_pressed = true
 
-[node name="AutoDetectBtn" type="Button" parent="PropPanel/PixelSplit/VBox/CollisionGroup"]
+[node name="AutoDetectBtn" type="Button" parent="PropPanel/PixelSplit/VBox/Grid/CollisionGroup"]
 text = "Auto-Detect from Luminance"
 size_flags_horizontal = 3
 
-[node name="TileSetSep" type="HSeparator" parent="PropPanel/PixelSplit/VBox"]
+[node name="TileSetSep" type="HSeparator" parent="PropPanel/PixelSplit/VBox/Grid"]
 
-[node name="TileSetLabel" type="Label" parent="PropPanel/PixelSplit/VBox"]
+[node name="TileSetLabel" type="Label" parent="PropPanel/PixelSplit/VBox/Grid"]
 text = "TileSets using this terrain"
 size_flags_horizontal = 3
 
-[node name="TileSetPreviewList" type="ItemList" parent="PropPanel/PixelSplit/VBox"]
+[node name="TileSetPreviewList" type="ItemList" parent="PropPanel/PixelSplit/VBox/Grid"]
 size_flags_vertical = 2
 size_flags_horizontal = 3
 custom_minimum_size = Vector2(0, 60)

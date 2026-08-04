@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TileSetsFile",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "tile_sets": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TileSet"
+      }
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "TileSet": {
+      "type": "object",
+      "required": [
+        "display_name",
+        "height_tiles",
+        "key",
+        "width_tiles"
+      ],
+      "properties": {
+        "display_name": {
+          "type": "string"
+        },
+        "height_tiles": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "key": {
+          "type": "string"
+        },
+        "tags": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tiles": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TileSetEntry"
+          }
+        },
+        "width_tiles": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TileSetEntry": {
+      "type": "object",
+      "required": [
+        "local_x",
+        "local_y",
+        "terrain_key"
+      ],
+      "properties": {
+        "elevation_tiles": {
+          "default": 0,
+          "type": "integer",
+          "format": "int32"
+        },
+        "local_x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "local_y": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "sub_tile_mask": {
+          "default": 15,
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "terrain_key": {
+          "type": "string"
+        },
+        "z_depth": {
+          "default": 0,
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

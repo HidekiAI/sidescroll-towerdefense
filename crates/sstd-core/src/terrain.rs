@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ValidationMessage, ValidationResult};
@@ -61,7 +62,8 @@ impl TerrainType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum SurfaceType {
     Normal,
     Ice,
@@ -95,7 +97,8 @@ impl SurfaceType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum HazardType {
     None,
     Lava,
@@ -151,16 +154,31 @@ pub enum TileAffectingEntityType {
     IcePatch,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TerrainTypeDef {
     pub key: String,
     pub display_name: String,
     pub is_walkable: bool,
     pub is_buildable: bool,
-    pub surface: String,
-    pub hazard: String,
+    pub surface: SurfaceType,
+    pub hazard: HazardType,
     pub elevation_tiles: i32,
     pub color_hex: String,
+    #[serde(default = "default_sub_tile_mask")]
+    pub sub_tile_mask: u8,
+    #[serde(default)]
+    pub hazard_damage_per_tick: i32,
+    #[serde(default)]
+    pub is_destructible: bool,
+    #[serde(default)]
+    pub destructible_hp: i32,
+    #[serde(default)]
+    pub on_destroy_terrain_key: String,
+}
+
+fn default_sub_tile_mask() -> u8 {
+    0xF
 }
 
 impl TerrainTypeDef {
@@ -171,28 +189,6 @@ impl TerrainTypeDef {
             result = result.with_message(
                 ValidationMessage::error("TERRAIN_EMPTY_KEY", "Terrain key must not be empty")
                     .with_field("key"),
-            );
-        }
-
-        if SurfaceType::from_str(&self.surface).is_none() {
-            result = result.with_message(
-                ValidationMessage::warning(
-                    "TERRAIN_UNKNOWN_SURFACE",
-                    format!("Unknown surface type: {}", self.surface),
-                )
-                .with_field("surface")
-                .with_value(&self.surface),
-            );
-        }
-
-        if HazardType::from_str(&self.hazard).is_none() {
-            result = result.with_message(
-                ValidationMessage::warning(
-                    "TERRAIN_UNKNOWN_HAZARD",
-                    format!("Unknown hazard type: {}", self.hazard),
-                )
-                .with_field("hazard")
-                .with_value(&self.hazard),
             );
         }
 
@@ -207,7 +203,220 @@ impl TerrainTypeDef {
             );
         }
 
+        if self.sub_tile_mask > 0xF {
+            result = result.with_message(
+                ValidationMessage::warning(
+                    "TERRAIN_SUBTILE_MASK_INVALID",
+                    "Sub-tile mask must be 0x0..0xF, got {}. Clamping to 0xF."
+                        .replace("{}", &self.sub_tile_mask.to_string()),
+                )
+                .with_field("sub_tile_mask")
+                .with_value(&self.sub_tile_mask.to_string()),
+            );
+        }
+
+        if self.is_destructible && self.destructible_hp <= 0 {
+            result = result.with_message(
+                ValidationMessage::error(
+                    "TERRAIN_DESTRUCTIBLE_HP_ZERO",
+                    "Destructible terrain must have positive HP",
+                )
+                .with_field("destructible_hp")
+                .with_value(&self.destructible_hp.to_string()),
+            );
+        }
+
+        if self.is_destructible && self.on_destroy_terrain_key.is_empty() {
+            result = result.with_message(
+                ValidationMessage::warning(
+                    "TERRAIN_DESTRUCTIBLE_NO_FALLBACK",
+                    format!(
+                        "Destructible terrain '{}' has no on_destroy_terrain_key. \
+                         Falling back to 'air'.",
+                        self.key
+                    ),
+                )
+                .with_field("on_destroy_terrain_key"),
+            );
+        }
+
         result
+    }
+}
+
+impl Default for TerrainTypeDef {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            display_name: String::new(),
+            is_walkable: false,
+            is_buildable: false,
+            surface: SurfaceType::Normal,
+            hazard: HazardType::None,
+            elevation_tiles: 0,
+            color_hex: "#888888".into(),
+            sub_tile_mask: 0xF,
+            hazard_damage_per_tick: 0,
+            is_destructible: false,
+            destructible_hp: 0,
+            on_destroy_terrain_key: String::new(),
+        }
+    }
+}
+
+/// Sub-tile mask helper functions.
+pub fn sub_tile_mask_is_set(mask: u8, index: u8) -> bool {
+    (mask >> index) & 1 == 1
+}
+
+/// Apply horizontal flip to a sub-tile mask (swap TL↔TR, BL↔BR).
+pub fn sub_tile_mask_flip_x(mask: u8) -> u8 {
+    let tl = (mask >> 0) & 1;
+    let tr = (mask >> 1) & 1;
+    let bl = (mask >> 2) & 1;
+    let br = (mask >> 3) & 1;
+    (tr << 0) | (tl << 1) | (br << 2) | (bl << 3)
+}
+
+/// Apply vertical flip to a sub-tile mask (swap TL↔BL, TR↔BR).
+pub fn sub_tile_mask_flip_y(mask: u8) -> u8 {
+    let tl = (mask >> 0) & 1;
+    let tr = (mask >> 1) & 1;
+    let bl = (mask >> 2) & 1;
+    let br = (mask >> 3) & 1;
+    (bl << 0) | (br << 1) | (tl << 2) | (tr << 3)
+}
+
+/// Sub-tile quadrant indices.
+pub const SUB_TL: u8 = 0;
+pub const SUB_TR: u8 = 1;
+pub const SUB_BL: u8 = 2;
+pub const SUB_BR: u8 = 3;
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TileSetEntry {
+    pub local_x: i32,
+    pub local_y: i32,
+    pub terrain_key: String,
+    #[serde(default)]
+    pub elevation_tiles: i32,
+    #[serde(default)]
+    pub z_depth: i32,
+    #[serde(default = "default_sub_tile_mask")]
+    pub sub_tile_mask: u8,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TileSet {
+    pub key: String,
+    pub display_name: String,
+    pub width_tiles: i32,
+    pub height_tiles: i32,
+    #[serde(default)]
+    pub tiles: Vec<TileSetEntry>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+impl TileSet {
+    pub fn validate(&self) -> ValidationResult {
+        let mut result = ValidationResult::valid();
+
+        if self.key.is_empty() {
+            result = result.with_message(
+                ValidationMessage::error("TILESET_EMPTY_KEY", "TileSet key must not be empty")
+                    .with_field("key"),
+            );
+        }
+
+        if self.width_tiles <= 0 || self.height_tiles <= 0 {
+            result = result.with_message(
+                ValidationMessage::error(
+                    "TILESET_INVALID_DIMS",
+                    format!(
+                        "TileSet '{}' dimensions {}x{} must be positive",
+                        self.key, self.width_tiles, self.height_tiles
+                    ),
+                )
+                .with_field("width_tiles"),
+            );
+        }
+
+        for entry in &self.tiles {
+            if entry.local_x < 0 || entry.local_x >= self.width_tiles {
+                result = result.with_message(
+                    ValidationMessage::error(
+                        "TILESET_ENTRY_OUT_OF_BOUNDS",
+                        format!(
+                            "TileSet '{}' entry ({}, {}) exceeds bounds {}x{}",
+                            self.key,
+                            entry.local_x,
+                            entry.local_y,
+                            self.width_tiles,
+                            self.height_tiles
+                        ),
+                    )
+                    .with_field("tiles"),
+                );
+            }
+            if entry.local_y < 0 || entry.local_y >= self.height_tiles {
+                result = result.with_message(
+                    ValidationMessage::error(
+                        "TILESET_ENTRY_OUT_OF_BOUNDS",
+                        format!(
+                            "TileSet '{}' entry ({}, {}) exceeds bounds {}x{}",
+                            self.key,
+                            entry.local_x,
+                            entry.local_y,
+                            self.width_tiles,
+                            self.height_tiles
+                        ),
+                    )
+                    .with_field("tiles"),
+                );
+            }
+            if entry.terrain_key.is_empty() {
+                result = result.with_message(
+                    ValidationMessage::error(
+                        "TILESET_ENTRY_EMPTY_KEY",
+                        format!(
+                            "TileSet '{}' entry ({}, {}) has empty terrain_key",
+                            self.key, entry.local_x, entry.local_y
+                        ),
+                    )
+                    .with_field("terrain_key"),
+                );
+            }
+        }
+
+        let has_duplicates = {
+            let mut seen = Vec::new();
+            self.tiles.iter().any(|e| {
+                if seen.contains(&(e.local_x, e.local_y)) {
+                    true
+                } else {
+                    seen.push((e.local_x, e.local_y));
+                    false
+                }
+            })
+        };
+        if has_duplicates {
+            result = result.with_message(
+                ValidationMessage::error(
+                    "TILESET_DUPLICATE_ENTRY",
+                    format!("TileSet '{}' has duplicate local positions", self.key),
+                )
+                .with_field("tiles"),
+            );
+        }
+
+        result
+    }
+
+    pub fn tile_count(&self) -> usize {
+        self.tiles.len()
     }
 }
 
@@ -221,6 +430,11 @@ pub struct TerrainTile {
     pub is_buildable: bool,
     pub surface: String,
     pub hazard: String,
+    pub sub_tile_mask: u8,
+    pub hazard_damage_per_tick: i32,
+    pub flip_x: bool,
+    pub flip_y: bool,
+    pub z_depth: i32,
     pub zone: String,
     pub zone_rules: Option<String>,
 }

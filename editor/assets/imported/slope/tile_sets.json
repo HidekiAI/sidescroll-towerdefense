@@ -1,0 +1,81 @@
+{
+  "version": "0.1.0",
+  "tile_sets": [
+    {
+      "key": "grass_slope_30deg_4x2",
+      "display_name": "30° Grass Slope 4×2",
+      "width_tiles": 4,
+      "height_tiles": 2,
+      "tiles": [
+        {
+          "local_x": 0,
+          "local_y": 0,
+          "terrain_key": "grass",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 1,
+          "local_y": 0,
+          "terrain_key": "grass",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 2,
+          "local_y": 0,
+          "terrain_key": "air",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 3,
+          "local_y": 0,
+          "terrain_key": "air",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 0,
+          "local_y": 1,
+          "terrain_key": "grass",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 1,
+          "local_y": 1,
+          "terrain_key": "grass",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 2,
+          "local_y": 1,
+          "terrain_key": "air",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        },
+        {
+          "local_x": 3,
+          "local_y": 1,
+          "terrain_key": "air",
+          "elevation_tiles": 0,
+          "z_depth": 0,
+          "sub_tile_mask": 15
+        }
+      ],
+      "tags": [
+        "slope",
+        "grassland"
+      ]
+    }
+  ]
+}

@@ -118,6 +118,12 @@ impl ConfigStore {
                     applied_at  DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS tile_set_categories (
+                    tile_set_key TEXT NOT NULL,
+                    terrain_key  TEXT NOT NULL,
+                    PRIMARY KEY (tile_set_key, terrain_key)
+                );
+
                 INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '0.0.0');",
             )
             .map_err(|e| crate::error::StorageError::Io(e.to_string()))
@@ -205,7 +211,7 @@ impl ConfigStore {
         Ok(())
     }
 
-    fn get_str(&self, key: &str) -> SstdResult<String> {
+    pub fn get_str(&self, key: &str) -> SstdResult<String> {
         self.conn
             .query_row(
                 "SELECT default_value FROM config WHERE key = ?1",
@@ -274,6 +280,68 @@ impl ConfigStore {
             )
             .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
         Ok(())
+    }
+
+    pub fn set_tile_set_category(&self, tile_set_key: &str, terrain_key: &str) -> SstdResult<()> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO tile_set_categories (tile_set_key, terrain_key) VALUES (?1, ?2)",
+                rusqlite::params![tile_set_key, terrain_key],
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn remove_tile_set_category(
+        &self,
+        tile_set_key: &str,
+        terrain_key: &str,
+    ) -> SstdResult<()> {
+        self.conn
+            .execute(
+                "DELETE FROM tile_set_categories WHERE tile_set_key = ?1 AND terrain_key = ?2",
+                rusqlite::params![tile_set_key, terrain_key],
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn get_tile_sets_for_terrain(&self, terrain_key: &str) -> SstdResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tile_set_key FROM tile_set_categories WHERE terrain_key = ?1 ORDER BY tile_set_key")
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![terrain_key], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| crate::error::StorageError::Io(e.to_string()))?);
+        }
+        Ok(result)
+    }
+
+    pub fn get_all_tile_set_categories(&self) -> SstdResult<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tile_set_key, terrain_key FROM tile_set_categories ORDER BY tile_set_key, terrain_key")
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| crate::error::StorageError::Io(e.to_string()))?);
+        }
+        Ok(result)
     }
 
     pub fn all_config(&self) -> SstdResult<Vec<(String, String)>> {

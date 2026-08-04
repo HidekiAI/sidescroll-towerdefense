@@ -76,7 +76,68 @@ top-down, game asset tile, seamless, no background,
 color palette: #4a7c3f #6b8e23 #3a5f0b
 ```
 
-## 5. Limitations & Future
+## 5. Spritesheet Pipeline (Primary)
+
+For TileSet authoring, the primary art source is a **spritesheet** (texture atlas) rather than individual PNGs per tile. The Godot TileSet editor handles automatic slicing; TileSet entries reference their source region via `source_spritesheet` + `source_rect`.
+
+### 5.1 Spritesheet Source Formats
+
+| Spritesheet | Content | Auto-Detect Params |
+|---|---|---|
+| `assets/samples/tileset_2-2.png` | 30° grass slope, 4×2 grid (8 tiles) | margins=(104,65), texture_region_size=126×126, separation=(1,1), pitch=127 |
+| `assets/samples/tileset_0-0.png` | Grass terrain, multi-row (2812×1536px) | margins=(420,237), texture_region_size=492×508, separation=(3,3) |
+
+### 5.2 Auto-Detect Slicing
+
+When importing into Godot's TileSet editor, auto-detect scans the spritesheet and produces tile regions. Key parameters:
+
+| Parameter | tileset_2-2.png | tileset_0-0.png | Description |
+|---|---|---|---|
+| `margins` | (104, 65) | (420, 237) | Offset from top-left before first tile |
+| `texture_region_size` | 126×126 | 492×508 | Size of each tile region |
+| `separation` | (1, 1) | (3, 3) | Gap between tile regions |
+| `pitch` | 127 | derived | Step distance between tile starts (= region + separation) |
+
+These parameters are baked into the `.tres` TileSetGrouping files as `source_rect` values:
+
+```gdscript
+# A single tile entry resolved from auto-detect
+{
+    "local_x": 0, "local_y": 0,
+    "source_spritesheet": "res://assets/samples/tileset_2-2.png",
+    "source_rect": Rect2(104, 65, 126, 126),  # margins + region_size
+    "flip_h": false,
+    "flip_v": false,
+}
+```
+
+### 5.3 Individual PNG Extraction (Alternative)
+
+For standalone use (e.g., 1×1 terrain tiles used outside TileSet placement), individual PNGs can be extracted from spritesheets:
+
+```
+source_region = Rect2(
+    margins.x + col × pitch,
+    margins.y + row × pitch,
+    texture_region_size.x,
+    texture_region_size.y
+)
+```
+
+The Rust CLI tool `tools/extract-tiles/` performs this extraction with `--spritesheet`, `--margins`, `--cell-size`, `--grid`, `--pitch`, `--scale` arguments. Results are saved to `assets/tiles/{name}_32x32.png`.
+
+**Extraction resolution:** Source tiles (e.g. 492×508 from `tileset_0-0.png`) are scaled down to 32×32 using `INTERPOLATE_NEAREST` to preserve pixel-art sharpness. Larger source regions produce cleaner downscaled results.
+
+### 5.4 Selection Guideline
+
+| Use Case | Path |
+|---|---|
+| Multi-tile TileSet (slope, rock formation) | **Spritesheet** — all tiles in one atlas, `source_rect` references |
+| 1×1 terrain TileSet | **Either** — spritesheet with single rect, or extracted PNG |
+| Custom/solo tile art | **Individual PNG** — generated via T2I or PixelCanvas |
+| Runtime material-only (no art) | **Solid color fallback** — no texture file needed |
+
+## 6. Limitations & Future
 
 - **No in-editor T2I client** — the editor remains offline for this step. A CLI wrapper for Stable Diffusion could be added later as an optional `scripts/` tool.
 - **No batch generation** — each tile is processed individually via the Import PNG button.

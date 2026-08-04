@@ -1,0 +1,50 @@
+{
+  "version": "0.1.0",
+  "tiles": [
+    {
+      "key": "grass",
+      "display_name": "Grass",
+      "is_walkable": true,
+      "is_buildable": true,
+      "surface": "normal",
+      "hazard": "none",
+      "elevation_tiles": 0,
+      "color_hex": "#4a7c3f",
+      "sub_tile_mask": 15,
+      "hazard_damage_per_tick": 0,
+      "is_destructible": false,
+      "destructible_hp": 0,
+      "on_destroy_terrain_key": ""
+    },
+    {
+      "key": "stone",
+      "display_name": "stone",
+      "is_walkable": false,
+      "is_buildable": false,
+      "surface": "normal",
+      "hazard": "none",
+      "elevation_tiles": 0,
+      "color_hex": "#724d40",
+      "sub_tile_mask": 0,
+      "hazard_damage_per_tick": 0,
+      "is_destructible": false,
+      "destructible_hp": 0,
+      "on_destroy_terrain_key": ""
+    },
+    {
+      "key": "wall",
+      "display_name": "wall",
+      "is_walkable": false,
+      "is_buildable": false,
+      "surface": "normal",
+      "hazard": "none",
+      "elevation_tiles": 0,
+      "color_hex": "#654137",
+      "sub_tile_mask": 0,
+      "hazard_damage_per_tick": 0,
+      "is_destructible": false,
+      "destructible_hp": 0,
+      "on_destroy_terrain_key": ""
+    }
+  ]
+}

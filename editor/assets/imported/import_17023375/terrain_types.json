@@ -1,0 +1,20 @@
+{
+  "version": "0.1.0",
+  "tiles": [
+    {
+      "key": "grass",
+      "display_name": "grass",
+      "is_walkable": true,
+      "is_buildable": true,
+      "surface": "normal",
+      "hazard": "none",
+      "elevation_tiles": 0,
+      "color_hex": "#d4d4d4",
+      "sub_tile_mask": 15,
+      "hazard_damage_per_tick": 0,
+      "is_destructible": false,
+      "destructible_hp": 0,
+      "on_destroy_terrain_key": ""
+    }
+  ]
+}

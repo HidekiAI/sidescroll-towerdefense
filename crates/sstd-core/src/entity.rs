@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ValidationMessage, ValidationResult};
@@ -29,6 +30,81 @@ impl EntityClass {
         }
     }
 
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntityClass::Stationary(StationarySubClass::Tower) => "tower",
+            EntityClass::Stationary(StationarySubClass::Trap) => "trap",
+            EntityClass::Stationary(StationarySubClass::Structure) => "structure",
+            EntityClass::Mobile(MobileSubClass::Vehicle) => "vehicle",
+            EntityClass::Mobile(MobileSubClass::Beast) => "beast",
+            EntityClass::Mobile(MobileSubClass::Projectile) => "projectile",
+            EntityClass::Organic(OrganicSubClass::Hero) => "hero",
+            EntityClass::Organic(OrganicSubClass::Adventurer) => "adventurer",
+            EntityClass::Organic(OrganicSubClass::Soldier) => "soldier",
+            EntityClass::Organic(OrganicSubClass::Enemy) => "enemy",
+            EntityClass::Composite(CompositeSubClass::Convoy) => "convoy",
+            EntityClass::Composite(CompositeSubClass::Wave) => "wave",
+        }
+    }
+}
+
+/// serde bridge so `EntityClass` serializes as its flat lowercase string
+/// (`"tower"`, `"structure"`, …) instead of serde's nested-enum representation.
+mod entity_class_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::EntityClass;
+
+    pub fn serialize<S: Serializer>(class: &EntityClass, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(class.as_str())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<EntityClass, D::Error> {
+        let s = String::deserialize(d)?;
+        EntityClass::from_str(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown entity class: \"{s}\"")))
+    }
+}
+
+/// Elemental affinity of an entity def. Exact, case-sensitive values; unknown
+/// values fail deserialization (no fallback).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Element {
+    Physical,
+    Fire,
+    Ice,
+    Lightning,
+    Holy,
+    Dark,
+}
+
+impl Element {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "physical" => Some(Element::Physical),
+            "fire" => Some(Element::Fire),
+            "ice" => Some(Element::Ice),
+            "lightning" => Some(Element::Lightning),
+            "holy" => Some(Element::Holy),
+            "dark" => Some(Element::Dark),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Element::Physical => "physical",
+            Element::Fire => "fire",
+            Element::Ice => "ice",
+            Element::Lightning => "lightning",
+            Element::Holy => "holy",
+            Element::Dark => "dark",
+        }
+    }
+}
+
+impl EntityClass {
     pub fn allowed_modifier_slots(self) -> &'static [(&'static str, i32)] {
         match self {
             EntityClass::Stationary(StationarySubClass::Tower) => &[
@@ -100,26 +176,33 @@ pub struct EntityDef {
     pub created_at: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct EntityDefEditor {
     pub key: String,
-    pub class: String,
+    #[serde(with = "entity_class_serde")]
+    #[schemars(with = "String")]
+    pub class: EntityClass,
     pub width_tiles: f64,
     pub height_tiles: f64,
     pub max_hp: i32,
     pub speed_pps: i32,
     pub attack_range_tiles: i32,
     pub attack_power: i32,
-    pub element: String,
+    pub element: Element,
     pub action_cooldown_ticks: i32,
     pub projectile_type: String,
     pub requires_ground: bool,
     pub requires_ceiling: bool,
+    #[serde(default)]
+    pub weight: f64,
+    #[serde(default)]
+    pub max_weight: f64,
 }
 
 impl EntityDefEditor {
     pub fn resolve_class(&self) -> Option<EntityClass> {
-        EntityClass::from_str(&self.class)
+        Some(self.class)
     }
 
     pub fn validate(&self) -> ValidationResult {

@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScreenFile",
+  "type": "object",
+  "required": [
+    "elevation_ceiling_tiles",
+    "elevation_floor_tiles",
+    "height_tiles",
+    "placed_entities",
+    "screen_id",
+    "tile_height_px",
+    "tile_width_px",
+    "tiles",
+    "version",
+    "width_tiles"
+  ],
+  "properties": {
+    "elevation_ceiling_tiles": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "elevation_floor_tiles": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "height_tiles": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "placed_entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ScreenPlacedEntity"
+      }
+    },
+    "screen_id": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "tile_height_px": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "tile_width_px": {
+      "type": "integer",
+      "format": "int32"
+    },
+    "tiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ScreenTileEntry"
+      }
+    },
+    "version": {
+      "type": "string"
+    },
+    "width_tiles": {
+      "type": "integer",
+      "format": "int32"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ScreenPlacedEntity": {
+      "type": "object",
+      "required": [
+        "entity_key",
+        "world_tile_x",
+        "world_tile_y"
+      ],
+      "properties": {
+        "entity_key": {
+          "type": "string"
+        },
+        "world_tile_x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "world_tile_y": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScreenTileEntry": {
+      "type": "object",
+      "required": [
+        "terrain",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "elevation_tiles": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "sub_tile_mask": {
+          "description": "Placement-editor flattened metadata. Accepts legacy integral-float formatting.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "terrain": {
+          "type": "string"
+        },
+        "tile_data": {
+          "description": "Opaque extension bag written by the Map editor (contains `sub_tile_mask`, `elevation_tiles`, `z_depth`, `flip_h`/`flip_v`, `source_image`, `source_rect`, …)."
+        },
+        "x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "y": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "z_depth": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

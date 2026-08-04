@@ -1,0 +1,36 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/tile_set_grouping.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+key = "grass_1x2"
+display_name = "Grass 1×2"
+width_tiles = 1
+height_tiles = 2
+src_margins = Vector2i(420, 237)
+src_cell_size = Vector2i(492, 508)
+src_separation = Vector2i(3, 3)
+source_image = "res://assets/samples/tileset_0-0.png"
+tiles = [{
+"local_x": 0,
+"local_y": 0,
+"terrain_key": "grass_0_0",
+"elevation_tiles": 0,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"source_col": 0,
+"source_row": 0
+}, {
+"local_x": 0,
+"local_y": 1,
+"terrain_key": "grass_0_1",
+"elevation_tiles": 0,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"source_col": 0,
+"source_row": 1,
+"flip_h": false,
+"flip_v": false
+}]
+tags = ["terrain"]

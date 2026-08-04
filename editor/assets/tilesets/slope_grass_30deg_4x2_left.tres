@@ -1,0 +1,96 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/tile_set_grouping.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+key = "slope_grass_30deg_4x2_left"
+display_name = "30° Grass Slope 4×2 (Left)"
+width_tiles = 4
+height_tiles = 2
+src_margins = Vector2i(104, 65)
+src_cell_size = Vector2i(126, 126)
+src_separation = Vector2i(1, 1)
+source_image = "res://assets/samples/tileset_2-2.png"
+tiles = [{
+"local_x": 0,
+"local_y": 0,
+"terrain_key": "slope_30deg_3_0",
+"elevation_tiles": 1,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"flip_h": true,
+"source_col": 3,
+"source_row": 0
+}, {
+"local_x": 1,
+"local_y": 0,
+"terrain_key": "slope_30deg_2_0",
+"elevation_tiles": 1,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"flip_h": true,
+"source_col": 2,
+"source_row": 0
+}, {
+"local_x": 2,
+"local_y": 0,
+"terrain_key": "slope_30deg_1_0",
+"elevation_tiles": 0,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"flip_h": true,
+"source_col": 1,
+"source_row": 0
+}, {
+"local_x": 3,
+"local_y": 0,
+"terrain_key": "slope_30deg_0_0",
+"elevation_tiles": 0,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"flip_h": true,
+"source_col": 0,
+"source_row": 0
+}, {
+"local_x": 0,
+"local_y": 1,
+"terrain_key": "slope_30deg_3_1",
+"elevation_tiles": 1,
+"z_depth": 0,
+"sub_tile_mask": 15,
+"flip_h": true,
+"source_col": 3,
+"source_row": 1
+}, {
+"local_x": 1,
+"local_y": 1,
+"terrain_key": "slope_30deg_2_1",
+"elevation_tiles": 0,
+"z_depth": -1,
+"sub_tile_mask": 0,
+"flip_h": true,
+"source_col": 2,
+"source_row": 1
+}, {
+"local_x": 2,
+"local_y": 1,
+"terrain_key": "slope_30deg_1_1",
+"elevation_tiles": 0,
+"z_depth": -1,
+"sub_tile_mask": 0,
+"flip_h": true,
+"source_col": 1,
+"source_row": 1
+}, {
+"local_x": 3,
+"local_y": 1,
+"terrain_key": "slope_30deg_0_1",
+"elevation_tiles": 0,
+"z_depth": -1,
+"sub_tile_mask": 0,
+"flip_h": true,
+"source_col": 0,
+"source_row": 1
+}]
+tags = ["slope", "grassland"]

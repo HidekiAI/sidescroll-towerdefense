@@ -7,4 +7,5 @@ description = "Shared data model and physics engine for SSTD Editor and Game"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+schemars = { version = "0.8", features = ["derive"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
