@@ -103,8 +103,8 @@ fn populate_003(conn: &Connection) -> SstdResult<()> {
     let entries: [(&str, &str); 5] = [
         ("luck.default_luck", "0"),
         ("luck.bonus_per_point", "0.15"),
-        ("luck.max_luck", "3"),
-        ("luck.bonus_cap", "0.25"),
+        ("luck.max_luck", "5"),
+        ("luck.crit_cap", "1"),
         ("luck.aura_radius", "3"),
     ];
     for (key, value) in &entries {
@@ -340,8 +340,8 @@ impl ConfigStore {
                 .get_str("luck.bonus_per_point")?
                 .parse()
                 .unwrap_or(0.15),
-            max_luck: self.get_str("luck.max_luck")?.parse().unwrap_or(3),
-            bonus_cap: self.get_str("luck.bonus_cap")?.parse().unwrap_or(0.25),
+            max_luck: self.get_str("luck.max_luck")?.parse().unwrap_or(5),
+            crit_cap: self.get_str("luck.crit_cap")?.parse().unwrap_or(1.0),
             aura_radius: self.get_str("luck.aura_radius")?.parse().unwrap_or(3.0),
         })
     }
@@ -595,8 +595,8 @@ mod tests {
         let luck = store.luck_config().unwrap();
         assert_eq!(luck.default_luck, 0);
         assert!((luck.bonus_per_point - 0.15).abs() < f64::EPSILON);
-        assert_eq!(luck.max_luck, 3);
-        assert!((luck.bonus_cap - 0.25).abs() < f64::EPSILON);
+        assert_eq!(luck.max_luck, 5);
+        assert!((luck.crit_cap - 1.0).abs() < f64::EPSILON);
         assert_eq!(luck.aura_radius, 3.0);
     }
 

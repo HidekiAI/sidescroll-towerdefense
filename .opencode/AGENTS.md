@@ -61,6 +61,16 @@ SSTD is strategic / no-RNG, so LUCK is a **deterministic, bounded modifier** —
 - AURA / radius and patrol/follow movement are core geometry (`within_aura`); actual
   ally-selection and target-following remain the engine's job.
 
+### Replay & seeded rolls
+
+- **Persist the SEED, not rolls.** One `u64` seeds `sstd-core`'s dependency-free splitmix64
+  (`seeded_roll(seed, counter)`); everything else (tiers, crits, damage) is derived data.
+- `RollLog` (luckbot.rs) folds every `roll()` into a rotating `checksum()`; **same seed + same
+  roll count ⇒ identical checksum** is the replay/CI invariant. Any call-order change, missing
+  roll, PRNG swap, or config change breaks it.
+- Rule: never persist a rolled tier directly as a replay source of truth; recompute it from the
+  seed on replay.
+
 ## Pathfinding
 
 - **No A*** — SSTD is a side-scroller; corridors are linear with occasional 2-3 way forks

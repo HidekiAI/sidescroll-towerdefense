@@ -142,12 +142,12 @@ Companion bots that make their team luckier around them. Like repairers and guar
 can either **patrol** (roam an area) or **follow** an entity such as a catapult or a guard tower.
 
 - **Radius-based aura** — every ally inside the aura benefits; the higher the bot's luck stat,
-  the stronger the bonus.
-- **Deterministic, not random** — SSTD is strategic / no-RNG. Luck is a predictable bounded
-  modifier: `final_damage × (1 + %LUCK)`, capped (default +25%). No dice rolls, no gambling.
-- **Neutral by default** — luck `0` means no effect; only investing in the bot helps.
-- **Guaranteed up-tiers** — more luck shortens the interval between critical hits and raises
-  the *minimum* item-drop tier; both are deterministic, never a roll.
+  the better the **odds** of favorable rolls for allies inside the radius.
+- **Rolls stay in play** — luck keeps the dice rolling and makes good outcomes more likely:
+  - **Criticals** — luck raises base crit *chance* (capped, so never 100% runaway).
+  - **Item drops** — luck inflates the rarer weights in the drop table, so a roll lands on
+    better rarities more often.
+- **Neutral by default** — luck `0` means no effect; investing in a LuckBot is a real choice.
 - **All tuning is config-driven** (`luck.*` keys) for easy future balance.
 
 ---

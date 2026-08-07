@@ -15,8 +15,8 @@ pub use entity::{
 };
 pub use error::{SstdResult, StorageError, ValidationMessage, ValidationResult};
 pub use luckbot::{
-    clamp_luck, crit_interval, damage_multiplier, distance, luck_bonus_fraction, rarity_floor,
-    within_aura, Bot, LuckConfig, MoveMode,
+    clamp_luck, crit_chance, distance, luck_multiplier, luck_weighted_rarity, seeded_roll,
+    within_aura, Bot, LuckConfig, MoveMode, RarityTier, RollLog, WeightedTable, DEFAULT_RARITIES,
 };
 pub use map::{
     pixel_to_tile, tile_to_world, world_to_screen, ClearanceResult, PlacedEntity, Screen,
