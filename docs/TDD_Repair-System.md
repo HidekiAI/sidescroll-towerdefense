@@ -124,10 +124,10 @@ impl ConfigStore {
 
 ## 5. Population Script
 
-When design values for `repair.gemama.cost_m` and `repair.gemama.rate` are finalized, create `populate_002`:
+When design values for `repair.gemama.cost_m` and `repair.gemama.rate` are finalized, create `populate_004` (populations `002` (death/revive) and `003` (LuckBot) are taken; repair lands in `004`):
 
 ```rust
-fn populate_002(conn: &Connection) -> SstdResult<()> {
+fn populate_004(conn: &Connection) -> SstdResult<()> {
     let entries: [(&str, &str); 3] = [
         ("repair.gemama.cost_m", "<TBD>"),
         ("repair.gemama.cost_c", "1"),
@@ -148,7 +148,9 @@ Register in the `POPULATIONS` array in `config.rs`:
 ```rust
 const POPULATIONS: &[Population] = &[
     Population { id: "001", description: "Core config: grid, time, entity limits", func: populate_001 },
-    Population { id: "002", description: "Repair system: Gemama weapon repair constants", func: populate_002 },
+    Population { id: "002", description: "Death/revive system", func: populate_002 },
+    Population { id: "003", description: "LuckBot companion: luck stat, aura radius, crit/rarity tuning", func: populate_003 },
+    Population { id: "004", description: "Repair system: Gemama weapon repair constants", func: populate_004 },
 ];
 ```
 

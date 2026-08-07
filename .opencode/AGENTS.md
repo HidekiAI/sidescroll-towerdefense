@@ -43,11 +43,23 @@ Runtime game interaction — multiplayer coordination, external AI opponents, sp
 
 All gRPC services must honor the **Config-Control-Model-View** (CCMV) architecture: every operation is validated against `sstd_config.sqlite3` config constants first, then processed through the Rust data model, and finally returned as structured data (never as raw display state). External tools bypassing CCMV (e.g., writing config values directly without going through the population system) must be rejected at the gRPC layer.
 
-## LUCK Stat (Phase 2 Consideration)
+## LUCK Stat
 
-- If LUCK is added as a stat, use a **bounded modifier** (`±LUCK%` to damage, no roll) to preserve deterministic feel
-- Decided against dice (2D20 or flat random) — SSTD is strategic/no-RNG; even a bell-curve roll undermines placement strategy
-- LUCK acts as a predictable fudge factor: `final_damage × (1 ± LUCK%)`, capped at reasonable bounds (e.g., ±25%)
+SSTD is strategic / no-RNG, so LUCK is a **deterministic, bounded modifier** — never a dice roll.
+
+- **Deterministic, not random** (Decision, 2026-08-07): LuckBot companions apply a predictable,
+  capped boost; no 2D20, no flat random, no bell-curve rolls for luck. Rolls stay out of the
+  placement-strategy loop.
+- **Behavior** (implemented @ `crates/sstd-core/src/luckbot.rs`):
+  - `final_damage × (1 + %LUCK)` — additive-on-base, capped at `luck.bonus_cap` (default +25%)
+  - Crit is a fixed cadence (`crit_interval`: every N-th hit), max luck → crit every hit
+  - Drops use a guaranteed `rarity_floor` (luck raises the minimum tier), not weighted rolls
+  - Neutral luck `0` → no effect (`×1.0`), so investing in a LuckBot is always a deliberate choice
+  - All constants config-driven (`luck.*` keys via `populate_003`)
+- Supersedes the earlier "Phase 2 Consideration" ±LUCK% to damage note; the deterministic stance is kept, now implemented as a bounded modifier with explicit crit cadence + rarity floor.
+
+- AURA / radius and patrol/follow movement are core geometry (`within_aura`); actual
+  ally-selection and target-following remain the engine's job.
 
 ## Pathfinding
 
@@ -75,6 +87,10 @@ All config keys follow `domain.snake_case` format (code-enforced). The wiki's `T
 - SQL examples: per-domain tables (`inventory_config`) → single `config` table per code
 - Cheatsheet: all keys prefixed with domain + snake_cased
 - Attribute keys in `TDD_Entity-Instance-System` (e.g. `attackRange`, `elementAffinity`) remain camelCase — those are entity attribute keys, not config keys.
+
+## Rule of Thumb: Config-Based Constants
+
+All tunable gameplay constants must live in `sstd_config.sqlite3` via the population system (`config.rs` POPULATIONS / `populate_NNN`). Code structs expose a `Default` ONLY as a fallback for an unseeded store — never as the runtime source of truth. The game always loads from `ConfigStore`. New systems: write the population script + keys + a `ConfigStore::<x>_config()` loader + loader test alongside the logic.
 
 ## Config Population Versioning
 

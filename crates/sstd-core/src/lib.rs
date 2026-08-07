@@ -1,7 +1,9 @@
 pub mod config;
 pub mod entity;
 pub mod error;
+pub mod luckbot;
 pub mod map;
+pub mod resurrection;
 pub mod storage;
 pub mod terrain;
 
@@ -12,9 +14,19 @@ pub use entity::{
     StationarySubClass,
 };
 pub use error::{SstdResult, StorageError, ValidationMessage, ValidationResult};
+pub use luckbot::{
+    clamp_luck, crit_interval, damage_multiplier, distance, luck_bonus_fraction, rarity_floor,
+    within_aura, Bot, LuckConfig, MoveMode,
+};
 pub use map::{
     pixel_to_tile, tile_to_world, world_to_screen, ClearanceResult, PlacedEntity, Screen,
     TileEntry, TileGrid,
+};
+pub use resurrection::{
+    apply_damage_absorb_turn, damage_absorb_turn, is_affordable, maseki_percent_payment, mp_to_hp,
+    resolve_auto_resurrect, resolve_revive, revive_lose_level, AutoResurrectKind, DamageAbsorbTurn,
+    DeclineReason, PlayerProfile, ReviveChoice, ReviveConfig, ReviveDialog, ReviveError,
+    ReviveOption, ReviveOutcome,
 };
 pub use storage::{check_schema_version, CURRENT_SCHEMA_VERSION};
 pub use terrain::{

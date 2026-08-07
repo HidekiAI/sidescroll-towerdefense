@@ -120,6 +120,36 @@ The keys (`cost_m`, `cost_c`, `rate`) stay the same — only the Rust evaluation
 
 (Reserved — see TDD documents for per-second vs per-tick constants.)
 
+### 4.1 Death & Revival
+
+When the player's hero (or a unit) takes a killing blow, the game pauses and a **countdown dialog** opens with a 10-second timer. The player may choose one of five revival options, decline, or let the timer expire — expiry is treated exactly like a deliberate decline.
+
+The five options, for the player's eyes:
+
+| # | Option | Player-facing cost | Notes |
+|---|--------|--------------------|-------|
+| 1 | Revive now | Lose **1 level** | If the hero has no level to give, it is **permanent death** |
+| 2 | Restart session | Reset Exp to 0 | Level kept; self-discouraging exploit (dying right after leveling) |
+| 3 | Restart scenario | None | High levels gain nothing from restarting starter maps, so it self-balances |
+| 4 | Damage-absorb artifact | Survive at **1 HP**, then convert **10 MP → 10 HP** per turn | Keep some MP or the cushion is gone on the next hit |
+| 5 | Auto-resurrect artifacts | Varies: free, 5 bot lives, 50% MP→HP, 100 maseki, or 10% maseki (min 50) | One of five artifact sub-kinds is consumed |
+
+All numbers are config-driven (`resurrect.*` keys); nothing is hard-coded in gameplay code.
+
+### 4.2 LuckBots
+
+Companion bots that make their team luckier around them. Like repairers and guards, a LuckBot
+can either **patrol** (roam an area) or **follow** an entity such as a catapult or a guard tower.
+
+- **Radius-based aura** — every ally inside the aura benefits; the higher the bot's luck stat,
+  the stronger the bonus.
+- **Deterministic, not random** — SSTD is strategic / no-RNG. Luck is a predictable bounded
+  modifier: `final_damage × (1 + %LUCK)`, capped (default +25%). No dice rolls, no gambling.
+- **Neutral by default** — luck `0` means no effect; only investing in the bot helps.
+- **Guaranteed up-tiers** — more luck shortens the interval between critical hits and raises
+  the *minimum* item-drop tier; both are deterministic, never a roll.
+- **All tuning is config-driven** (`luck.*` keys) for easy future balance.
+
 ---
 
 ## 5. Config & Constants

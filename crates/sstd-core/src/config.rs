@@ -4,6 +4,8 @@ use rusqlite::Connection;
 
 use crate::entity::EntityLimits;
 use crate::error::SstdResult;
+use crate::luckbot::LuckConfig;
+use crate::resurrection::ReviveConfig;
 use crate::terrain::{GridConfig, TimeConfig};
 
 pub const DEFAULT_CONFIG_DB_NAME: &str = "sstd_config.sqlite3";
@@ -20,11 +22,23 @@ struct Population {
     func: PopulateFn,
 }
 
-const POPULATIONS: &[Population] = &[Population {
-    id: "001",
-    description: "Initial core config: grid, time, entity limits",
-    func: populate_001,
-}];
+const POPULATIONS: &[Population] = &[
+    Population {
+        id: "001",
+        description: "Initial core config: grid, time, entity limits",
+        func: populate_001,
+    },
+    Population {
+        id: "002",
+        description: "Death/revive system: revival options and cost tuning",
+        func: populate_002,
+    },
+    Population {
+        id: "003",
+        description: "LuckBot companion: luck stat, aura radius, crit/rarity tuning",
+        func: populate_003,
+    },
+];
 
 const POST_POPULATIONS: &[Population] = &[];
 
@@ -45,6 +59,53 @@ fn populate_001(conn: &Connection) -> SstdResult<()> {
         ("entity.max_on_screen", "50"),
         ("entity.max_process_per_frame", "30"),
         ("entity.max_off_screen_process", "10"),
+    ];
+    for (key, value) in &entries {
+        conn.execute(
+            "INSERT OR IGNORE INTO config (key, default_value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Population: populate_002 — seed the 10 death/revive config keys
+// ---------------------------------------------------------------------------
+fn populate_002(conn: &Connection) -> SstdResult<()> {
+    let entries: [(&str, &str); 10] = [
+        ("resurrect.lose_level_cost", "1"),
+        ("resurrect.damage_absorb_leave_hp", "1"),
+        ("resurrect.damage_absorb_mp_per_turn", "10"),
+        ("resurrect.damage_absorb_hp_per_turn", "10"),
+        ("resurrect.auto_resurrect_bot_lives", "5"),
+        ("resurrect.auto_resurrect_mp_to_hp_percent", "50"),
+        ("resurrect.auto_resurrect_pay_maseki_amount", "100"),
+        ("resurrect.auto_resurrect_pay_maseki_percent", "10"),
+        ("resurrect.auto_resurrect_pay_maseki_min", "50"),
+        ("resurrect.dialog_countdown_secs", "10"),
+    ];
+    for (key, value) in &entries {
+        conn.execute(
+            "INSERT OR IGNORE INTO config (key, default_value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Population: populate_003 — seed the 5 LuckBot config keys
+// ---------------------------------------------------------------------------
+fn populate_003(conn: &Connection) -> SstdResult<()> {
+    let entries: [(&str, &str); 5] = [
+        ("luck.default_luck", "0"),
+        ("luck.bonus_per_point", "0.15"),
+        ("luck.max_luck", "3"),
+        ("luck.bonus_cap", "0.25"),
+        ("luck.aura_radius", "3"),
     ];
     for (key, value) in &entries {
         conn.execute(
@@ -272,6 +333,64 @@ impl ConfigStore {
         })
     }
 
+    pub fn luck_config(&self) -> SstdResult<LuckConfig> {
+        Ok(LuckConfig {
+            default_luck: self.get_str("luck.default_luck")?.parse().unwrap_or(0),
+            bonus_per_point: self
+                .get_str("luck.bonus_per_point")?
+                .parse()
+                .unwrap_or(0.15),
+            max_luck: self.get_str("luck.max_luck")?.parse().unwrap_or(3),
+            bonus_cap: self.get_str("luck.bonus_cap")?.parse().unwrap_or(0.25),
+            aura_radius: self.get_str("luck.aura_radius")?.parse().unwrap_or(3.0),
+        })
+    }
+
+    pub fn revive_config(&self) -> SstdResult<ReviveConfig> {
+        Ok(ReviveConfig {
+            lose_level_cost: self
+                .get_str("resurrect.lose_level_cost")?
+                .parse()
+                .unwrap_or(1),
+            damage_absorb_leave_hp: self
+                .get_str("resurrect.damage_absorb_leave_hp")?
+                .parse()
+                .unwrap_or(1),
+            damage_absorb_mp_per_turn: self
+                .get_str("resurrect.damage_absorb_mp_per_turn")?
+                .parse()
+                .unwrap_or(10),
+            damage_absorb_hp_per_turn: self
+                .get_str("resurrect.damage_absorb_hp_per_turn")?
+                .parse()
+                .unwrap_or(10),
+            auto_resurrect_bot_lives: self
+                .get_str("resurrect.auto_resurrect_bot_lives")?
+                .parse()
+                .unwrap_or(5),
+            auto_resurrect_mp_to_hp_percent: self
+                .get_str("resurrect.auto_resurrect_mp_to_hp_percent")?
+                .parse()
+                .unwrap_or(50),
+            auto_resurrect_pay_maseki_amount: self
+                .get_str("resurrect.auto_resurrect_pay_maseki_amount")?
+                .parse()
+                .unwrap_or(100),
+            auto_resurrect_pay_maseki_percent: self
+                .get_str("resurrect.auto_resurrect_pay_maseki_percent")?
+                .parse()
+                .unwrap_or(10),
+            auto_resurrect_pay_maseki_min: self
+                .get_str("resurrect.auto_resurrect_pay_maseki_min")?
+                .parse()
+                .unwrap_or(50),
+            dialog_countdown_secs: self
+                .get_str("resurrect.dialog_countdown_secs")?
+                .parse()
+                .unwrap_or(10),
+        })
+    }
+
     pub fn set_config(&self, key: &str, value: &str) -> SstdResult<()> {
         self.conn
             .execute(
@@ -398,7 +517,7 @@ mod tests {
     fn test_config_store_in_memory() {
         let store = ConfigStore::in_memory().unwrap();
         let configs = store.all_config().unwrap();
-        assert_eq!(configs.len(), 12);
+        assert_eq!(configs.len(), 27);
     }
 
     #[test]
@@ -450,13 +569,81 @@ mod tests {
         let store = ConfigStore::in_memory().unwrap();
         let pops = store.applied_populations().unwrap();
         assert!(pops.iter().any(|(id, _)| id == "001"));
+        assert!(pops.iter().any(|(id, _)| id == "002"));
+        assert!(pops.iter().any(|(id, _)| id == "003"));
+    }
+
+    #[test]
+    fn test_luck_keys_seeded() {
+        let store = ConfigStore::in_memory().unwrap();
+        let configs = store.all_config().unwrap();
+        let luck_keys: Vec<String> = configs
+            .iter()
+            .filter(|(k, _)| k.starts_with("luck."))
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(luck_keys.len(), 5);
+        let bonus = store.get_str("luck.bonus_per_point").unwrap();
+        assert_eq!(bonus, "0.15");
+        let radius = store.get_str("luck.aura_radius").unwrap();
+        assert_eq!(radius, "3");
+    }
+
+    #[test]
+    fn test_luck_config_loader() {
+        let store = ConfigStore::in_memory().unwrap();
+        let luck = store.luck_config().unwrap();
+        assert_eq!(luck.default_luck, 0);
+        assert!((luck.bonus_per_point - 0.15).abs() < f64::EPSILON);
+        assert_eq!(luck.max_luck, 3);
+        assert!((luck.bonus_cap - 0.25).abs() < f64::EPSILON);
+        assert_eq!(luck.aura_radius, 3.0);
+    }
+
+    #[test]
+    fn test_resurrect_keys_seeded() {
+        let store = ConfigStore::in_memory().unwrap();
+        let configs = store.all_config().unwrap();
+        let resurrect_keys: Vec<String> = configs
+            .iter()
+            .filter(|(k, _)| k.starts_with("resurrect."))
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(resurrect_keys.len(), 10);
+        for key in [
+            "resurrect.lose_level_cost",
+            "resurrect.damage_absorb_leave_hp",
+            "resurrect.damage_absorb_mp_per_turn",
+            "resurrect.damage_absorb_hp_per_turn",
+            "resurrect.auto_resurrect_bot_lives",
+            "resurrect.auto_resurrect_mp_to_hp_percent",
+            "resurrect.auto_resurrect_pay_maseki_amount",
+            "resurrect.auto_resurrect_pay_maseki_percent",
+            "resurrect.auto_resurrect_pay_maseki_min",
+            "resurrect.dialog_countdown_secs",
+        ] {
+            assert!(resurrect_keys.iter().any(|k| k == key), "missing {}", key);
+        }
+        let countdown = store.get_str("resurrect.dialog_countdown_secs").unwrap();
+        assert_eq!(countdown, "10");
+    }
+
+    #[test]
+    fn test_revive_config_loader() {
+        let store = ConfigStore::in_memory().unwrap();
+        let revive = store.revive_config().unwrap();
+        assert_eq!(revive.lose_level_cost, 1);
+        assert_eq!(revive.damage_absorb_leave_hp, 1);
+        assert_eq!(revive.auto_resurrect_bot_lives, 5);
+        assert_eq!(revive.auto_resurrect_pay_maseki_min, 50);
+        assert_eq!(revive.dialog_countdown_secs, 10);
     }
 
     #[test]
     fn test_schema_version_after_population() {
         let store = ConfigStore::in_memory().unwrap();
         let ver = store.get_meta("schema_version").unwrap();
-        assert_eq!(ver, "0.0.1");
+        assert_eq!(ver, "0.0.3");
     }
 
     #[test]
