@@ -60,9 +60,10 @@ func _load_defaults() -> void:
         {"key": "wall",  "color_hex": "#555555"},
     ]
     _entity_defs = [
-        {"key": "arrow_tower", "class": "tower",  "width_tiles": 1.0, "height_tiles": 1.5},
-        {"key": "ballista",    "class": "tower",  "width_tiles": 1.0, "height_tiles": 1.5},
+        {"key": "arrow_tower", "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.5},
+        {"key": "ballista",    "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.0},
         {"key": "catapult",    "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.0},
+        {"key": "stone_golem", "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.5},
         {"key": "wall",        "class": "structure", "width_tiles": 1.0, "height_tiles": 1.0},
         {"key": "bridge",      "class": "structure", "width_tiles": 2.0, "height_tiles": 0.5},
         {"key": "tarpit",      "class": "trap",   "width_tiles": 1.0, "height_tiles": 0.5},
