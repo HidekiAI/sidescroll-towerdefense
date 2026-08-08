@@ -39,6 +39,7 @@ var _stamp_texture: ImageTexture
 var _stamp_origin: Vector2i = Vector2i(-1, -1)
 var _stamp_seq: int = 0
 var _stamp_catalog: Array[Dictionary] = []
+var _stamp_basename: String = ""
 
 @onready var palette_list: ItemList = $LeftPanel/PaletteList
 @onready var tile_set_palette: ItemList = $LeftPanel/TileSetPalette
@@ -663,6 +664,7 @@ func _on_stamp_import_file(path: String) -> void:
     _stamp_texture = ImageTexture.create_from_image(img)
     _stamp_active = true
     _stamp_origin = Vector2i(-1, -1)
+    _stamp_basename = path.get_file().get_basename().strip_edges()
     _stamp_catalog.clear()
     info_label.text = "Stamp loaded: %s (%dx%d). Click+hold on grid to define stamp origin, release to commit." \
             % [path.get_file(), img.get_width(), img.get_height()]
@@ -687,7 +689,7 @@ func _commit_stamp(origin: Vector2i) -> void:
     var col_count: int = ceili(float(w) / STAMP_CELL)
     var row_count: int = ceili(float(h) / STAMP_CELL)
     var total := 0
-    var unique := 0
+    var cells: Array[Dictionary] = []
     for ry in row_count:
         for cx in col_count:
             var gx := origin.x + cx
@@ -704,7 +706,6 @@ func _commit_stamp(origin: Vector2i) -> void:
                 cell.blit_rect(_stamp_image, Rect2i(sx, sy, uw, uh), Vector2i.ZERO)
             if _has_ink(cell):
                 var entry := _ensure_tile(cell)
-                unique += 1
                 _tiles[_key(gx, gy)] = entry["key"]
                 _tile_data[_key(gx, gy)] = {
                     "flip_h": entry["flip_h"],
@@ -713,11 +714,77 @@ func _commit_stamp(origin: Vector2i) -> void:
                     "elevation_tiles": 0,
                     "z_depth": 0,
                 }
+                cells.append({
+                    "local_x": cx, "local_y": ry,
+                    "gx": gx, "gy": gy,
+                    "terrain_key": entry["key"],
+                    "flip_h": entry["flip_h"],
+                    "flip_v": entry["flip_v"],
+                    "src_col": cx, "src_row": ry,
+                })
     _refresh_palette()
     tile_grid.reload_textures()
     tile_grid.queue_redraw()
+    if not cells.is_empty():
+        _register_stamp_brush(cells, col_count, row_count)
+        _save_stamp_metadata(cells, col_count, row_count)
     info_label.text = "Stamped %d cells, %d unique tiles (from %dx%d px image)" \
             % [total, _stamp_catalog.size(), w, h]
+
+func _register_stamp_brush(cells: Array[Dictionary], cols: int, rows: int) -> void:
+    if _stamp_basename.is_empty():
+        return
+    var ts := TileSetGrouping.new()
+    ts.key = "stamp_%s" % _stamp_basename
+    ts.display_name = "Stamp %s" % _stamp_basename
+    ts.width_tiles = cols
+    ts.height_tiles = rows
+    ts.tiles = []
+    for cell in cells:
+        ts.tiles.append({
+            "local_x": cell["local_x"],
+            "local_y": cell["local_y"],
+            "terrain_key": cell["terrain_key"],
+            "sub_tile_mask": 15,
+            "elevation_tiles": 0,
+            "z_depth": 0,
+            "flip_h": cell["flip_h"],
+            "flip_v": cell["flip_v"],
+            "source_col": cell["src_col"],
+            "source_row": cell["src_row"],
+        })
+    ts.tags = ["stamp", "terrain"]
+    _tile_set_groupings.append(ts)
+    _refresh_tile_set_palette()
+    select_tile_set(ts.key)
+
+func _save_stamp_metadata(cells: Array[Dictionary], cols: int, rows: int) -> void:
+    if _stamp_basename.is_empty():
+        return
+    var path := "res://stamp_meta_%s.json" % _stamp_basename
+    var meta := {
+        "version": "0.1.0",
+        "stamp_name": _stamp_basename,
+        "grid_cols": cols,
+        "grid_rows": rows,
+        "tile_cell_size_px": STAMP_CELL,
+        "tiles": [],
+    }
+    for cell in cells:
+        meta["tiles"].append({
+            "tile_id": cell["terrain_key"],
+            "local_x": cell["local_x"],
+            "local_y": cell["local_y"],
+            "src_col": cell["src_col"],
+            "src_row": cell["src_row"],
+            "flip_h": cell["flip_h"],
+            "flip_v": cell["flip_v"],
+        })
+    var abs := ProjectSettings.globalize_path(path)
+    var f := FileAccess.open(abs, FileAccess.WRITE)
+    if f:
+        f.store_string(JSON.stringify(meta, "\t"))
+        f.close()
 
 func _has_ink(cell: Image) -> bool:
     var data := cell.get_data()
