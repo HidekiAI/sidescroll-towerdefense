@@ -27,6 +27,10 @@ var _store: ScreenStore
 var _screen_pos: Vector2i = Vector2i.ZERO
 var _clipboard: Dictionary = {}
 
+var _hud_dragging: bool = false
+var _hud_drag_grab: Vector2 = Vector2.ZERO
+var _hud_start_pos: Vector2 = Vector2.ZERO
+
 @onready var palette_list: ItemList = $LeftPanel/PaletteList
 @onready var tile_set_palette: ItemList = $LeftPanel/TileSetPalette
 @onready var tile_grid: Control = $RightPanel/Scroll/TileGrid
@@ -523,7 +527,7 @@ func _update_hud() -> void:
     if not td.is_empty():
         under_desc += "  mask:%s elev:%s" % [td.get("sub_tile_mask", "-"), td.get("elevation_tiles", "-")]
     var placed := "placed" if _is_current_placed() else "unplaced"
-    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s" % [
+    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s\n[H] hide/drag" % [
         _screen_id, base.x, base.y, placed, tx, ty, wx, wy, brush, under_desc,
     ]
 
@@ -631,6 +635,24 @@ func _on_export() -> void:
     dialog.popup_centered(Vector2i(600, 400))
 
 func _input(event: InputEvent) -> void:
+    if _hud_dragging:
+        if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+            _hud_dragging = false
+            get_viewport().set_input_as_handled()
+            return
+        if event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+            var delta: Vector2 = event.position - _hud_drag_grab
+            hud_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
+            hud_label.position = _hud_start_pos + delta
+            get_viewport().set_input_as_handled()
+            return
+    if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+        if hud_label.visible and hud_label.get_global_rect().has_point(event.position):
+            _hud_dragging = true
+            _hud_drag_grab = event.position
+            _hud_start_pos = hud_label.position
+            get_viewport().set_input_as_handled()
+            return
     if event is InputEventMouseMotion:
         var pos := tile_grid.get_local_mouse_position()
         var tile := Vector2i(int(pos.x / tile_grid.tile_size), int(pos.y / tile_grid.tile_size))
@@ -644,6 +666,9 @@ func _input(event: InputEvent) -> void:
         if event.keycode == KEY_Y:
             _flip_v_active = not _flip_v_active
             _update_info()
+            get_viewport().set_input_as_handled()
+        if event.keycode == KEY_H:
+            hud_label.visible = not hud_label.visible
             get_viewport().set_input_as_handled()
 
 func set_main_reference(m: Node) -> void:
