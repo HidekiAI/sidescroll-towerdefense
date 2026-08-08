@@ -38,9 +38,10 @@ script = ExtResource("1")
 layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
-current_tab = 0
+current_tab = 3
 
 [node name="TerrainEditor" type="HSplitContainer" parent="TabContainer"]
+visible = false
 layout_mode = 2
 script = ExtResource("2")
 metadata/_tab_index = 0
@@ -66,8 +67,8 @@ text = "Delete"
 
 [node name="PropPanel" type="VBoxContainer" parent="TabContainer/TerrainEditor"]
 layout_mode = 2
-size_flags_horizontal = 2
-size_flags_stretch_ratio = 2.16
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.26
 
 [node name="PixelSplit" type="VSplitContainer" parent="TabContainer/TerrainEditor/PropPanel"]
 layout_mode = 2
@@ -320,7 +321,7 @@ text = "Delete"
 
 [node name="PropPanel" type="VBoxContainer" parent="TabContainer/EntityEditor"]
 layout_mode = 2
-size_flags_horizontal = 2
+size_flags_horizontal = 3
 
 [node name="PixelSplit" type="VSplitContainer" parent="TabContainer/EntityEditor/PropPanel"]
 layout_mode = 2
@@ -617,7 +618,6 @@ Brush: —
 Under: —"
 
 [node name="PlacementEditor" type="HSplitContainer" parent="TabContainer"]
-visible = false
 layout_mode = 2
 script = ExtResource("8")
 metadata/_tab_index = 3
