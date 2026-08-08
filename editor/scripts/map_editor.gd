@@ -40,6 +40,7 @@ var _stamp_origin: Vector2i = Vector2i(-1, -1)
 var _stamp_seq: int = 0
 var _stamp_catalog: Array[Dictionary] = []
 var _stamp_basename: String = ""
+var _stamp_maps: Array[Dictionary] = []
 
 @onready var palette_list: ItemList = $LeftPanel/PaletteList
 @onready var tile_set_palette: ItemList = $LeftPanel/TileSetPalette
@@ -66,6 +67,7 @@ func _ready() -> void:
     _load_tile_sets()
     _rebuild_terrain_tilesets()
     _refresh_tile_set_palette()
+    _load_stamp_catalog()
     _populate_grid()
 
     paint_btn.toggled.connect(_on_paint_mode)
@@ -565,6 +567,7 @@ func _serialize() -> Dictionary:
         "elevation_ceiling_tiles": 4,
         "tiles": tiles_out,
         "placed_entities": [],
+        "stamp_maps": _stamp_maps,
     }
 
 func _on_save() -> void:
@@ -646,6 +649,28 @@ func _on_export() -> void:
     )
     dialog.popup_centered(Vector2i(600, 400))
 
+func _load_stamp_catalog() -> void:
+    _stamp_catalog.clear()
+    var abs_dir := ProjectSettings.globalize_path("res://assets/tiles")
+    if not DirAccess.dir_exists_absolute(abs_dir):
+        return
+    var dir := DirAccess.open(abs_dir)
+    if not dir:
+        return
+    dir.list_dir_begin()
+    var fname := dir.get_next()
+    while fname != "":
+        if fname.begins_with("stamp_") and fname.ends_with("_%dx%d.png" % [STAMP_CELL, STAMP_CELL]):
+            var key := fname.get_basename().rsplit("_%dx%d" % [STAMP_CELL, STAMP_CELL], false)[0]
+            var img := Image.new()
+            if img.load(abs_dir + "/" + fname) == OK:
+                _stamp_catalog.append({"key": key, "cell": img})
+                var idx := key.trim_prefix("stamp_").to_int()
+                if idx > _stamp_seq:
+                    _stamp_seq = idx
+        fname = dir.get_next()
+    dir.list_dir_end()
+
 func _on_stamp_import() -> void:
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -665,7 +690,6 @@ func _on_stamp_import_file(path: String) -> void:
     _stamp_active = true
     _stamp_origin = Vector2i(-1, -1)
     _stamp_basename = path.get_file().get_basename().strip_edges()
-    _stamp_catalog.clear()
     info_label.text = "Stamp loaded: %s (%dx%d). Click+hold on grid to define stamp origin, release to commit." \
             % [path.get_file(), img.get_width(), img.get_height()]
     tile_grid.queue_redraw()
@@ -727,7 +751,7 @@ func _commit_stamp(origin: Vector2i) -> void:
     tile_grid.queue_redraw()
     if not cells.is_empty():
         _register_stamp_brush(cells, col_count, row_count)
-        _save_stamp_metadata(cells, col_count, row_count)
+        _record_stamp_map(cells, col_count, row_count)
     info_label.text = "Stamped %d cells, %d unique tiles (from %dx%d px image)" \
             % [total, _stamp_catalog.size(), w, h]
 
@@ -758,33 +782,27 @@ func _register_stamp_brush(cells: Array[Dictionary], cols: int, rows: int) -> vo
     _refresh_tile_set_palette()
     select_tile_set(ts.key)
 
-func _save_stamp_metadata(cells: Array[Dictionary], cols: int, rows: int) -> void:
+func _record_stamp_map(cells: Array[Dictionary], cols: int, rows: int) -> void:
     if _stamp_basename.is_empty():
         return
-    var path := "res://stamp_meta_%s.json" % _stamp_basename
-    var meta := {
-        "version": "0.1.0",
-        "stamp_name": _stamp_basename,
+    var meta: Dictionary = {
+        "stamp_key": "stamp_%s" % _stamp_basename,
         "grid_cols": cols,
         "grid_rows": rows,
-        "tile_cell_size_px": STAMP_CELL,
-        "tiles": [],
+        "cell_size_px": STAMP_CELL,
+        "cells": [],
     }
     for cell in cells:
-        meta["tiles"].append({
+        meta["cells"].append({
             "tile_id": cell["terrain_key"],
             "local_x": cell["local_x"],
             "local_y": cell["local_y"],
             "src_col": cell["src_col"],
             "src_row": cell["src_row"],
-            "flip_h": cell["flip_h"],
-            "flip_v": cell["flip_v"],
+            "flip_h": bool(cell["flip_h"]),
+            "flip_v": bool(cell["flip_v"]),
         })
-    var abs := ProjectSettings.globalize_path(path)
-    var f := FileAccess.open(abs, FileAccess.WRITE)
-    if f:
-        f.store_string(JSON.stringify(meta, "\t"))
-        f.close()
+    _stamp_maps.append(meta)
 
 func _has_ink(cell: Image) -> bool:
     var data := cell.get_data()

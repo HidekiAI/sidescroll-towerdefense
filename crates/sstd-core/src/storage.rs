@@ -181,6 +181,10 @@ pub struct ScreenFile {
     pub elevation_ceiling_tiles: i32,
     pub tiles: Vec<ScreenTileEntry>,
     pub placed_entities: Vec<ScreenPlacedEntity>,
+    /// Stamp importer heritage: tiles → `(local cell, source offset, flips)`.
+    /// Optional in save files — missing key defaults to an empty list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stamp_maps: Vec<StampMap>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Default)]
@@ -220,6 +224,39 @@ pub struct ScreenPlacedEntity {
     pub entity_key: String,
     pub world_tile_x: i32,
     pub world_tile_y: i32,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StampMap {
+    /// Identity of the stamped composition (e.g. stamp basename).
+    pub stamp_key: String,
+    /// Grid the stamp image was sliced into (in tiles).
+    pub grid_cols: i32,
+    pub grid_rows: i32,
+    /// Pixel size of a single tile cell (32 normally; informational).
+    pub cell_size_px: i32,
+    /// One record per placed inked cell.
+    pub cells: Vec<StampMapCell>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StampMapCell {
+    /// Shared tile id this cell reduces to (the `terrain` of a screen entry).
+    pub tile_id: String,
+    /// Cell position inside the stamp composition (0-based).
+    pub local_x: i32,
+    pub local_y: i32,
+    /// Offset into the source PNG at which the cell was sampled.
+    pub src_col: i32,
+    pub src_row: i32,
+    /// Flipped-placement flags registered when the cell was placed.
+    #[serde(default)]
+    pub flip_h: bool,
+    /// Flipped-placement flags registered when the cell was placed.
+    #[serde(default)]
+    pub flip_v: bool,
 }
 
 impl ScreenFile {
@@ -299,6 +336,10 @@ impl ScreenFile {
             );
         }
 
+        for map in &self.stamp_maps {
+            result = result.merge(map.validate(&screen));
+        }
+
         result
     }
 
@@ -316,6 +357,85 @@ impl ScreenFile {
 
     pub fn to_json(&self) -> SstdResult<String> {
         serde_json::to_string_pretty(self).map_err(|e| StorageError::Io(e.to_string()))
+    }
+}
+
+impl StampMap {
+    pub fn validate(&self, _screen: &Screen) -> ValidationResult {
+        let mut result = ValidationResult::valid();
+
+        if self.cell_size_px < 1 {
+            result = result.with_message(
+                crate::error::ValidationMessage::error(
+                    "STAMP_BAD_CELL",
+                    "Stamp cell size must be positive",
+                )
+                .with_field(format!("stamp_maps.{}.cell_size_px", self.stamp_key)),
+            );
+        }
+        if self.grid_cols < 1 || self.grid_rows < 1 {
+            result = result.with_message(
+                crate::error::ValidationMessage::error(
+                    "STAMP_BAD_GRID",
+                    "Stamp grid must be at least 1x1",
+                )
+                .with_field(format!("stamp_maps.{}.grid", self.stamp_key)),
+            );
+        }
+        if self.stamp_key.is_empty() {
+            result = result.with_message(
+                crate::error::ValidationMessage::error("STAMP_EMPTY_KEY", "Stamp key is empty")
+                    .with_field("stamp_maps[].stamp_key"),
+            );
+        }
+
+        let mut seen: Vec<(i32, i32)> = Vec::with_capacity(self.cells.len());
+        for cell in &self.cells {
+            let k = (cell.local_x, cell.local_y);
+            if seen.contains(&k) {
+                result = result.with_message(
+                    crate::error::ValidationMessage::error(
+                        "STAMP_DUPLICATE_CELL",
+                        "Stamp map contains duplicate local cell positions",
+                    )
+                    .with_field(format!("stamp_maps[{}]", self.stamp_key)),
+                );
+            }
+            seen.push(k);
+            if cell.local_x < 0
+                || cell.local_x >= self.grid_cols
+                || cell.local_y < 0
+                || cell.local_y >= self.grid_rows
+            {
+                result = result.with_message(
+                    crate::error::ValidationMessage::error(
+                        "STAMP_CELL_OOB",
+                        "Stamp cell outside grid bounds",
+                    )
+                    .with_field(format!("stamp_maps[{}]", self.stamp_key)),
+                );
+            }
+            if cell.tile_id.is_empty() {
+                result = result.with_message(
+                    crate::error::ValidationMessage::error(
+                        "STAMP_EMPTY_TILE",
+                        "Stamp cell has an empty tile_id",
+                    )
+                    .with_field(format!("stamp_maps[{}]", self.stamp_key)),
+                );
+            }
+            if cell.src_col < 0 || cell.src_row < 0 {
+                result = result.with_message(
+                    crate::error::ValidationMessage::error(
+                        "STAMP_NEG_SRC",
+                        "Stamp cell source offset cannot be negative",
+                    )
+                    .with_field(format!("stamp_maps[{}]", self.stamp_key)),
+                );
+            }
+        }
+
+        result
     }
 }
 
@@ -474,6 +594,21 @@ mod tests {
                 entity_key: "arrow_tower".into(),
                 world_tile_x: 5,
                 world_tile_y: 3,
+            }],
+            stamp_maps: vec![StampMap {
+                stamp_key: "tower_pack".into(),
+                grid_cols: 2,
+                grid_rows: 1,
+                cell_size_px: 32,
+                cells: vec![StampMapCell {
+                    tile_id: "stamp_1".into(),
+                    local_x: 0,
+                    local_y: 0,
+                    src_col: 0,
+                    src_row: 0,
+                    flip_h: false,
+                    flip_v: false,
+                }],
             }],
         };
 
