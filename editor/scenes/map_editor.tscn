@@ -83,6 +83,9 @@ text = "Import..."
 [node name="ExportBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Export..."
 
+[node name="StampBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Stamp Image..."
+
 [node name="RightPanel" type="VBoxContainer" parent="."]
 size_flags_horizontal = 3
 

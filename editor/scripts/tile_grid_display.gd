@@ -112,6 +112,22 @@ func _draw() -> void:
         draw_rect(highlight, Color(1, 1, 1, 0.25), true)
         draw_rect(highlight, Color.WHITE, false, 2)
 
+    if map_editor and map_editor.get("_stamp_active"):
+        _draw_stamp_preview(tile)
+
+func _draw_stamp_preview(current_tile: Vector2i) -> void:
+    var tex: ImageTexture = map_editor.get("_stamp_texture")
+    if not tex:
+        return
+    var origin: Vector2i = map_editor.get("_stamp_origin")
+    var tile_pos: Vector2i = origin if origin.x >= 0 else current_tile
+    var tex_size := tex.get_size()
+    var w_cells := ceili(float(tex_size.x) / map_editor.STAMP_CELL)
+    var h_cells := ceili(float(tex_size.y) / map_editor.STAMP_CELL)
+    var rect := Rect2(tile_pos.x * tile_size, tile_pos.y * tile_size, w_cells * tile_size, h_cells * tile_size)
+    draw_texture_rect(tex, rect, false, Color(1, 1, 1, 0.55))
+    draw_rect(rect, Color(1, 1, 0, 1), false, 1)
+
 func _draw_collision_overlay() -> void:
     var hw := tile_size / 2
     var hh := tile_size / 2
@@ -133,6 +149,9 @@ func _draw_collision_overlay() -> void:
                     draw_rect(qrect, Color(0, 1, 0, 0.5) if solid else Color(1, 0, 0, 0.5), true, 0)
 
 func _gui_input(event: InputEvent) -> void:
+    if map_editor and map_editor.get("_stamp_active"):
+        map_editor._stamp_grid_input(event)
+        return
     if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
         var tile := pixel_to_tile(event.position)
         if map_editor:

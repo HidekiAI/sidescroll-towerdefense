@@ -31,6 +31,15 @@ var _hud_dragging: bool = false
 var _hud_drag_grab: Vector2 = Vector2.ZERO
 var _hud_start_pos: Vector2 = Vector2.ZERO
 
+const STAMP_CELL := 32
+const STAMP_TOLERANCE := 4.0
+var _stamp_active: bool = false
+var _stamp_image: Image
+var _stamp_texture: ImageTexture
+var _stamp_origin: Vector2i = Vector2i(-1, -1)
+var _stamp_seq: int = 0
+var _stamp_catalog: Array[Dictionary] = []
+
 @onready var palette_list: ItemList = $LeftPanel/PaletteList
 @onready var tile_set_palette: ItemList = $LeftPanel/TileSetPalette
 @onready var tile_grid: Control = $RightPanel/Scroll/TileGrid
@@ -40,6 +49,7 @@ var _hud_start_pos: Vector2 = Vector2.ZERO
 @onready var save_btn: Button = $LeftPanel/BottomBar/SaveBtn
 @onready var import_btn: Button = $LeftPanel/BottomBar/ImportBtn
 @onready var export_btn: Button = $LeftPanel/BottomBar/ExportBtn
+@onready var stamp_btn: Button = $LeftPanel/BottomBar/StampBtn
 @onready var collision_btn: CheckButton = $LeftPanel/TopBar/CollisionBtn
 @onready var cursor_label: Label = $LeftPanel/BottomBar/CursorLabel
 @onready var info_label: Label = $LeftPanel/BottomBar/InfoLabel
@@ -62,6 +72,7 @@ func _ready() -> void:
     save_btn.pressed.connect(_on_save)
     import_btn.pressed.connect(_on_import)
     export_btn.pressed.connect(_on_export)
+    stamp_btn.pressed.connect(_on_stamp_import)
     screen_spin.value_changed.connect(_on_screen_changed)
     palette_list.item_selected.connect(_on_palette_select)
     tile_set_palette.item_selected.connect(_on_select_tile_set)
@@ -633,6 +644,171 @@ func _on_export() -> void:
             f.close()
     )
     dialog.popup_centered(Vector2i(600, 400))
+
+func _on_stamp_import() -> void:
+    var dialog := FileDialog.new()
+    dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+    dialog.add_filter("*.png", "PNG (stamp source)")
+    dialog.title = "Import stamp image"
+    add_child(dialog)
+    dialog.file_selected.connect(_on_stamp_import_file)
+    dialog.popup_centered(Vector2i(600, 400))
+
+func _on_stamp_import_file(path: String) -> void:
+    var img := Image.new()
+    if img.load(path) != OK:
+        push_error("Failed to load stamp image: ", path)
+        return
+    _stamp_image = img
+    _stamp_texture = ImageTexture.create_from_image(img)
+    _stamp_active = true
+    _stamp_origin = Vector2i(-1, -1)
+    _stamp_catalog.clear()
+    info_label.text = "Stamp loaded: %s (%dx%d). Click+hold on grid to define stamp origin, release to commit." \
+            % [path.get_file(), img.get_width(), img.get_height()]
+    tile_grid.queue_redraw()
+
+func _stamp_grid_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+        if event.pressed:
+            _stamp_origin = tile_grid.pixel_to_tile(event.position)
+            tile_grid.queue_redraw()
+            get_viewport().set_input_as_handled()
+        elif _stamp_origin.x >= 0:
+            _commit_stamp(_stamp_origin)
+            _stamp_origin = Vector2i(-1, -1)
+            get_viewport().set_input_as_handled()
+
+func _commit_stamp(origin: Vector2i) -> void:
+    if not _stamp_image:
+        return
+    var w: int = _stamp_image.get_width()
+    var h: int = _stamp_image.get_height()
+    var col_count: int = ceili(float(w) / STAMP_CELL)
+    var row_count: int = ceili(float(h) / STAMP_CELL)
+    var total := 0
+    var unique := 0
+    for ry in row_count:
+        for cx in col_count:
+            var gx := origin.x + cx
+            var gy := origin.y + ry
+            if gx < 0 or gx >= _grid_w or gy < 0 or gy >= _grid_h:
+                continue
+            total += 1
+            var cell := Image.create(STAMP_CELL, STAMP_CELL, false, Image.FORMAT_RGBA8)
+            var sx := cx * STAMP_CELL
+            var sy := ry * STAMP_CELL
+            var uw: int = min(STAMP_CELL, w - sx)
+            var uh: int = min(STAMP_CELL, h - sy)
+            if uw > 0 and uh > 0:
+                cell.blit_rect(_stamp_image, Rect2i(sx, sy, uw, uh), Vector2i.ZERO)
+            if _has_ink(cell):
+                var entry := _ensure_tile(cell)
+                unique += 1
+                _tiles[_key(gx, gy)] = entry["key"]
+                _tile_data[_key(gx, gy)] = {
+                    "flip_h": entry["flip_h"],
+                    "flip_v": entry["flip_v"],
+                    "sub_tile_mask": 15,
+                    "elevation_tiles": 0,
+                    "z_depth": 0,
+                }
+    _refresh_palette()
+    tile_grid.reload_textures()
+    tile_grid.queue_redraw()
+    info_label.text = "Stamped %d cells, %d unique tiles (from %dx%d px image)" \
+            % [total, _stamp_catalog.size(), w, h]
+
+func _has_ink(cell: Image) -> bool:
+    var data := cell.get_data()
+    for i in range(0, data.size(), 4):
+        if data[i + 3] > 0:
+            return true
+    return false
+
+func _ensure_tile(cell: Image) -> Dictionary:
+    var match := _find_match(cell)
+    if match:
+        return match
+    _stamp_seq += 1
+    var key := "stamp_%d" % _stamp_seq
+    var img: Image = cell.duplicate()
+    var abs_dir := ProjectSettings.globalize_path("res://assets/tiles")
+    DirAccess.make_dir_recursive_absolute(abs_dir)
+    img.save_png(abs_dir + "/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+    _terrain_types.append({
+        "key": key,
+        "display_name": key,
+        "color_hex": _average_hex(cell),
+    })
+    _stamp_catalog.append({"key": key, "cell": cell, "flip_h": false, "flip_v": false})
+    return {"key": key, "flip_h": false, "flip_v": false}
+
+func _average_hex(cell: Image) -> String:
+    var r := 0.0
+    var g := 0.0
+    var b := 0.0
+    var n := 0
+    var data := cell.get_data()
+    for i in range(0, data.size(), 4):
+        r += data[i]
+        g += data[i + 1]
+        b += data[i + 2]
+        n += 1
+    if n == 0:
+        return "#808080"
+    r /= n
+    g /= n
+    b /= n
+    return "#%02x%02x%02x" % [int(r), int(g), int(b)]
+
+func _cell_bytes(cell: Image, flip_h: bool, flip_v: bool) -> PackedByteArray:
+    var res := PackedByteArray()
+    res.resize(STAMP_CELL * STAMP_CELL * 4)
+    var data := cell.get_data()
+    for y in STAMP_CELL:
+        for x in STAMP_CELL:
+            var src_x := (STAMP_CELL - 1 - x) if flip_h else x
+            var src_y := (STAMP_CELL - 1 - y) if flip_v else y
+            var si := (src_y * STAMP_CELL + src_x) * 4
+            var di := (y * STAMP_CELL + x) * 4
+            res[di] = data[si]
+            res[di + 1] = data[si + 1]
+            res[di + 2] = data[si + 2]
+            res[di + 3] = data[si + 3]
+    return res
+
+func _diff(a: PackedByteArray, b: PackedByteArray) -> float:
+    var sum := 0
+    for i in a.size():
+        sum += abs(a[i] - b[i])
+    return float(sum) / max(1, a.size())
+
+func _find_match(cell: Image) -> Dictionary:
+    var base := _cell_bytes(cell, false, false)
+    var best_diff := 0x7fffffff
+    var best := {}
+    for entry in _stamp_catalog:
+        var canonical: Image = entry["cell"]
+        var variants: Array[Dictionary] = [
+            {"h": false, "v": false},
+            {"h": true, "v": false},
+            {"h": false, "v": true},
+            {"h": true, "v": true},
+        ]
+        for variant in variants:
+            var vb: PackedByteArray = _cell_bytes(canonical, variant["h"], variant["v"])
+            var d := _diff(base, vb)
+            if d < best_diff:
+                best_diff = d
+                best = {
+                    "key": entry["key"],
+                    "flip_h": variant["h"],
+                    "flip_v": variant["v"],
+                }
+    if best_diff <= STAMP_TOLERANCE:
+        return best
+    return {}
 
 func _input(event: InputEvent) -> void:
     if _hud_dragging:
