@@ -4,6 +4,7 @@ use rusqlite::Connection;
 
 use crate::entity::EntityLimits;
 use crate::error::SstdResult;
+use crate::items::LuckGearConfig;
 use crate::luckbot::LuckConfig;
 use crate::resurrection::ReviveConfig;
 use crate::terrain::{GridConfig, TimeConfig};
@@ -37,6 +38,11 @@ const POPULATIONS: &[Population] = &[
         id: "003",
         description: "LuckBot companion: luck stat, aura radius, crit/rarity tuning",
         func: populate_003,
+    },
+    Population {
+        id: "004",
+        description: "Luck gear (Ring of Luck): drop-luck bonus and crit-deflect tuning",
+        func: populate_004,
     },
 ];
 
@@ -106,6 +112,25 @@ fn populate_003(conn: &Connection) -> SstdResult<()> {
         ("luck.max_luck", "5"),
         ("luck.crit_cap", "1"),
         ("luck.aura_radius", "3"),
+    ];
+    for (key, value) in &entries {
+        conn.execute(
+            "INSERT OR IGNORE INTO config (key, default_value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Population: populate_004 — seed the 3 luck-gear config keys
+// ---------------------------------------------------------------------------
+fn populate_004(conn: &Connection) -> SstdResult<()> {
+    let entries: [(&str, &str); 3] = [
+        ("item.deflect_cap", "0.5"),
+        ("item.deflect_per_gear", "0.15"),
+        ("item.deflect_bonus_per_luck", "0.02"),
     ];
     for (key, value) in &entries {
         conn.execute(
@@ -346,6 +371,20 @@ impl ConfigStore {
         })
     }
 
+    pub fn luck_gear_config(&self) -> SstdResult<LuckGearConfig> {
+        Ok(LuckGearConfig {
+            deflect_cap: self.get_str("item.deflect_cap")?.parse().unwrap_or(0.5),
+            deflect_per_gear: self
+                .get_str("item.deflect_per_gear")?
+                .parse()
+                .unwrap_or(0.15),
+            deflect_bonus_per_luck: self
+                .get_str("item.deflect_bonus_per_luck")?
+                .parse()
+                .unwrap_or(0.02),
+        })
+    }
+
     pub fn revive_config(&self) -> SstdResult<ReviveConfig> {
         Ok(ReviveConfig {
             lose_level_cost: self
@@ -517,7 +556,7 @@ mod tests {
     fn test_config_store_in_memory() {
         let store = ConfigStore::in_memory().unwrap();
         let configs = store.all_config().unwrap();
-        assert_eq!(configs.len(), 27);
+        assert_eq!(configs.len(), 30);
     }
 
     #[test]
@@ -571,6 +610,7 @@ mod tests {
         assert!(pops.iter().any(|(id, _)| id == "001"));
         assert!(pops.iter().any(|(id, _)| id == "002"));
         assert!(pops.iter().any(|(id, _)| id == "003"));
+        assert!(pops.iter().any(|(id, _)| id == "004"));
     }
 
     #[test]
@@ -587,6 +627,22 @@ mod tests {
         assert_eq!(bonus, "0.15");
         let radius = store.get_str("luck.aura_radius").unwrap();
         assert_eq!(radius, "3");
+    }
+
+    #[test]
+    fn test_luck_gear_keys_seeded() {
+        let store = ConfigStore::in_memory().unwrap();
+        let configs = store.all_config().unwrap();
+        let gear_keys: Vec<String> = configs
+            .iter()
+            .filter(|(k, _)| k.starts_with("item.deflect"))
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(gear_keys.len(), 3);
+        let gear = store.luck_gear_config().unwrap();
+        assert!((gear.deflect_cap - 0.5).abs() < f64::EPSILON);
+        assert!((gear.deflect_per_gear - 0.15).abs() < f64::EPSILON);
+        assert!((gear.deflect_bonus_per_luck - 0.02).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -643,7 +699,7 @@ mod tests {
     fn test_schema_version_after_population() {
         let store = ConfigStore::in_memory().unwrap();
         let ver = store.get_meta("schema_version").unwrap();
-        assert_eq!(ver, "0.0.3");
+        assert_eq!(ver, "0.0.4");
     }
 
     #[test]

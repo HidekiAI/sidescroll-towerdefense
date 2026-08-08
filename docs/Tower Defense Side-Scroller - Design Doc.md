@@ -150,6 +150,18 @@ can either **patrol** (roam an area) or **follow** an entity such as a catapult 
 - **Neutral by default** — luck `0` means no effect; investing in a LuckBot is a real choice.
 - **All tuning is config-driven** (`luck.*` keys) for easy future balance.
 
+### 4.3 Luck Gear (Ring of Luck)
+
+Equipable items that focus luck into one slot:
+
+- **Drop luck buff** — while equipped, adds luck to drop rolls, stacking with the LuckyBot aura.
+- **Crit deflect** — when an incoming attack would crit, the ring rolls; on success the crit is
+  turned into a normal hit. The **enemy can wear the same ring**, so a critical they roll may be
+  flung back — two luck stats contesting one die.
+- **Bounded** — stacked deflect chances can never exceed the cap; crits never become impossible.
+- **Replay-safe** — every luck roll is seeded, so saves replay identically.
+- **All tuning is config-driven** (`item.*` keys via `populate_004`).
+
 ---
 
 ## 5. Config & Constants

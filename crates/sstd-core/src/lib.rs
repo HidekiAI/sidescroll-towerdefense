@@ -1,6 +1,7 @@
 pub mod config;
 pub mod entity;
 pub mod error;
+pub mod items;
 pub mod luckbot;
 pub mod map;
 pub mod resurrection;
@@ -14,6 +15,9 @@ pub use entity::{
     StationarySubClass,
 };
 pub use error::{SstdResult, StorageError, ValidationMessage, ValidationResult};
+pub use items::{
+    deflect_chance, drop_luck_with_gear, roll_inbound_attack, InboundHit, LuckGear, LuckGearConfig,
+};
 pub use luckbot::{
     clamp_luck, crit_chance, distance, luck_multiplier, luck_weighted_rarity, seeded_roll,
     within_aura, Bot, LuckConfig, MoveMode, RarityTier, RollLog, WeightedTable, DEFAULT_RARITIES,
