@@ -521,6 +521,7 @@ func _on_save() -> void:
             wrote = _write_plain_json(path, _serialize())
         if not wrote:
             push_error("Cannot write: ", path)
+            _log_import("world", "FAIL save: " + path)
             return
         if _store:
             if not WorldArchive.is_world_path(path) and _screen_pos.x < 0:
@@ -531,6 +532,7 @@ func _on_save() -> void:
             _save_world()
         info_label.text = "Saved: %s (%d screens, %d world-shared tiles)" % [path.get_file(), world["screens"].size(), tiles.size()]
         _update_hud()
+        _log_import("world", "saved %s (%d screens, %d shared tiles)" % [path, world["screens"].size(), tiles.size()])
     )
     dialog.popup_centered(Vector2i(600, 400))
 
@@ -590,12 +592,16 @@ func _on_import_map() -> void:
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_file(path: String) -> void:
-    if WorldArchive.is_world_path(path):
-        _load_world_package(path)
+    _log_import("placement", "import start: " + path)
+    var pkg := WorldArchive.resolve_world_pointer(path)
+    if not pkg.is_empty():
+        _log_import("placement", "resolved world pointer %s -> %s" % [path, pkg])
+        _load_world_package(pkg)
         return
     var parsed := _load_screen_file(path)
     if parsed.is_empty() or not parsed.has("tiles"):
-        push_error("Invalid JSON")
+        push_error("Invalid screen file")
+        _log_import("placement", "FAIL invalid screen file: " + path + " (no world pointer, no tiles key)")
         return
     _apply_screen(parsed)
     if parsed.has("screen_id"):
@@ -609,11 +615,16 @@ func _on_import_file(path: String) -> void:
         _save_world()
     info_label.text = "Imported %d tiles, %d entities" % [parsed.get("tiles", []).size(), _placements.size()]
     _update_hud()
+    _log_import("placement", "loaded legacy screen %s (%d tiles)" % [path, parsed["tiles"].size()])
+
+func _log_import(kind: String, msg: String) -> void:
+    print("[editor/%s] %s" % [kind, msg])
 
 func _load_world_package(path: String) -> void:
     var data := WorldArchive.load_world(path)
     if not data.get("ok", false):
         push_error("Invalid world package: ", path)
+        _log_import("world", "FAIL load world package: " + path)
         return
     if _store:
         _store.apply_world_data(data)
@@ -633,6 +644,7 @@ func _load_world_package(path: String) -> void:
         _populate_terrain()
     info_label.text = "Loaded world: %s (%d screens, %d world-shared tiles)" % [path.get_file(), data["screens"].size(), data["tile_images"].size()]
     _update_hud()
+    _log_import("world", "loaded package %s: %d screens, %d shared tiles, current screen %d" % [path, data["screens"].size(), data["tile_images"].size(), current_id])
 
 func set_bridge(b: Node) -> void:
     _bridge = b

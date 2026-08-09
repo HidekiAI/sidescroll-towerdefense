@@ -121,12 +121,16 @@ func _get_last_map_path() -> String:
 func _auto_load_last_map() -> void:
 	var path := _get_last_map_path()
 	if path.is_empty():
+		print("[main] No last map recorded — editor starts fresh")
 		return
 	if path.begins_with("res://"):
 		path = ProjectSettings.globalize_path(path)
-	if FileAccess.file_exists(path):
-		map_editor._on_import_file(path)
-		print("[load] Auto-loaded last map: " + path)
+	if not FileAccess.file_exists(path):
+		print("[main] Last map no longer exists, skipping: " + path)
+		return
+	map_editor._on_import_file(path)
+	print("[main] Auto-loaded last map: " + path)
+	print("[main] world_package_path=%s screens=%d" % [screen_store.world_package_path if screen_store else "", screen_store.screens.size() if screen_store else 0])
 
 func _on_tab_changed(tab: int) -> void:
 	current_tab = tab

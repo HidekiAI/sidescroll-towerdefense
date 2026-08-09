@@ -20,6 +20,28 @@ const ENTITY_OVERRIDE_DIR := "entity_overrides"
 static func is_world_path(path: String) -> bool:
     return path.ends_with(WORLD_EXT)
 
+# Given a path (a .zip world, or a world.json pointer that references one),
+# return the world .zip path to actually load, or "" if it resolves to nothing.
+# Both editors' import/bootstrap use this so a pointer file loads the real world.
+static func resolve_world_pointer(path: String) -> String:
+    if path.is_empty() or not FileAccess.file_exists(path):
+        return ""
+    if is_world_path(path):
+        return path
+    var f := FileAccess.open(path, FileAccess.READ)
+    if not f:
+        return ""
+    var parsed = JSON.parse_string(f.get_as_text())
+    f.close()
+    if typeof(parsed) != TYPE_DICTIONARY or not parsed.has("world") or not parsed["world"] is String:
+        return ""
+    var pkg: String = parsed["world"]
+    if not pkg.begins_with("/") and not pkg.begins_with("res://"):
+        pkg = path.get_base_dir().path_join(pkg)
+    if FileAccess.file_exists(pkg):
+        return pkg
+    return ""
+
 static func is_allowed_terrain_key(key: String) -> bool:
     if key.is_empty():
         return false

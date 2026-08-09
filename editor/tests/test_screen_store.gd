@@ -22,6 +22,7 @@ func _run() -> void:
     _test_stamp_fingerprint()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
+    await _test_world_pointer_bootstrap()
     print("=== done, failures=%d ===" % _failures)
     quit(0 if _failures == 0 else 1)
 
@@ -333,4 +334,48 @@ func _test_world_reopen_not_blank() -> void:
     ed2.queue_free()
     await process_frame
     DirAccess.remove_absolute(tmp_zip)
+    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+
+# Acceptance: the editor's import/bootstrap must follow a world.json *pointer*
+# to the referenced .zip. Regression for #43 hotfix: auto-load passed world.json
+# to _on_import_file which rejected it with "Invalid screen file" -> blank editor.
+func _test_world_pointer_bootstrap() -> void:
+    print("--- world pointer bootstrap (world.json -> .zip) ---")
+    var tile_key := "stamp_pointer"
+    var tmp_zip := "/tmp/user/1000/opencode/sstd_world_pointer.zip"
+    var tmp_pointer := "/tmp/user/1000/opencode/world_pointer.json"
+    var png := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    png.fill(Color(0.1, 0.9, 0.3, 1.0))
+    var manifest := {"0,0": {"x": 0, "y": 0, "id": 1}}
+    var screens := {1: {"version": "0.3.0", "screen_id": 1, "tiles": [{"x": 2, "y": 3, "terrain": tile_key}]}}
+    var tiles := {tile_key: png}
+    check(WorldArchive.save_world(tmp_zip, manifest, screens, tiles), "save world for pointer bootstrap")
+    var pf := FileAccess.open(tmp_pointer, FileAccess.WRITE)
+    pf.store_string(JSON.stringify({"version": "0.2.0", "world": tmp_zip.get_file()}, "\t"))
+    pf.close()
+
+    # resolve_world_pointer: relative path resolves against pointer's dir.
+    var resolved := WorldArchive.resolve_world_pointer(tmp_pointer)
+    check(resolved == tmp_zip, "resolve_world_pointer follows relative reference")
+    check(WorldArchive.resolve_world_pointer(tmp_zip) == tmp_zip, "resolve_world_pointer passes through .zip")
+    check(WorldArchive.resolve_world_pointer("/nonexistent/x.json") == "", "resolve_world_pointer empty when missing")
+
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    var store := ScreenStore.new()
+    store.set_dir("/tmp/user/1000/opencode")
+    ed.set_screen_store(store)
+    # Bootstrap a pointer file like main._auto_load_last_map -> map_editor._on_import_file
+    ed._on_import_file(tmp_pointer)
+    check(store.is_occupied(0, 0), "bootstrap registered screen at (0,0)")
+    check(ed.get_tile_image(tile_key) != null, "bootstrap restored tile bank from package")
+    ed._on_screen_changed(1)
+    check(ed.get_tile(2, 3) == tile_key, "bootstrap: grid not blank, tile placed")
+    check(store.world_package_path == tmp_zip, "store tracks world_package_path after pointer load")
+
+    ed.queue_free()
+    await process_frame
+    DirAccess.remove_absolute(tmp_zip)
+    DirAccess.remove_absolute(tmp_pointer)
     DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))

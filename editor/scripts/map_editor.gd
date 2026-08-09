@@ -519,6 +519,11 @@ func _save_world() -> void:
     if _store:
         _store.save_world(WORLD_PATH)
 
+# Journal-style log line: every persist/load failure or step is recorded so an
+# incident can be re-traced from the engine log alone (see AGENTS: log requirement).
+func _log_import(kind: String, msg: String) -> void:
+    print("[editor/%s] %s" % [kind, msg])
+
 func _open_minimap(mode: String, on_pick: Callable) -> void:
     if not _store:
         push_error("ScreenStore not set")
@@ -723,6 +728,7 @@ func _on_save() -> void:
                 wrote = true
         if not wrote:
             push_error("Cannot write: ", path)
+            _log_import("world", "FAIL save: " + path)
             return
         if _store:
             if not WorldArchive.is_world_path(path) and _screen_pos.x < 0:
@@ -735,6 +741,7 @@ func _on_save() -> void:
             _main._save_last_map_path(path)
         info_label.text = "Saved: %s (%d screens, %d world-shared tiles)" % [path.get_file(), world["screens"].size(), tiles.size()]
         _update_hud()
+        _log_import("world", "saved %s (%d screens, %d shared tiles)" % [path, world["screens"].size(), tiles.size()])
     )
     dialog.popup_centered(Vector2i(600, 400))
 
@@ -757,12 +764,17 @@ func _on_import() -> void:
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_file(path: String) -> void:
-    if WorldArchive.is_world_path(path):
-        _load_world_package(path)
+    _log_import("map", "import start: " + path)
+    # A path may be a .zip world directly, or a world.json *pointer* to one.
+    var pkg := WorldArchive.resolve_world_pointer(path)
+    if not pkg.is_empty():
+        _log_import("map", "resolved world pointer %s -> %s" % [path, pkg])
+        _load_world_package(pkg)
         return
     var parsed := _load_screen_file(path)
     if parsed.is_empty() or not parsed.has("tiles"):
         push_error("Invalid screen file")
+        _log_import("map", "FAIL invalid screen file: " + path + " (no world pointer, no tiles key)")
         return
     _apply_screen(parsed)
     if parsed.has("screen_id"):
@@ -778,11 +790,13 @@ func _on_import_file(path: String) -> void:
         _main._save_last_map_path(path)
     info_label.text = "Loaded: %s (%d tiles)" % [path.get_file(), parsed["tiles"].size()]
     _update_hud()
+    _log_import("map", "loaded legacy screen %s (%d tiles)" % [path, parsed["tiles"].size()])
 
 func _load_world_package(path: String) -> void:
     var data := WorldArchive.load_world(path)
     if not data.get("ok", false):
         push_error("Invalid world package: ", path)
+        _log_import("world", "FAIL load world package: " + path)
         return
     if _store:
         _store.apply_world_data(data)
@@ -804,6 +818,7 @@ func _load_world_package(path: String) -> void:
         _main._save_last_map_path(path)
     info_label.text = "Loaded world: %s (%d screens, %d world-shared tiles)" % [path.get_file(), data["screens"].size(), data["tile_images"].size()]
     _update_hud()
+    _log_import("world", "loaded package %s: %d screens, %d shared tiles, current screen %d" % [path, data["screens"].size(), data["tile_images"].size(), current_id])
 
 func _on_export() -> void:
     var dialog := FileDialog.new()
