@@ -2,6 +2,7 @@ extends Control
 
 const _ScreenMinimapDialog := preload("res://scenes/screen_minimap_dialog.tscn")
 const WORLD_PATH := "res://world.json"
+const STAMP_CELL := 32
 
 var _grid_w: int = 60
 var _grid_h: int = 33
@@ -11,6 +12,8 @@ var _tile_h: int = 32
 var _tiles: Dictionary = {}
 var _tile_data: Dictionary = {}  # "x,y" -> {sub_tile_mask, elevation_tiles, z_depth}
 var _terrain_types: Array[Dictionary] = []
+var _tile_images: Dictionary = {}  # tile key -> Image (resident in memory; reused across the world)
+var _tile_texture_cache: Dictionary = {}  # tile key -> ImageTexture
 var _entity_defs: Array[Dictionary] = []
 var _placements: Array[Dictionary] = []
 var _selected_entity_key: String = ""
@@ -36,6 +39,7 @@ var _clipboard: Dictionary = {}
 @onready var clone_btn: Button = $LeftPanel/BottomBar/CloneBtn
 
 func _ready() -> void:
+    hud_label.visible = false
     _load_defaults()
     _refresh_palette()
     _populate_terrain()
@@ -110,6 +114,49 @@ func terrain_color(key: String) -> Color:
         return Color("#4a7c3f")
     return Color("#87ceeb")
 
+func get_tile_image(key: String) -> Image:
+    if key.is_empty():
+        return null
+    if _tile_images.has(key):
+        return _tile_images[key]
+    var abs := ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+    if FileAccess.file_exists(abs):
+        var img := Image.new()
+        if img.load(abs) == OK:
+            _tile_images[key] = WorldArchive.normalize_rgba8(img)
+            return _tile_images[key]
+    return null
+
+func get_tile_texture(key: String) -> Texture2D:
+    if _tile_texture_cache.has(key):
+        return _tile_texture_cache[key]
+    var img := get_tile_image(key)
+    if img:
+        var tex: ImageTexture = ImageTexture.create_from_image(img)
+        _tile_texture_cache[key] = tex
+        return tex
+    _tile_texture_cache[key] = null
+    return null
+
+func _restore_embedded_tiles(embedded: Dictionary) -> void:
+    if embedded.is_empty():
+        return
+    for key in embedded:
+        var img := Image.new()
+        if img.load_png_from_buffer(Marshalls.base64_to_raw(embedded[key])) != OK:
+            continue
+        _tile_images[str(key)] = img
+        _tile_texture_cache.erase(str(key))
+
+func _restore_tile_bank(bank: Dictionary) -> void:
+    if bank.is_empty():
+        return
+    for key in bank:
+        var img: Image = bank[key]
+        if img:
+            _tile_images[str(key)] = img
+            _tile_texture_cache.erase(str(key))
+
 func _entity_def(key: String) -> Dictionary:
     for e in _entity_defs:
         if e["key"] == key:
@@ -183,6 +230,12 @@ func _cache_current() -> void:
 func _load_screen_file(path: String) -> Dictionary:
     if path.is_empty() or not FileAccess.file_exists(path):
         return {}
+    if WorldArchive.is_world_path(path):
+        var data := WorldArchive.load_world(path)
+        return data if data.get("ok", false) else {}
+    return _load_plain_json(path)
+
+func _load_plain_json(path: String) -> Dictionary:
     var f := FileAccess.open(path, FileAccess.READ)
     if not f:
         return {}
@@ -193,6 +246,7 @@ func _load_screen_file(path: String) -> Dictionary:
     return parsed
 
 func _apply_screen(parsed: Dictionary) -> void:
+    _restore_embedded_tiles(parsed.get("embedded_tiles", {}))
     _tiles.clear()
     _tile_data.clear()
     if parsed.has("width_tiles"):
@@ -352,13 +406,17 @@ func _update_hud() -> void:
     if not td.is_empty():
         under_desc += "  mask:%s elev:%s" % [td.get("sub_tile_mask", "-"), td.get("elevation_tiles", "-")]
     var placed := "placed" if _is_current_placed() else "unplaced"
-    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s" % [
+    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s\n[I/M/H] toggle" % [
         _screen_id, base.x, base.y, placed, tx, ty, wx, wy, brush, under_desc,
     ]
 
 func _input(event: InputEvent) -> void:
     if event is InputEventMouseMotion:
         _update_hud()
+    if event is InputEventKey and event.pressed and not event.echo:
+        if event.keycode == KEY_H or event.keycode == KEY_I or event.keycode == KEY_M:
+            hud_label.visible = not hud_label.visible
+            get_viewport().set_input_as_handled()
 
 func place_at(tile_x: int, tile_y: int) -> void:
     if tile_x < 0 or tile_x >= _grid_w or tile_y < 0 or tile_y >= _grid_h:
@@ -432,7 +490,7 @@ func _serialize() -> Dictionary:
             "world_tile_y": int(p["tile_y"]),
         })
     return {
-        "version": "0.1.0",
+        "version": "0.3.0",
         "screen_id": _screen_id,
         "width_tiles": _grid_w,
         "height_tiles": _grid_h,
@@ -445,48 +503,96 @@ func _serialize() -> Dictionary:
     }
 
 func _on_save() -> void:
-    var data := _serialize()
-    var json_str := JSON.stringify(data, "\t")
+    _cache_current()
+    var world := _collect_world_manifest()
+    var tiles := _collect_world_tiles(world["screens"])
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-    dialog.add_filter("*.json", "Screen JSON")
-    dialog.title = "Save screen_%d.json" % _screen_id
-    dialog.current_file = "screen_%d.json" % _screen_id
+    dialog.add_filter("*.zip", "SSTD World Package")
+    dialog.add_filter("*.json", "Screen JSON (legacy)")
+    dialog.title = "Save world (package)"
+    dialog.current_file = "world.zip"
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
-        if _bridge and _bridge.has_method("validate_screen"):
-            var result: Variant = _bridge.validate_screen(json_str)
-            var parsed = JSON.parse_string(result)
-            if parsed and parsed.get("valid", false) == false:
-                push_error("Validation: ", parsed.get("error", "unknown"))
-                return
-        var f := FileAccess.open(path, FileAccess.WRITE)
-        if not f:
+        var wrote := false
+        if WorldArchive.is_world_path(path):
+            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles, _collect_entity_overrides())
+        else:
+            wrote = _write_plain_json(path, _serialize())
+        if not wrote:
             push_error("Cannot write: ", path)
             return
-        f.store_string(json_str)
-        f.close()
-        _cache_current()
         if _store:
-            if _screen_pos.x < 0:
+            if not WorldArchive.is_world_path(path) and _screen_pos.x < 0:
                 _screen_pos = _store.next_free_position()
-            _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), data)
+            if WorldArchive.is_world_path(path):
+                _store.world_package_path = path
+            _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), _serialize())
             _save_world()
-        info_label.text = "Saved: %s (%d tiles, %d entities)" % [path.get_file(), data["tiles"].size(), data["placed_entities"].size()]
+        info_label.text = "Saved: %s (%d screens, %d world-shared tiles)" % [path.get_file(), world["screens"].size(), tiles.size()]
         _update_hud()
     )
     dialog.popup_centered(Vector2i(600, 400))
 
+func _collect_entity_overrides() -> Dictionary:
+    return {}
+
+func _collect_world_manifest() -> Dictionary:
+    var manifest: Dictionary = {}
+    var screens_data: Dictionary = {}
+    if _store:
+        for pos_key in _store.screens:
+            var entry: Dictionary = _store.screens[pos_key]
+            var pos: Vector2i = Vector2i(int(entry["x"]), int(entry["y"]))
+            var id: int = int(entry["id"])
+            manifest[pos_key] = {"x": pos.x, "y": pos.y, "id": id}
+            var cached: Dictionary = _store.get_cache(pos.x, pos.y)
+            if not cached.is_empty():
+                screens_data[id] = cached
+    if _is_current_placed():
+        screens_data[_screen_id] = _serialize()
+    elif _store and _store.screens.is_empty():
+        manifest[_store.key_of(_screen_pos.x, _screen_pos.y)] = {"x": _screen_pos.x, "y": _screen_pos.y, "id": _screen_id}
+        screens_data[_screen_id] = _serialize()
+    return {"manifest": manifest, "screens": screens_data}
+
+func _collect_world_tiles(screens_data: Dictionary) -> Dictionary:
+    var tiles: Dictionary = {}
+    for id in screens_data:
+        var screen_data: Dictionary = screens_data[id]
+        for t in screen_data.get("tiles", []):
+            var key: String = t.get("terrain", "")
+            if key == "" or key == "air" or tiles.has(key):
+                continue
+            if not WorldArchive.is_allowed_terrain_key(key):
+                continue
+            var img := get_tile_image(key)
+            if img:
+                tiles[key] = img
+    return tiles
+
+func _write_plain_json(path: String, data: Dictionary) -> bool:
+    var f := FileAccess.open(path, FileAccess.WRITE)
+    if not f:
+        return false
+    f.store_string(JSON.stringify(data, "\t"))
+    f.close()
+    return true
+
 func _on_import_map() -> void:
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-    dialog.add_filter("*.json", "Screen JSON")
-    dialog.title = "Import screen map"
+    dialog.add_filter("*.zip", "SSTD World Package")
+    dialog.add_filter("*.json", "Screen JSON (legacy)")
+    dialog.title = "Import world package"
     add_child(dialog)
     dialog.file_selected.connect(_on_import_file)
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_file(path: String) -> void:
+    if WorldArchive.is_world_path(path):
+        _load_world_package(path)
+        return
     var parsed := _load_screen_file(path)
     if parsed.is_empty() or not parsed.has("tiles"):
         push_error("Invalid JSON")
@@ -502,6 +608,30 @@ func _on_import_file(path: String) -> void:
         _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), parsed)
         _save_world()
     info_label.text = "Imported %d tiles, %d entities" % [parsed.get("tiles", []).size(), _placements.size()]
+    _update_hud()
+
+func _load_world_package(path: String) -> void:
+    var data := WorldArchive.load_world(path)
+    if not data.get("ok", false):
+        push_error("Invalid world package: ", path)
+        return
+    if _store:
+        _store.apply_world_data(data)
+        _store.world_package_path = path
+        _save_world()
+    _restore_tile_bank(data["tile_images"])
+    var current_id: int = _screen_id
+    if not data["screens"].has(current_id):
+        var first_id: Array = data["screens"].keys()
+        current_id = int(first_id[0]) if not first_id.is_empty() else _screen_id
+    _screen_id = current_id
+    screen_spin.set_value_no_signal(current_id)
+    _sync_position_from_id()
+    if _is_current_placed():
+        _restore_screen()
+    else:
+        _populate_terrain()
+    info_label.text = "Loaded world: %s (%d screens, %d world-shared tiles)" % [path.get_file(), data["screens"].size(), data["tile_images"].size()]
     _update_hud()
 
 func set_bridge(b: Node) -> void:

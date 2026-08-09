@@ -593,6 +593,10 @@ text = "Import..."
 layout_mode = 2
 text = "Export..."
 
+[node name="StampBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+layout_mode = 2
+text = "Stamp Image..."
+
 [node name="RightPanel" type="VBoxContainer" parent="TabContainer/MapEditor"]
 layout_mode = 2
 size_flags_horizontal = 3
@@ -608,6 +612,7 @@ script = ExtResource("7")
 
 [node name="HUD" type="Label" parent="TabContainer/MapEditor"]
 top_level = true
+visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 12
@@ -695,6 +700,7 @@ script = ExtResource("9")
 
 [node name="HUD" type="Label" parent="TabContainer/PlacementEditor"]
 top_level = true
+visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 12

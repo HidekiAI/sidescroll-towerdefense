@@ -43,6 +43,8 @@ var _stamp_catalog: Array[Dictionary] = []
 var _stamp_fp_index: Dictionary = {}  # FNV(int) -> Array[int] of catalog indices with that canonical-coarse fingerprint
 var _stamp_basename: String = ""
 var _stamp_maps: Array[Dictionary] = []
+var _tile_images: Dictionary = {}  # tile key -> Image (resident in memory; reused across the world)
+var _tile_texture_cache: Dictionary = {}  # tile key -> ImageTexture
 
 @onready var palette_list: ItemList = $LeftPanel/PaletteList
 @onready var tile_set_palette: ItemList = $LeftPanel/TileSetPalette
@@ -162,6 +164,79 @@ func get_tile_grid() -> Dictionary:
         "tiles": _tiles.duplicate(),
         "tile_data": _tile_data.duplicate(),
     }
+
+func get_tile_image(key: String) -> Image:
+    if key.is_empty():
+        return null
+    if _tile_images.has(key):
+        return _tile_images[key]
+    for entry in _stamp_catalog:
+        if entry["key"] == key:
+            var img: Image = entry["cell"]
+            _tile_images[key] = img
+            return img
+    var abs := ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+    if FileAccess.file_exists(abs):
+        var img := Image.new()
+        if img.load(abs) == OK:
+            _tile_images[key] = _as_rgba8(img)
+            return _tile_images[key]
+    return null
+
+static func _as_rgba8(img: Image) -> Image:
+    if img == null or img.get_format() == Image.FORMAT_RGBA8:
+        return img
+    img.convert(Image.FORMAT_RGBA8)
+    return img
+
+func get_tile_texture(key: String) -> Texture2D:
+    if _tile_texture_cache.has(key):
+        return _tile_texture_cache[key]
+    var img := get_tile_image(key)
+    if img:
+        var tex: ImageTexture = ImageTexture.create_from_image(img)
+        _tile_texture_cache[key] = tex
+        return tex
+    _tile_texture_cache[key] = null
+    return null
+
+func _restore_embedded_tiles(embedded: Dictionary) -> void:
+    if embedded.is_empty():
+        return
+    for key in embedded:
+        var b64: String = embedded[key]
+        var img := Image.new()
+        if img.load_png_from_buffer(Marshalls.base64_to_raw(b64)) != OK:
+            continue
+        _register_tile_image(str(key), _as_rgba8(img))
+
+func _restore_tile_bank(bank: Dictionary) -> void:
+    if bank.is_empty():
+        return
+    for key in bank:
+        var img: Image = bank[key]
+        if img:
+            _register_tile_image(str(key), _as_rgba8(img))
+
+func _register_tile_image(key: String, img: Image) -> void:
+    _tile_images[key] = img
+    _tile_texture_cache.erase(key)
+    var abs_dir := ProjectSettings.globalize_path("res://assets/tiles")
+    DirAccess.make_dir_recursive_absolute(abs_dir)
+    if not FileAccess.file_exists(abs_dir + "/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL]):
+        img.save_png(abs_dir + "/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+    var idx := -1
+    for i in _stamp_catalog.size():
+        if _stamp_catalog[i]["key"] == key:
+            idx = i
+            break
+    if idx < 0:
+        idx = _stamp_catalog.size()
+        _stamp_catalog.append({"key": key, "cell": img})
+        _index_stamp_entry(idx)
+    else:
+        _stamp_catalog[idx]["cell"] = img
+        _rebuild_stamp_index()
 
 func terrain_color(key: String) -> Color:
     for t in _terrain_types:
@@ -396,6 +471,12 @@ func _cache_current() -> void:
 func _load_screen_file(path: String) -> Dictionary:
     if path.is_empty() or not FileAccess.file_exists(path):
         return {}
+    if WorldArchive.is_world_path(path):
+        var data := WorldArchive.load_world(path)
+        return data if data.get("ok", false) else {}
+    return _load_plain_json(path)
+
+func _load_plain_json(path: String) -> Dictionary:
     var f := FileAccess.open(path, FileAccess.READ)
     if not f:
         return {}
@@ -406,6 +487,7 @@ func _load_screen_file(path: String) -> Dictionary:
     return parsed
 
 func _apply_screen(parsed: Dictionary) -> void:
+    _restore_embedded_tiles(parsed.get("embedded_tiles", {}))
     if parsed.has("width_tiles"):
         _grid_w = parsed["width_tiles"]
     if parsed.has("height_tiles"):
@@ -567,7 +649,7 @@ func _serialize() -> Dictionary:
                     entry["tile_data"] = td
                 tiles_out.append(entry)
     return {
-        "version": "0.1.0",
+        "version": "0.3.0",
         "screen_id": _screen_id,
         "width_tiles": _grid_w,
         "height_tiles": _grid_h,
@@ -580,51 +662,104 @@ func _serialize() -> Dictionary:
         "stamp_maps": _stamp_maps,
     }
 
+# Collects the whole world for packaging: manifest + per-screen data (world-shared
+# tiles are resolved separately via the shared tile bank below).
+func _collect_world_manifest() -> Dictionary:
+    var manifest: Dictionary = {}
+    var screens_data: Dictionary = {}
+    if _store:
+        for pos_key in _store.screens:
+            var entry: Dictionary = _store.screens[pos_key]
+            var pos: Vector2i = Vector2i(int(entry["x"]), int(entry["y"]))
+            var id: int = int(entry["id"])
+            manifest[pos_key] = {"x": pos.x, "y": pos.y, "id": id}
+            var cached: Dictionary = _store.get_cache(pos.x, pos.y)
+            if not cached.is_empty():
+                screens_data[id] = cached
+    # ensure current screen is flushed
+    if _is_current_placed():
+        screens_data[_screen_id] = _merge_placed_entities(_serialize())
+    elif _store and _store.screens.is_empty():
+        manifest[_store.key_of(_screen_pos.x, _screen_pos.y)] = {"x": _screen_pos.x, "y": _screen_pos.y, "id": _screen_id}
+        screens_data[_screen_id] = _serialize()
+    return {"manifest": manifest, "screens": screens_data}
+
+# Collects the world-shared tile bank: EVERY distinct tile image referenced by the world.
+func _collect_world_tiles(screens_data: Dictionary) -> Dictionary:
+    var tiles: Dictionary = {}
+    for id in screens_data:
+        var screen_data: Dictionary = screens_data[id]
+        for t in screen_data.get("tiles", []):
+            var key: String = t.get("terrain", "")
+            if key == "" or key == "air" or tiles.has(key):
+                continue
+            if not WorldArchive.is_allowed_terrain_key(key):
+                continue
+            var img := get_tile_image(key)
+            if img:
+                tiles[key] = img
+    return tiles
+
 func _on_save() -> void:
-    var data := _serialize()
-    var json_str := JSON.stringify(data, "\t")
+    _cache_current()
+    var world := _collect_world_manifest()
+    var tiles := _collect_world_tiles(world["screens"])
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-    dialog.add_filter("*.json", "Screen JSON")
-    dialog.title = "Save screen_%d.json" % _screen_id
-    dialog.current_file = "screen_%d.json" % _screen_id
+    dialog.add_filter("*.zip", "SSTD World Package")
+    dialog.add_filter("*.json", "Screen JSON (legacy)")
+    dialog.title = "Save world (package)"
+    dialog.current_file = "world.zip"
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
-        if _bridge and _bridge.has_method("import_screen"):
-            var result: Variant = _bridge.import_screen(json_str)
-            var parsed = JSON.parse_string(result)
-            if parsed and parsed.has("error"):
-                push_error("Bridge validation: ", parsed["error"])
-                return
-        var f := FileAccess.open(path, FileAccess.WRITE)
-        if not f:
+        var wrote := false
+        if WorldArchive.is_world_path(path):
+            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles)
+        else:
+            var f := FileAccess.open(path, FileAccess.WRITE)
+            if f:
+                f.store_string(JSON.stringify(_merge_placed_entities(_serialize()), "\t"))
+                f.close()
+                wrote = true
+        if not wrote:
             push_error("Cannot write: ", path)
             return
-        f.store_string(json_str)
-        f.close()
-        _cache_current()
         if _store:
-            if _screen_pos.x < 0:
+            if not WorldArchive.is_world_path(path) and _screen_pos.x < 0:
                 _screen_pos = _store.next_free_position()
-            _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), _merge_placed_entities(data))
+            if WorldArchive.is_world_path(path):
+                _store.world_package_path = path
+            _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), _merge_placed_entities(_serialize()))
             _save_world()
         if _main and _main.has_method("_save_last_map_path"):
             _main._save_last_map_path(path)
-        info_label.text = "Saved: %s (%d tiles)" % [path.get_file(), data["tiles"].size()]
+        info_label.text = "Saved: %s (%d screens, %d world-shared tiles)" % [path.get_file(), world["screens"].size(), tiles.size()]
         _update_hud()
     )
     dialog.popup_centered(Vector2i(600, 400))
 
+func _write_plain_json(path: String, data: Dictionary) -> bool:
+    var f := FileAccess.open(path, FileAccess.WRITE)
+    if not f:
+        return false
+    f.store_string(JSON.stringify(data, "\t"))
+    f.close()
+    return true
+
 func _on_import() -> void:
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-    dialog.add_filter("*.json", "Screen JSON")
-    dialog.title = "Import screen_%d.json" % _screen_id
+    dialog.add_filter("*.zip", "SSTD World Package")
+    dialog.add_filter("*.json", "Screen JSON (legacy)")
+    dialog.title = "Import world package"
     add_child(dialog)
     dialog.file_selected.connect(_on_import_file)
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_file(path: String) -> void:
+    if WorldArchive.is_world_path(path):
+        _load_world_package(path)
+        return
     var parsed := _load_screen_file(path)
     if parsed.is_empty() or not parsed.has("tiles"):
         push_error("Invalid screen file")
@@ -642,6 +777,32 @@ func _on_import_file(path: String) -> void:
     if _main and _main.has_method("_save_last_map_path"):
         _main._save_last_map_path(path)
     info_label.text = "Loaded: %s (%d tiles)" % [path.get_file(), parsed["tiles"].size()]
+    _update_hud()
+
+func _load_world_package(path: String) -> void:
+    var data := WorldArchive.load_world(path)
+    if not data.get("ok", false):
+        push_error("Invalid world package: ", path)
+        return
+    if _store:
+        _store.apply_world_data(data)
+        _store.world_package_path = path
+        _save_world()
+    _restore_tile_bank(data["tile_images"])
+    var current_id: int = _screen_id
+    if not data["screens"].has(current_id):
+        var first_id: Array = data["screens"].keys()
+        current_id = int(first_id[0]) if not first_id.is_empty() else _screen_id
+    _screen_id = current_id
+    screen_spin.set_value_no_signal(current_id)
+    _sync_position_from_id()
+    if _is_current_placed():
+        _restore_screen()
+    else:
+        _populate_grid()
+    if _main and _main.has_method("_save_last_map_path"):
+        _main._save_last_map_path(path)
+    info_label.text = "Loaded world: %s (%d screens, %d world-shared tiles)" % [path.get_file(), data["screens"].size(), data["tile_images"].size()]
     _update_hud()
 
 func _on_export() -> void:
@@ -679,7 +840,8 @@ func _load_stamp_catalog() -> void:
             var key := fname.get_basename().rsplit("_%dx%d" % [STAMP_CELL, STAMP_CELL], false)[0]
             var img := Image.new()
             if img.load(abs_dir + "/" + fname) == OK:
-                _stamp_catalog.append({"key": key, "cell": img})
+                _stamp_catalog.append({"key": key, "cell": _as_rgba8(img)})
+                _tile_images[key] = _stamp_catalog.back()["cell"]
                 var idx := key.trim_prefix("stamp_").to_int()
                 if idx > _stamp_seq:
                     _stamp_seq = idx
@@ -837,6 +999,7 @@ func _record_stamp_map(cells: Array[Dictionary], cols: int, rows: int) -> void:
     _stamp_maps.append(meta)
 
 func _has_ink(cell: Image) -> bool:
+    _as_rgba8(cell)
     var data := cell.get_data()
     for i in range(0, data.size(), 4):
         if data[i + 3] > 0:
@@ -871,6 +1034,7 @@ func _index_stamp_entry(idx: int) -> void:
     _stamp_fp_index[h].append(idx)
 
 func _average_hex(cell: Image) -> String:
+    _as_rgba8(cell)
     var r := 0.0
     var g := 0.0
     var b := 0.0
@@ -889,6 +1053,7 @@ func _average_hex(cell: Image) -> String:
     return "#%02x%02x%02x" % [int(r), int(g), int(b)]
 
 func _cell_bytes(cell: Image, flip_h: bool, flip_v: bool) -> PackedByteArray:
+    _as_rgba8(cell)
     var res := PackedByteArray()
     res.resize(STAMP_CELL * STAMP_CELL * 4)
     var data := cell.get_data()
@@ -939,6 +1104,7 @@ func _find_match(cell: Image) -> Dictionary:
     return {}
 
 func _coarse_bytes(img: Image) -> PackedByteArray:
+    _as_rgba8(img)
     const CB := 8
     var res := PackedByteArray()
     res.resize(CB * CB * 4)

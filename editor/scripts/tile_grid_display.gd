@@ -21,6 +21,11 @@ func reload_textures() -> void:
 func _tile_texture(key: String) -> Texture2D:
     if _texture_cache.has(key):
         return _texture_cache[key]
+    if map_editor and map_editor.has_method("get_tile_texture"):
+        var editor_tex: Texture2D = map_editor.get_tile_texture(key)
+        if editor_tex:
+            _texture_cache[key] = editor_tex
+            return editor_tex
     var path := "res://assets/tiles/%s_%dx%d.png" % [key, tile_size, tile_size]
     var abs := ProjectSettings.globalize_path(path)
     if FileAccess.file_exists(abs):

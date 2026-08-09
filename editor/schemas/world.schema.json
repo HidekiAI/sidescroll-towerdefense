@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorldArchiveManifest",
+  "description": "manifest.json inside a World Archive .zip (see docs/TDD_World-Archive.md). The .zip also contains screens/{id}.json (per-screen ScreenFile) and tiles/{key}.png (world-shared RGBA8 tile bank).",
+  "type": "object",
+  "required": [
+    "screens",
+    "version"
+  ],
+  "properties": {
+    "screens": {
+      "type": "object",
+      "description": "Map = collection of shareable screens, keyed \"{x},{y}\". Each value is a ScreenRef.",
+      "additionalProperties": {
+        "$ref": "#/definitions/ScreenRef"
+      }
+    },
+    "version": {
+      "type": "string",
+      "description": "WorldArchive.WORLD_VERSION = \"0.3.0\""
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ScreenRef": {
+      "type": "object",
+      "required": [
+        "id",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "y": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

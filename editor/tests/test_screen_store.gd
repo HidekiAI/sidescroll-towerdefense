@@ -15,12 +15,36 @@ func _initialize() -> void:
     _run()
 
 func _run() -> void:
+    _test_scripts_compile()
     _test_screen_store()
     await _test_map_editor()
     await _test_placement_editor()
     _test_stamp_fingerprint()
+    _test_world_archive_roundtrip()
+    await _test_world_reopen_not_blank()
     print("=== done, failures=%d ===" % _failures)
     quit(0 if _failures == 0 else 1)
+
+# Guards against the vacuous-pass trap: a scene whose script failed to parse
+# instantiates as its base node (e.g. HSplitContainer) and the suite silently
+# "passes". We assert every project script compiles and editors attach their script.
+func _test_scripts_compile() -> void:
+    print("--- scripts compile ---")
+    var scripts: Array = [
+        "res://scripts/world_archive.gd",
+        "res://scripts/screen_store.gd",
+        "res://scripts/map_editor.gd",
+        "res://scripts/placement_editor.gd",
+        "res://scripts/screen_minimap.gd",
+        "res://scripts/main.gd",
+    ]
+    var bad := 0
+    for path in scripts:
+        var s = load(path)
+        if s == null or not (s as GDScript).can_instantiate():
+            bad += 1
+            print("FAIL: script did not compile: " + path)
+    check(bad == 0, "no project script fails to compile")
 
 func _test_screen_store() -> void:
     print("--- ScreenStore ---")
@@ -181,3 +205,132 @@ func _test_stamp_fingerprint() -> void:
     var mhv: Dictionary = ed._find_match(grad_fhv)
     check(mhv.get("key") == "stamp_test" and mhv.get("flip_h") and mhv.get("flip_v"), "flip-hv matched as flip_h+flip_v variant")
     check(ed._find_match(other) == {}, "different image in own bucket -> no false match")
+
+# Acceptance: save/load whole world as a .zip; a tile referenced by many screens
+# is stored ONCE; a world that invents a new gameplay terrain type is rejected.
+func _test_world_archive_roundtrip() -> void:
+    print("--- WorldArchive round-trip ---")
+    var tmp_zip := "/tmp/user/1000/opencode/sstd_world_roundtrip.zip"
+    var shared_img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    shared_img.fill(Color(0.2, 0.5, 0.8, 1.0))
+    var brick_img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    brick_img.fill(Color(0.6, 0.3, 0.1, 1.0))
+    var manifest := {
+        "0,0": {"x": 0, "y": 0, "id": 1},
+        "1,0": {"x": 1, "y": 0, "id": 2},
+    }
+    var screens := {
+        1: {
+            "version": "0.3.0", "screen_id": 1,
+            "tiles": [
+                {"x": 5, "y": 5, "terrain": "grass", "sub_tile_mask": 15},
+                {"x": 6, "y": 5, "terrain": "stamp_tower_1", "sub_tile_mask": 0},
+            ],
+        },
+        2: {
+            "version": "0.3.0", "screen_id": 2,
+            "tiles": [
+                {"x": 3, "y": 2, "terrain": "grass", "sub_tile_mask": 15},
+                {"x": 4, "y": 2, "terrain": "stamp_tower_1", "sub_tile_mask": 0},
+            ],
+        },
+    }
+    var tiles := {"grass": shared_img, "stamp_tower_1": brick_img}
+    check(WorldArchive.save_world(tmp_zip, manifest, screens, tiles), "save_world writes zip")
+    var data := WorldArchive.load_world(tmp_zip)
+    check(data.get("ok", false), "load_world ok")
+
+    var z := ZIPReader.new()
+    z.open(tmp_zip)
+    var files: PackedStringArray = z.get_files()
+    var tile_count := 0
+    for f in files:
+        if f.begins_with("tiles/"):
+            tile_count += 1
+    z.close()
+    check(files.has("manifest.json"), "manifest.json present")
+    check(files.has("screens/1.json") and files.has("screens/2.json"), "per-screen files present")
+    check(tile_count == 2, "world-shared tile stored exactly once")
+    check(data["screens"].size() == 2, "two screens round-trip")
+    check(data["manifest"].has("0,0") and data["manifest"].has("1,0"), "manifest round-trip")
+    check(data["tile_images"].has("grass") and data["tile_images"].has("stamp_tower_1"), "tile bank round-trip")
+    var ref_img: Image = data["tile_images"]["grass"]
+    check(ref_img.get_width() == 32 and ref_img.get_format() == Image.FORMAT_RGBA8, "banked tile decoded to RGBA8 32x32")
+    var px: Color = ref_img.get_pixel(0, 0)
+    check(px.r < 0.3 and px.g > 0.4 and px.b > 0.7, "banked tile color preserved")
+
+    var bad := screens.duplicate(true)
+    bad[2] = bad[2].duplicate(true)
+    bad[2]["tiles"].append({"x": 9, "y": 9, "terrain": "hotspring", "sub_tile_mask": 0})
+    var tmp_bad := "/tmp/user/1000/opencode/sstd_world_bad.zip"
+    check(WorldArchive.save_world(tmp_bad, manifest, bad, tiles), "save_world writes bad zip")
+    check(not WorldArchive.load_world(tmp_bad).get("ok", false), "world with invented terrain key rejected")
+    DirAccess.remove_absolute(tmp_bad)
+    DirAccess.remove_absolute(tmp_zip)
+
+# Acceptance: a saved world is fully self-contained. Reopening it (fresh editor,
+# empty catalog, no assets/tiles/ PNG for the tile) still restores the tile bank
+# from the package, so no screen renders blank.
+func _test_world_reopen_not_blank() -> void:
+    print("--- world reopen not blank (no disk assets) ---")
+    var tmp_zip := "/tmp/user/1000/opencode/sstd_world_reopen.zip"
+    var tile_key := "stamp_orange"
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    var store := ScreenStore.new()
+    store.set_dir("/tmp/user/1000/opencode")
+    ed.set_screen_store(store)
+
+    # Author a private tile that does NOT exist in assets/tiles, used by 2 screens.
+    var custom := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    custom.fill(Color(0.9, 0.6, 0.2, 1.0))
+    ed._tile_images[tile_key] = custom
+    ed._on_add_screen_at(0, 0)
+    ed._tiles[ed._key(3, 3)] = tile_key
+    ed._cache_current()
+    ed._on_add_screen_at(1, 0)
+    ed._tiles[ed._key(7, 7)] = tile_key
+    ed._cache_current()
+
+    var world: Dictionary = ed._collect_world_manifest()
+    var bank: Dictionary = ed._collect_world_tiles(world["screens"])
+    check(bank.has(tile_key), "collect gathers private tile")
+    check(WorldArchive.save_world(tmp_zip, world["manifest"], world["screens"], bank), "save authored world")
+    var z2 := ZIPReader.new()
+    z2.open(tmp_zip)
+    var once := 0
+    for f in z2.get_files():
+        if f == "tiles/%s.png" % tile_key:
+            once += 1
+    z2.close()
+    check(once == 1, "shared private tile stored once across whole world")
+    ed.queue_free()
+    await process_frame
+    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+
+    var ed2 = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed2)
+    await process_frame
+    var store2 := ScreenStore.new()
+    store2.set_dir("/tmp/user/1000/opencode")
+    ed2.set_screen_store(store2)
+    ed2._on_screen_changed(1)
+    check(not ed2._tile_images.has(tile_key), "fresh editor has no private tile cached")
+    check(ed2.get_tile_image(tile_key) == null, "private tile absent from disk/catalog before load")
+
+    ed2._load_world_package(tmp_zip)
+    var restored: Image = ed2.get_tile_image(tile_key)
+    check(restored != null, "world restores tile bank from package without disk assets")
+    if restored:
+        check(restored.get_format() == Image.FORMAT_RGBA8, "restored tile is RGBA8")
+        var rp: Color = restored.get_pixel(0, 0)
+        check(rp.r > 0.8 and rp.g > 0.5, "restored tile keeps authored color")
+    check(store2.screen_id_at(1, 0) == 2, "reopen: second screen registered")
+    ed2._on_screen_changed(2)
+    check(ed2.get_tile(7, 7) == tile_key, "reopen: shared tile placed in screen 2")
+    check(ed2.get_tile(3, 3) != "", "reopen: screen not blank")
+    ed2.queue_free()
+    await process_frame
+    DirAccess.remove_absolute(tmp_zip)
+    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
