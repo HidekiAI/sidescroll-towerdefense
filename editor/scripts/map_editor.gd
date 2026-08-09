@@ -33,6 +33,7 @@ var _hud_start_pos: Vector2 = Vector2.ZERO
 
 const STAMP_CELL := 32
 const STAMP_TOLERANCE := 4.0
+const _BUSY_YIELD_EVERY := 128  # yield + repaint once per N heavy-loop iterations
 var _stamp_active: bool = false
 var _stamp_image: Image
 var _stamp_texture: ImageTexture
@@ -62,6 +63,11 @@ var _stamp_maps: Array[Dictionary] = []
 @onready var move_btn: Button = $LeftPanel/BottomBar/MoveBtn
 @onready var clone_btn: Button = $LeftPanel/BottomBar/CloneBtn
 
+func _set_busy(busy: bool) -> void:
+    if DisplayServer.get_name() == "headless":
+        return
+    DisplayServer.cursor_set_shape(DisplayServer.CURSOR_BUSY if busy else DisplayServer.CURSOR_ARROW)
+
 func _ready() -> void:
     hud_label.visible = false
     _load_defaults()
@@ -69,7 +75,9 @@ func _ready() -> void:
     _load_tile_sets()
     _rebuild_terrain_tilesets()
     _refresh_tile_set_palette()
-    _load_stamp_catalog()
+    _set_busy(true)
+    await _load_stamp_catalog()
+    _set_busy(false)
     _populate_grid()
 
     paint_btn.toggled.connect(_on_paint_mode)
@@ -661,7 +669,12 @@ func _load_stamp_catalog() -> void:
         return
     dir.list_dir_begin()
     var fname := dir.get_next()
+    var processed := 0
     while fname != "":
+        processed += 1
+        if processed % _BUSY_YIELD_EVERY == 0:
+            info_label.text = "Loading stamp catalog… %d files" % processed
+            await get_tree().process_frame
         if fname.begins_with("stamp_") and fname.ends_with("_%dx%d.png" % [STAMP_CELL, STAMP_CELL]):
             var key := fname.get_basename().rsplit("_%dx%d" % [STAMP_CELL, STAMP_CELL], false)[0]
             var img := Image.new()
@@ -672,11 +685,14 @@ func _load_stamp_catalog() -> void:
                     _stamp_seq = idx
         fname = dir.get_next()
     dir.list_dir_end()
-    _rebuild_stamp_index()
+    await _rebuild_stamp_index()
 
 func _rebuild_stamp_index() -> void:
     _stamp_fp_index.clear()
     for i in _stamp_catalog.size():
+        if (i + 1) % _BUSY_YIELD_EVERY == 0:
+            info_label.text = "Indexing stamps… %d/%d" % [i + 1, _stamp_catalog.size()]
+            await get_tree().process_frame
         _index_stamp_entry(i)
 
 func _on_stamp_import() -> void:
@@ -716,6 +732,7 @@ func _stamp_grid_input(event: InputEvent) -> void:
 func _commit_stamp(origin: Vector2i) -> void:
     if not _stamp_image:
         return
+    _set_busy(true)
     var w: int = _stamp_image.get_width()
     var h: int = _stamp_image.get_height()
     var col_count: int = ceili(float(w) / STAMP_CELL)
@@ -728,6 +745,7 @@ func _commit_stamp(origin: Vector2i) -> void:
         for cx in col_count:
             processed += 1
             if iter_count > 256 and processed % 64 == 0:
+                info_label.text = "Stamping… %d/%d cells" % [processed, iter_count]
                 await get_tree().process_frame
             var gx := origin.x + cx
             var gy := origin.y + ry
@@ -762,6 +780,7 @@ func _commit_stamp(origin: Vector2i) -> void:
     _refresh_palette()
     tile_grid.reload_textures()
     tile_grid.queue_redraw()
+    _set_busy(false)
     if not cells.is_empty():
         _register_stamp_brush(cells, col_count, row_count)
         _record_stamp_map(cells, col_count, row_count)
