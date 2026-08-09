@@ -39,6 +39,7 @@ var _stamp_texture: ImageTexture
 var _stamp_origin: Vector2i = Vector2i(-1, -1)
 var _stamp_seq: int = 0
 var _stamp_catalog: Array[Dictionary] = []
+var _stamp_fp_index: Dictionary = {}  # FNV(int) -> Array[int] of catalog indices with that canonical-coarse fingerprint
 var _stamp_basename: String = ""
 var _stamp_maps: Array[Dictionary] = []
 
@@ -62,6 +63,7 @@ var _stamp_maps: Array[Dictionary] = []
 @onready var clone_btn: Button = $LeftPanel/BottomBar/CloneBtn
 
 func _ready() -> void:
+    hud_label.visible = false
     _load_defaults()
     _refresh_palette()
     _load_tile_sets()
@@ -541,7 +543,7 @@ func _update_hud() -> void:
     if not td.is_empty():
         under_desc += "  mask:%s elev:%s" % [td.get("sub_tile_mask", "-"), td.get("elevation_tiles", "-")]
     var placed := "placed" if _is_current_placed() else "unplaced"
-    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s\n[H] hide/drag" % [
+    hud_label.text = "Screen %d @ (%d, %d) [%s]\nTile (%d, %d)  World (%d, %d)\nBrush: %s\nUnder: %s\n[I/M/H] toggle · drag to move" % [
         _screen_id, base.x, base.y, placed, tx, ty, wx, wy, brush, under_desc,
     ]
 
@@ -670,6 +672,12 @@ func _load_stamp_catalog() -> void:
                     _stamp_seq = idx
         fname = dir.get_next()
     dir.list_dir_end()
+    _rebuild_stamp_index()
+
+func _rebuild_stamp_index() -> void:
+    _stamp_fp_index.clear()
+    for i in _stamp_catalog.size():
+        _index_stamp_entry(i)
 
 func _on_stamp_import() -> void:
     var dialog := FileDialog.new()
@@ -714,8 +722,13 @@ func _commit_stamp(origin: Vector2i) -> void:
     var row_count: int = ceili(float(h) / STAMP_CELL)
     var total := 0
     var cells: Array[Dictionary] = []
+    var iter_count := col_count * row_count
+    var processed := 0
     for ry in row_count:
         for cx in col_count:
+            processed += 1
+            if iter_count > 256 and processed % 64 == 0:
+                await get_tree().process_frame
             var gx := origin.x + cx
             var gy := origin.y + ry
             if gx < 0 or gx >= _grid_w or gy < 0 or gy >= _grid_h:
@@ -826,8 +839,17 @@ func _ensure_tile(cell: Image) -> Dictionary:
         "display_name": key,
         "color_hex": _average_hex(cell),
     })
+    var catalog_index := _stamp_catalog.size()
     _stamp_catalog.append({"key": key, "cell": cell, "flip_h": false, "flip_v": false})
+    _index_stamp_entry(catalog_index)
     return {"key": key, "flip_h": false, "flip_v": false}
+
+func _index_stamp_entry(idx: int) -> void:
+    var cell: Image = _stamp_catalog[idx]["cell"]
+    var h := _fp_hash(_canonical_coarse(cell))
+    if not _stamp_fp_index.has(h):
+        _stamp_fp_index[h] = []
+    _stamp_fp_index[h].append(idx)
 
 func _average_hex(cell: Image) -> String:
     var r := 0.0
@@ -871,9 +893,11 @@ func _diff(a: PackedByteArray, b: PackedByteArray) -> float:
 
 func _find_match(cell: Image) -> Dictionary:
     var base := _cell_bytes(cell, false, false)
+    var bucket: Array = _stamp_fp_index.get(_fp_hash(_canonical_coarse(cell)), [])
     var best_diff := 0x7fffffff
     var best := {}
-    for entry in _stamp_catalog:
+    for idx in bucket:
+        var entry: Dictionary = _stamp_catalog[idx]
         var canonical: Image = entry["cell"]
         var variants: Array[Dictionary] = [
             {"h": false, "v": false},
@@ -894,6 +918,68 @@ func _find_match(cell: Image) -> Dictionary:
     if best_diff <= STAMP_TOLERANCE:
         return best
     return {}
+
+func _coarse_bytes(img: Image) -> PackedByteArray:
+    const CB := 8
+    var res := PackedByteArray()
+    res.resize(CB * CB * 4)
+    var data := img.get_data()
+    for by in CB:
+        for bx in CB:
+            var r := 0
+            var g := 0
+            var b := 0
+            var a := 0
+            for y in 4:
+                for x in 4:
+                    var si := ((by * 4 + y) * STAMP_CELL + (bx * 4 + x)) * 4
+                    r += data[si]
+                    g += data[si + 1]
+                    b += data[si + 2]
+                    a += data[si + 3]
+            var o := (by * CB + bx) * 4
+            res[o] = r / 16
+            res[o + 1] = g / 16
+            res[o + 2] = b / 16
+            res[o + 3] = a / 16
+    return res
+
+func _flip_coarse(c: PackedByteArray, flip_h: bool, flip_v: bool) -> PackedByteArray:
+    const CB := 8
+    var out := PackedByteArray()
+    out.resize(CB * CB * 4)
+    for by in CB:
+        for bx in CB:
+            var sby := (CB - 1 - by) if flip_v else by
+            var sbx := (CB - 1 - bx) if flip_h else bx
+            var si := (sby * CB + sbx) * 4
+            var di := (by * CB + bx) * 4
+            for k in 4:
+                out[di + k] = c[si + k]
+    return out
+
+func _canonical_coarse(img: Image) -> PackedByteArray:
+    var c := _coarse_bytes(img)
+    var best: PackedByteArray = c
+    for flip_h in [false, true]:
+        for flip_v in [false, true]:
+            var f := _flip_coarse(c, flip_h, flip_v)
+            if _bytes_less(f, best):
+                best = f
+    return best
+
+func _bytes_less(a: PackedByteArray, b: PackedByteArray) -> bool:
+    var n: int = mini(a.size(), b.size())
+    for i in n:
+        if a[i] != b[i]:
+            return a[i] < b[i]
+    return a.size() < b.size()
+
+func _fp_hash(bytes: PackedByteArray) -> int:
+    var h := 2166136261
+    for b in bytes:
+        h = (h ^ b) * 16777619
+    return h
 
 func _input(event: InputEvent) -> void:
     if _hud_dragging:
@@ -928,7 +1014,7 @@ func _input(event: InputEvent) -> void:
             _flip_v_active = not _flip_v_active
             _update_info()
             get_viewport().set_input_as_handled()
-        if event.keycode == KEY_H:
+        if event.keycode == KEY_H or event.keycode == KEY_I or event.keycode == KEY_M:
             hud_label.visible = not hud_label.visible
             get_viewport().set_input_as_handled()
 
