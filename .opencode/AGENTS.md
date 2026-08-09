@@ -1,5 +1,9 @@
 # Project: SSTD (Sidescroll Tower Defense)
 
+## Wiki Maintenance Rule (permanent)
+
+Whenever a **new wiki page** is added (GDD or TDD), **update the wiki Home page** (`sidescroll-towerdefense.wiki/Home.md`) in the same commit — add a row in the relevant section (Game Design / Technical Design) linking the new page. Do the same in `TODO.md` (tracked-work session table). A newly shipped wiki page with no Home.md/TODO.md entry is an oversight. (Rule recorded 2026-08-09, see #40.)
+
 ## gRPC Integration
 
 Three gRPC service contexts, each on a separate port (localhost-only by default, no auth):
