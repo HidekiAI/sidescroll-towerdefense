@@ -17,19 +17,19 @@
 
 ## 2. Config Keys
 
-Each apprentice domain registers exactly three keys (pattern `repair.<domain>.<key>`):
+Each support-bot domain registers exactly three keys (pattern `repair.<domain>.<key>`):
 
 | Key | Type | Default | Purpose |
 |-----|------|---------|---------|
 | `repair.<domain>.cost_m` | f64 | `*TBD*` | Slope multiplier |
 | `repair.<domain>.cost_c` | f64 | `1` | Difficulty-anchored intercept base; final intercept = `difficulty × cost_c` |
-| `repair.<domain>.rate` | f64 | `*TBD*` | Base repair per apprentice per turn |
+| `repair.<domain>.rate` | f64 | `*TBD*` | Base repair per support bot per turn |
 
 ### Domains
 
-| Domain | Hero | Apprentice | Target Unit |
-|--------|------|------------|-------------|
-| `gemama` | Gemama | Weapon Repairer | Weapon current damage |
+| Domain | Hero | Support Bot | Target Unit |
+|--------|------|-------------|-------------|
+| `gemama` | Gemama | Weapon Repair Bot | Weapon current damage |
 
 Bunnira, Lira, Nia domains are *TBD — design deferred*.
 
@@ -41,7 +41,7 @@ Bunnira, Lira, Nia domains are *TBD — design deferred*.
 
 ```
 damageCost = (currentDamage × cost_m) + (difficulty × cost_c)
-repairTurns = ceil(damageCost / (apprenticeCount × rate))
+repairTurns = ceil(damageCost / (repairBotCount × rate))
 ```
 
 - **difficulty** — global multiplier (easy = 0.5, normal = 1.0, hard = 2.0)
@@ -51,7 +51,7 @@ repairTurns = ceil(damageCost / (apprenticeCount × rate))
 
 ```
 damageCost = (cost_m × log₂(currentDamage + 1)) + (difficulty × cost_c)
-repairTurns = ceil(damageCost / (apprenticeCount × rate))
+repairTurns = ceil(damageCost / (repairBotCount × rate))
 ```
 
 No schema migration needed for the swap — the three config keys are identical; only the Rust `fn repair_turns(...)` changes.
@@ -61,7 +61,7 @@ No schema migration needed for the swap — the three config keys are identical;
 | Case | Behaviour |
 |------|-----------|
 | `currentDamage <= 0` | Return 0 (nothing to repair) |
-| `apprenticeCount == 0` | Return `i32::MAX` or skip (no repairers assigned) |
+| `repairBotCount == 0` | Return `i32::MAX` or skip (no repairers assigned) |
 | `rate <= 0` | Panic / clamp to 1 (invalid config) |
 | `repairTurns == 0` | Clamp to 1 (every repair takes at least 1 turn) |
 
@@ -80,7 +80,7 @@ pub struct RepairParams {
 
 pub struct RepairInput {
     pub current_damage: f64,
-    pub apprentice_count: u32,
+    pub repair_bot_count: u32,
     pub difficulty: f64,
 }
 
@@ -101,7 +101,7 @@ pub fn repair_turns(
             params.cost_m * (input.current_damage + 1.0).log2() + intercept
         }
     };
-    let turns = (damage_cost / (input.apprentice_count as f64 * params.rate)).ceil() as u32;
+    let turns = (damage_cost / (input.repair_bot_count as f64 * params.rate)).ceil() as u32;
     turns.max(1)
 }
 ```

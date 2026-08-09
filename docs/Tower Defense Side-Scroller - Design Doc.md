@@ -6,58 +6,58 @@
 
 ## 1. Characters (Heroes)
 
-Each hero is a deployable field unit with a unique combat mechanic and passive support identity. Heroes can be enhanced by Apprentice units that extend or reinforce their domain.
+Each hero is a deployable field unit with a unique combat mechanic and passive support identity. Heroes can be enhanced by Support Bots (a manufactured, 魔石-run bot/drone) that extend or reinforce their domain. Organic field presence is restricted to the hero, the 魔王, and the 冒険者 exception (see §Bots & Drones); every other field unit is a bot.
 
 ### 1.1 Gemama — The Enchantress
 
-**Role**: Weapon buffer / aura support.
+**Role**: Weapon buffer / aura support, delivered by an **enchant drone proxy** — Gemama herself never leaves the village forge.
 
-**Mechanic — Walk-By Enchantment**:
-While Gemama moves (or idles near weapons), she emits a short-range aura. Any weapon inside the aura gains a stacking damage buff per tick. The effect decays when she leaves range.
+**Mechanic — Enchant Drone Proxy**:
+Gemama programs an enchant drone at her forge. The drone patrols a length of the kill corridor and emits a short-range aura; any weapon inside the aura gains a stacking damage buff per tick, decaying when the drone leaves range.
 
 - AoE radius: *TBD*
 - Tick interval: every N frames (configurable)
 - Stack ceiling: *TBD* (hard cap or diminishing returns)
 - Decay rate: *TBD* (full drain after X seconds away)
 
-**Strategic use**: Positioned along the kill corridor to "paint" weapons before a wave hits. Encourages clustering around her path.
+**Strategic use**: The drone's patrol path along the kill corridor "paints" weapons before a wave hits. Encourages clustering around the drone path.
 
 ### 1.2 Bunnira
 
 **Role**: *TBD — design deferred.*
 
 - Core mechanic: *TBD*
-- Apprentice domain: repair of Bunnira-related assets (*TBD*)
+- Support-bot domain: repair of Bunnira-related assets (*TBD*)
 
 ### 1.3 Lira
 
 **Role**: *TBD — design deferred.*
 
 - Core mechanic: *TBD*
-- Apprentice domain: repair of Lira-related assets (*TBD*)
+- Support-bot domain: repair of Lira-related assets (*TBD*)
 
 ### 1.4 Nia
 
 **Role**: *TBD — design deferred.*
 
 - Core mechanic: *TBD*
-- Apprentice domain: repair of Nia-related assets (*TBD*)
+- Support-bot domain: repair of Nia-related assets (*TBD*)
 
 ---
 
-## 2. Apprentices (Repairers)
+## 2. Support Bots (Repair Bots)
 
-Apprentices are cheap, spammable support units that auto-repair their hero's domain. Multiple apprentices on the same target divide the workload.
+Repair bots are cheap, spammable support drones that auto-repair their hero's domain. Multiple repair bots on the same target divide the workload. These are bots — manufactured, 魔石-run, HP-based — not organic staff.
 
 ### 2.1 Shared Formula
 
-All apprentice repair calculations currently use a fixed formula driven entirely by `sstd_config.sqlite3` constants. (A per-item script override is possible in a future phase — Phase 5+ / post-1.0 — but is not in scope now. If added, the script language will be TypeScript.) Every apprentice domain exposes exactly three config keys:
+All repair-bot calculations currently use a fixed formula driven entirely by `sstd_config.sqlite3` constants. (A per-item script override is possible in a future phase — Phase 5+ / post-1.0 — but is not in scope now. If added, the script language will be TypeScript.) Every repair-bot domain exposes exactly three config keys:
 
 | Key Pattern | Purpose |
 |-------------|---------|
 | `repair.<domain>.cost_m` | Slope multiplier |
 | `repair.<domain>.cost_c` | Difficulty-anchored intercept base (default 1) |
-| `repair.<domain>.rate` | Base repair per-apprentice per-turn |
+| `repair.<domain>.rate` | Base repair per-repair-bot per-turn |
 
 Examples: `repair.gemama.cost_m`, `repair.gemama.cost_c`, `repair.gemama.rate`.
 
@@ -65,7 +65,7 @@ Examples: `repair.gemama.cost_m`, `repair.gemama.cost_c`, `repair.gemama.rate`.
 
 ```
 damageCost = (currentDamage × cost_m) + (difficulty × cost_c)
-repairTurns = ceil(damageCost / (apprenticeCount × rate))
+repairTurns = ceil(damageCost / (repairBotCount × rate))
 ```
 
 - **difficulty** — global multiplier (easy = 0.5, normal = 1.0, hard = 2.0, etc.)
@@ -77,21 +77,21 @@ If diminishing returns on damage cost is desired later, swap the Rust function w
 
 ```
 damageCost = (cost_m × log₂(currentDamage + 1)) + (difficulty × cost_c)
-repairTurns = ceil(damageCost / (apprenticeCount × rate))
+repairTurns = ceil(damageCost / (repairBotCount × rate))
 ```
 
 The keys (`cost_m`, `cost_c`, `rate`) stay the same — only the Rust evaluation changes.
 
 - **currentDamage** — amount of damage the target has taken (domain-specific unit: HP, charge, structural integrity)
-- **apprenticeCount** — number of apprentices currently repairing the same target
-- **rate** — base per-apprentice efficiency (configurable per apprentice type)
+- **repairBotCount** — number of repair bots currently repairing the same target
+- **rate** — base per-repair-bot efficiency (configurable per repair-bot type)
 - Minimum 1-turn floor regardless of count.
 
-### 2.2 Apprentice Types
+### 2.2 Support-Bot Types
 
-| Hero | Apprentice | Repair Domain | Notes |
-|------|-----------|---------------|-------|
-| Gemama | Weapon Repairer | Weapon damage | Enchanted weapons take extra wear; repairers offset the increased degradation |
+| Hero | Support Bot | Repair Domain | Notes |
+|------|-------------|---------------|-------|
+| Gemama | Weapon Repair Bot | Weapon damage | Enchanted weapons take extra wear; repair bots offset the increased degradation |
 | Bunnira | *TBD* | *TBD* | Design deferred |
 | Lira | *TBD* | *TBD* | Design deferred |
 | Nia | *TBD* | *TBD* | Design deferred |
