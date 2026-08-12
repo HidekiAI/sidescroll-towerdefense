@@ -20,6 +20,7 @@ func _run() -> void:
     await _test_map_editor()
     await _test_placement_editor()
     _test_stamp_fingerprint()
+    await _test_stamp_brush_dedupe()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
     await _test_world_pointer_bootstrap()
@@ -206,6 +207,51 @@ func _test_stamp_fingerprint() -> void:
     var mhv: Dictionary = ed._find_match(grad_fhv)
     check(mhv.get("key") == "stamp_test" and mhv.get("flip_h") and mhv.get("flip_v"), "flip-hv matched as flip_h+flip_v variant")
     check(ed._find_match(other) == {}, "different image in own bucket -> no false match")
+
+func _stamp_group_count(ed) -> int:
+    var n := 0
+    for ts in ed._tile_set_groupings:
+        if (ts.key as String).begins_with("stamp_"):
+            n += 1
+    return n
+
+# Regression for #46: re-stamping the same source image at a different map spot must
+# update the existing TileSetGrouping (dedupe by key), not append a duplicate brush.
+func _test_stamp_brush_dedupe() -> void:
+    print("--- MapEditor stamp brush dedupe (#46) ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    check(_stamp_group_count(ed) == 0, "fresh editor has no stamp brushes")
+
+    var cells_a: Array[Dictionary] = [
+        {"local_x": 0, "local_y": 0, "terrain_key": "stamp_1", "flip_h": false, "flip_v": false, "src_col": 0, "src_row": 0},
+        {"local_x": 1, "local_y": 0, "terrain_key": "stamp_2", "flip_h": false, "flip_v": false, "src_col": 1, "src_row": 0},
+    ]
+    ed._stamp_basename = "hero"
+    ed._register_stamp_brush(cells_a, 2, 1)
+    check(_stamp_group_count(ed) == 1, "first stamp registers one grouping")
+    check(ed._find_tile_set("stamp_hero").tiles.size() == 2, "grouping holds the cell entries")
+
+    var cells_b: Array[Dictionary] = [
+        {"local_x": 0, "local_y": 0, "terrain_key": "stamp_1", "flip_h": false, "flip_v": false, "src_col": 0, "src_row": 0},
+        {"local_x": 1, "local_y": 0, "terrain_key": "stamp_2", "flip_h": false, "flip_v": false, "src_col": 1, "src_row": 0},
+    ]
+    ed._register_stamp_brush(cells_b, 2, 1)
+    check(_stamp_group_count(ed) == 1, "re-stamp same image reuses the grouping, no duplicate (#46)")
+    check(ed._find_tile_set("stamp_hero").tiles.size() == 2, "existing grouping still has entries")
+    check(ed._selected_tile_set_key == "stamp_hero", "re-stamped brush stays selected")
+
+    var cells_c: Array[Dictionary] = [
+        {"local_x": 0, "local_y": 0, "terrain_key": "stamp_7", "flip_h": false, "flip_v": false, "src_col": 0, "src_row": 0},
+    ]
+    ed._stamp_basename = "villain"
+    ed._register_stamp_brush(cells_c, 1, 1)
+    check(_stamp_group_count(ed) == 2, "different basename -> distinct grouping")
+
+    ed.queue_free()
+
+    ed.queue_free()
 
 # Acceptance: save/load whole world as a .zip; a tile referenced by many screens
 # is stored ONCE; a world that invents a new gameplay terrain type is rejected.

@@ -136,7 +136,7 @@ func _rebuild_terrain_tilesets() -> void:
             "sub_tile_mask": 15,
             "flip_h": false, "flip_v": false,
         }]
-        ts.tags = ["terrain_default", "category:terrain"]
+        ts.tags.assign(["terrain_default", "category:terrain"])
         _tile_set_groupings.append(ts)
 
 func _populate_grid() -> void:
@@ -313,7 +313,7 @@ func _wrap_godot_tileset(ts: TileSet) -> void:
     wrapper.display_name = source.resource_name if not source.resource_name.is_empty() else "TileSet"
     wrapper.width_tiles = w
     wrapper.height_tiles = h
-    wrapper.tags = ["terrain"] if is_terrain else ["slope"]
+    wrapper.tags.assign(["terrain"] if is_terrain else ["slope"])
     for i in range(min(valid.size(), w * h)):
         var id := valid[i]
         wrapper.tile_coords.append({"col": id.x, "row": id.y, "local_x": i % w, "local_y": i / w})
@@ -967,8 +967,15 @@ func _commit_stamp(origin: Vector2i) -> void:
 func _register_stamp_brush(cells: Array[Dictionary], cols: int, rows: int) -> void:
     if _stamp_basename.is_empty():
         return
-    var ts := TileSetGrouping.new()
-    ts.key = "stamp_%s" % _stamp_basename
+    # Reuse an existing grouping with the same key instead of appending a
+    # duplicate. Re-stamping the same image at a different spot must yield one
+    # brush, not two (issue #46).
+    var key := "stamp_%s" % _stamp_basename
+    var ts = _find_tile_set(key)
+    if ts == null:
+        ts = TileSetGrouping.new()
+        ts.key = key
+        _tile_set_groupings.append(ts)
     ts.display_name = "Stamp %s" % _stamp_basename
     ts.width_tiles = cols
     ts.height_tiles = rows
@@ -986,8 +993,7 @@ func _register_stamp_brush(cells: Array[Dictionary], cols: int, rows: int) -> vo
             "source_col": cell["src_col"],
             "source_row": cell["src_row"],
         })
-    ts.tags = ["stamp", "terrain"]
-    _tile_set_groupings.append(ts)
+    ts.tags.assign(["stamp", "terrain"])
     _refresh_tile_set_palette()
     select_tile_set(ts.key)
 
