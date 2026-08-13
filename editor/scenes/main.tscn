@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://dtn6qocve6qai"]
+[gd_scene load_steps=14 format=3 uid="uid://dtn6qocve6qai"]
 
 [ext_resource type="Script" uid="uid://c40osmgee5nae" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://ba4grmonufm7r" path="res://scripts/terrain_editor.gd" id="2"]
@@ -10,6 +10,7 @@
 [ext_resource type="Script" uid="uid://bns2btwey36le" path="res://scripts/placement_editor.gd" id="8"]
 [ext_resource type="Script" uid="uid://dfxn7xagyabxr" path="res://scripts/placement_grid_display.gd" id="9"]
 [ext_resource type="Script" uid="uid://cic7l3yynx57q" path="res://scripts/simulator.gd" id="10"]
+[ext_resource type="Script" path="res://scripts/tile_palette.gd" id="11"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg_map"]
 content_margin_left = 8.0
@@ -541,19 +542,15 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Collision"
 
-[node name="PaletteList" type="ItemList" parent="TabContainer/MapEditor/LeftPanel"]
+[node name="PaletteLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 22)
+text = "— Tile Palette —"
+
+[node name="TilePalette" type="ItemList" parent="TabContainer/MapEditor/LeftPanel"]
 layout_mode = 2
 size_flags_vertical = 3
-
-[node name="TileSetLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel"]
-custom_minimum_size = Vector2(0, 22)
-layout_mode = 2
-text = "— TileSets —"
-
-[node name="TileSetPalette" type="ItemList" parent="TabContainer/MapEditor/LeftPanel"]
-custom_minimum_size = Vector2(0, 100)
-layout_mode = 2
-size_flags_vertical = 2
+script = ExtResource("11")
 
 [node name="BottomBar" type="VBoxContainer" parent="TabContainer/MapEditor/LeftPanel"]
 layout_mode = 2

@@ -160,3 +160,41 @@ While fixing, hardened the typed-array assignments that produced a runtime
 all `ts.tags = [...]` / `wrapper.tags = [...]` sites now use `.assign([...])`.
 
 **Verify**: `_test_stamp_brush_dedupe` regression added to `editor/tests/test_screen_store.gd` — stamps the same image twice (same basename) and asserts the `stamp_<basename>` grouping count stays `1`; a different basename yields a distinct `2`nd.
+
+## 10. Implemented: unified visual tile palette (issue #49)
+
+**#49 — visual tile palette for pick-and-choose.** The Map Editor's two
+text-only lists (`PaletteList`, `TileSetPalette`) were replaced by one
+**thumbnail grid** (`editor/scripts/tile_palette.gd`, an `ItemList` in
+icon mode) that shows every paintable thing as a 32px icon:
+
+- canonical terrain types → color swatches (fallback to their tile image
+  when the world bank carries one),
+- world-shared `_tile_images` entries → their tile thumbnails,
+- `TileSetGrouping`/`GodotTileSetGrouping` brushes → composite previews
+  built by `_group_preview_image` (stamps each referenced cell into a
+  `w×h` thumbnail; `STAMP_CELL` cells, reference-only, never pixel bloat).
+
+Selection maps to the existing brush path: `tile_picked(kind, key)` →
+`_on_tile_picked` sets `_selected_tile_set_key` (`terrain_*` for terrain,
+raw key for bank tiles, group key for groupings); single-tile picks paint
+via the same `_place_tile_set`/`_paint_tile` machinery used by image
+stamps. `select_tile_set(key)` (used by `main.gd` tileset navigation) now
+highlights the entry via `tile_palette.select_key(key)`.
+
+The palette is refreshed after the async stamp-catalog load, after world
+package import (`_restore_tile_bank`), and on terrain-type changes, so a
+loaded `world.zip` immediately shows all its shared tiles as pickable
+icons — the prerequisite picker for the #44 region-select grouping tool.
+
+**Verify**: `_test_tile_palette` in `editor/tests/test_screen_store.gd`
+- asserts the palette node exists and is scripted,
+- asserts the grid is populated (≥ terrain count, ≥ tile-bank count),
+- emits `tile_picked` with kind `terrain`/`tile` and that the editor's
+  selected brush key follows the pick.
+
+**Regression note (GDScript gotcha)**: capturing an outer array in a
+lambda and reassigning it (`picked = [...]`) does **not** update the
+caller's variable — use `picked.assign([...])` instead (§10 test uses
+`assign`). Also, `ItemList.icon_mode` is an enum
+(`ItemList.ICON_MODE_TOP`), not a bool.

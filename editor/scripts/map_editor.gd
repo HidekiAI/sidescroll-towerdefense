@@ -2,6 +2,7 @@ extends Control
 
 const _GodotTileSetGrouping := preload("res://scripts/resources/godot_tileset_grouping.gd")
 const _ScreenMinimapDialog := preload("res://scenes/screen_minimap_dialog.tscn")
+const _TilePalette := preload("res://scripts/tile_palette.gd")
 const WORLD_PATH := "res://world.json"
 
 var _grid_w: int = 60
@@ -46,8 +47,7 @@ var _stamp_maps: Array[Dictionary] = []
 var _tile_images: Dictionary = {}  # tile key -> Image (resident in memory; reused across the world)
 var _tile_texture_cache: Dictionary = {}  # tile key -> ImageTexture
 
-@onready var palette_list: ItemList = $LeftPanel/PaletteList
-@onready var tile_set_palette: ItemList = $LeftPanel/TileSetPalette
+@onready var tile_palette: _TilePalette = $LeftPanel/TilePalette
 @onready var tile_grid: Control = $RightPanel/Scroll/TileGrid
 @onready var screen_spin: SpinBox = $LeftPanel/TopBar/ScreenSpin
 @onready var paint_btn: CheckButton = $LeftPanel/TopBar/PaintBtn
@@ -73,13 +73,13 @@ func _set_busy(busy: bool) -> void:
 func _ready() -> void:
     hud_label.visible = false
     _load_defaults()
-    _refresh_palette()
+    _refresh_tile_palette()
     _load_tile_sets()
     _rebuild_terrain_tilesets()
-    _refresh_tile_set_palette()
     _set_busy(true)
     await _load_stamp_catalog()
     _set_busy(false)
+    _refresh_tile_palette()
     _populate_grid()
 
     paint_btn.toggled.connect(_on_paint_mode)
@@ -89,8 +89,7 @@ func _ready() -> void:
     export_btn.pressed.connect(_on_export)
     stamp_btn.pressed.connect(_on_stamp_import)
     screen_spin.value_changed.connect(_on_screen_changed)
-    palette_list.item_selected.connect(_on_palette_select)
-    tile_set_palette.item_selected.connect(_on_select_tile_set)
+    tile_palette.tile_picked.connect(_on_tile_picked)
     collision_btn.toggled.connect(_on_toggle_collision)
     add_btn.pressed.connect(_on_add_screen)
     delete_btn.pressed.connect(_on_delete_screen)
@@ -112,10 +111,15 @@ func _load_defaults() -> void:
     ]
 
 func _refresh_palette() -> void:
-    palette_list.clear()
-    for t in _terrain_types:
-        var idx := palette_list.add_item(t["display_name"])
-        palette_list.set_item_custom_fg_color(idx, Color(t["color_hex"]))
+    # Legacy alias: the terrain list and tileset list are now one visual palette.
+    _refresh_tile_palette()
+
+# Unified thumbnail grid (tile_palette): populations terrain swatches, the
+# world-shared tile bank, and stamp/tileset groupings.
+func _refresh_tile_palette() -> void:
+    if tile_palette == null:
+        return
+    tile_palette.populate(_terrain_types, _tile_images, _tile_set_groupings, _group_preview_image)
 
 func _rebuild_terrain_tilesets() -> void:
     _tile_set_groupings = _tile_set_groupings.filter(func(ts):
@@ -320,33 +324,52 @@ func _wrap_godot_tileset(ts: TileSet) -> void:
     _tile_set_groupings.append(wrapper)
 
 func _refresh_tile_set_palette() -> void:
-    tile_set_palette.clear()
-    for ts in _tile_set_groupings:
-        if ts.tags.has("terrain_default"):
-            continue
-        var label := "%s  %d×%d" % [ts.display_name, ts.width_tiles, ts.height_tiles]
-        var idx := tile_set_palette.add_item(label)
-        tile_set_palette.set_item_metadata(idx, ts.key)
-        if "terrain" in ts.tags:
-            tile_set_palette.set_item_custom_fg_color(idx, Color(0.3, 0.8, 0.3))
-        elif "slope" in ts.tags:
-            tile_set_palette.set_item_custom_fg_color(idx, Color(0.8, 0.7, 0.3))
+    # Legacy alias: the tile-set list is now part of the visual tile palette.
+    _refresh_tile_palette()
 
-func _on_palette_select(index: int) -> void:
-    if index >= 0 and index < _terrain_types.size():
-        _selected_terrain = _terrain_types[index]["key"]
-        _selected_tile_set_key = "terrain_" + _selected_terrain
-        tile_set_palette.deselect_all()
-        _update_info()
+# Builds a composite thumbnail for a TileSetGrouping (stamp_* or wrapped
+# Godot tile-set): stamps each referenced cell into a w×h preview image.
+func _group_preview_image(ts) -> ImageTexture:
+    if ts == null:
+        return _empty_texture()
+    var image_size := maxi(ts.width_tiles, 1) * STAMP_CELL
+    var preview := Image.create(
+        image_size, image_size, false, Image.FORMAT_RGBA8)
+    preview.fill(Color(0, 0, 0, 0))
 
-func _on_select_tile_set(index: int) -> void:
-    if index < 0 or index >= tile_set_palette.get_item_count():
-        return
-    var key = tile_set_palette.get_item_metadata(index)
-    if typeof(key) != TYPE_STRING or (key as String).is_empty():
-        return
-    _selected_tile_set_key = key
-    palette_list.deselect_all()
+    var blit_cell := func(cell_key: String, lx: int, ly: int) -> void:
+        var cell: Image = get_tile_image(cell_key)
+        if cell == null:
+            return
+        var src := cell.duplicate()
+        preview.blit_rect(
+            src, Rect2i(0, 0, src.get_width(), src.get_height()),
+            Vector2i(lx * STAMP_CELL, ly * STAMP_CELL))
+
+    if "tile_coords" in ts and not (ts.tile_coords as Array).is_empty():
+        for tc in ts.tile_coords:
+            blit_cell.call(tc.get("terrain_key", ""), tc.get("local_x", 0), tc.get("local_y", 0))
+    else:
+        for cell in ts.tiles:
+            blit_cell.call(cell.get("terrain_key", ""), cell.get("local_x", 0), cell.get("local_y", 0))
+    return ImageTexture.create_from_image(preview)
+
+func _empty_texture() -> ImageTexture:
+    var img := Image.create(STAMP_CELL, STAMP_CELL, false, Image.FORMAT_RGBA8)
+    img.fill(Color(0.2, 0.2, 0.2, 1))
+    return ImageTexture.create_from_image(img)
+
+func _on_tile_picked(kind: String, key: String) -> void:
+    match kind:
+        "terrain":
+            _selected_terrain = key
+            _selected_tile_set_key = "terrain_" + key
+        "tile":
+            _selected_terrain = key
+            _selected_tile_set_key = key
+        "group":
+            _selected_terrain = ""
+            _selected_tile_set_key = key
     _update_info()
 
 func _on_toggle_collision(visible: bool) -> void:
@@ -354,13 +377,9 @@ func _on_toggle_collision(visible: bool) -> void:
     tile_grid.queue_redraw()
 
 func select_tile_set(key: String) -> void:
-    for i in tile_set_palette.item_count:
-        if tile_set_palette.get_item_metadata(i) as String == key:
-            tile_set_palette.select(i)
-            _on_select_tile_set(i)
-            return
+    tile_palette.select_key(key)
     _selected_tile_set_key = key
-    tile_set_palette.deselect_all()
+    _selected_terrain = ""
     _update_info()
 
 func _find_tile_set(key: String):
@@ -548,7 +567,10 @@ func _open_minimap(mode: String, on_pick: Callable) -> void:
         dialog.queue_free()
         on_pick.call(x, y)
     )
-    dialog.get_node("Panel/VBox/Buttons/CancelBtn").pressed.connect(dialog.queue_free)
+    var cancel: Callable = func():
+        dialog.queue_free()
+    dialog.get_node("Panel/VBox/Buttons/CancelBtn").pressed.connect(cancel)
+    dialog.close_requested.connect(cancel)
     dialog.popup_centered()
 
 func _on_add_screen() -> void:
@@ -803,6 +825,7 @@ func _load_world_package(path: String) -> void:
         _store.world_package_path = path
         _save_world()
     _restore_tile_bank(data["tile_images"])
+    _refresh_tile_palette()
     var current_id: int = _screen_id
     if not data["screens"].has(current_id):
         var first_id: Array = data["screens"].keys()

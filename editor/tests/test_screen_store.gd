@@ -24,6 +24,7 @@ func _run() -> void:
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
     await _test_world_pointer_bootstrap()
+    await _test_tile_palette()
     print("=== done, failures=%d ===" % _failures)
     quit(0 if _failures == 0 else 1)
 
@@ -38,6 +39,7 @@ func _test_scripts_compile() -> void:
         "res://scripts/map_editor.gd",
         "res://scripts/placement_editor.gd",
         "res://scripts/screen_minimap.gd",
+        "res://scripts/tile_palette.gd",
         "res://scripts/main.gd",
     ]
     var bad := 0
@@ -425,3 +427,36 @@ func _test_world_pointer_bootstrap() -> void:
     DirAccess.remove_absolute(tmp_zip)
     DirAccess.remove_absolute(tmp_pointer)
     DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+
+func _test_tile_palette() -> void:
+    print("--- TilePalette (issue #49) ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    await ed._load_stamp_catalog()
+    var palette = ed.get_node("LeftPanel/TilePalette")
+    check(palette != null and palette.get("script") != null, "map_editor has TilePalette node")
+    check(palette.has_method("populate"), "TilePalette has populate")
+    check(palette.has_method("select_key"), "TilePalette has select_key")
+    check(ed._tile_images.size() > 0, "world-shared tile bank populates from stamp catalog")
+    check(palette.get_item_count() >= ed._terrain_types.size(), "palette shows all terrain entries")
+    check(palette.get_item_count() >= ed._tile_images.size(), "palette shows every world-shared tile")
+
+    # Selecting a terrain swatch maps to the terrain_* grouping brush.
+    var picked: Array = []
+    palette.tile_picked.connect(func(kind: String, key: String): picked.assign([kind, key]))
+    palette.item_selected.emit(0)
+    await process_frame
+    check(picked.size() == 2 and picked[0] == "terrain", "tile_picked emitted with kind 'terrain'")
+    check(not ed._selected_tile_set_key.is_empty(), "terrain pick sets a brush key")
+
+    # Selecting a world-shared tile (kind "tile") selects it as a paint brush.
+    var tile_idx: int = ed._terrain_types.size()
+    if tile_idx < palette.get_item_count():
+        palette.item_selected.emit(tile_idx)
+        await process_frame
+        check(picked.size() == 2 and picked[0] == "tile", "tile_picked emitted with kind 'tile'")
+        check(ed._selected_tile_set_key == picked[1], "tile pick selects the single tile brush")
+
+    ed.queue_free()
+    await process_frame

@@ -1,7 +1,8 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/map_editor.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/tile_grid_display.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/tile_palette.gd" id="3"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg"]
 bg_color = Color(0, 0, 0, 0.62)
@@ -43,16 +44,13 @@ size_flags_horizontal = 3
 text = "Collision"
 size_flags_horizontal = 3
 
-[node name="PaletteList" type="ItemList" parent="LeftPanel"]
-size_flags_vertical = 3
-
-[node name="TileSetLabel" type="Label" parent="LeftPanel"]
-text = "— TileSets —"
+[node name="PaletteLabel" type="Label" parent="LeftPanel"]
+text = "— Tile Palette —"
 custom_minimum_size = Vector2(0, 22)
 
-[node name="TileSetPalette" type="ItemList" parent="LeftPanel"]
-size_flags_vertical = 2
-custom_minimum_size = Vector2(0, 100)
+[node name="TilePalette" type="ItemList" parent="LeftPanel"]
+size_flags_vertical = 3
+script = ExtResource("3")
 
 [node name="BottomBar" type="VBoxContainer" parent="LeftPanel"]
 

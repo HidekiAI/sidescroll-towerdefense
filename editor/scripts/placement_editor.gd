@@ -320,7 +320,10 @@ func _open_minimap(mode: String, on_pick: Callable) -> void:
         dialog.queue_free()
         on_pick.call(x, y)
     )
-    dialog.get_node("Panel/VBox/Buttons/CancelBtn").pressed.connect(dialog.queue_free)
+    var cancel: Callable = func():
+        dialog.queue_free()
+    dialog.get_node("Panel/VBox/Buttons/CancelBtn").pressed.connect(cancel)
+    dialog.close_requested.connect(cancel)
     dialog.popup_centered()
 
 func _on_add_screen() -> void:
