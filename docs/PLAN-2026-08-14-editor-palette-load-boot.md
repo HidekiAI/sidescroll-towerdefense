@@ -46,7 +46,7 @@ below so a resume needs no source re-digging.
 - [x] 4. Placement Editor `Import Map...` -> `Load World...`                          editor/scenes/placement_editor.tscn
 - [x] 5. Dialog titles -> `Load world package` (both editors)                         editor/scripts/map_editor.gd, editor/scripts/placement_editor.gd
 - [x] 6. Guard `_populate_grid()` behind store-empty check in `_ready`                editor/scripts/map_editor.gd
-- [ ] 7. File GH issue: editors expose Save but no Load (ref #47/#48)                 gh issue create
+- [x] 7. File GH issue: editors expose Save but no Load (ref #47/#48)                 gh issue create -> #50
 - [ ] 8. Run `./scripts/run.sh`; verify palette grid + screen 1 of world.zip          manual + journal
 - [ ] 9. `.backup` isolation experiment + journal review                              manual
 - [ ] 10. Update wiki TODO.md session table + commit                                  sidescroll-towerdefense.wiki/TODO.md
