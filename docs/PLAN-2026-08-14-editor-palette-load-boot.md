@@ -39,13 +39,13 @@ below so a resume needs no source re-digging.
 
 ## Checklist
 
-- [ ] 0. Create this plan doc                                                      docs/PLAN-2026-08-14-editor-palette-load-boot.md
-- [ ] 1. TilePalette grid: `max_columns = 0` in `_ready()`                            editor/scripts/tile_palette.gd
-- [ ] 2. TilePalette no filename: empty label, tooltip kept                          editor/scripts/tile_palette.gd
-- [ ] 3. Map Editor button `Import...` -> `Load World...`                             editor/scenes/map_editor.tscn
-- [ ] 4. Placement Editor `Import Map...` -> `Load World...`                          editor/scenes/placement_editor.tscn
-- [ ] 5. Dialog titles -> `Load world package` (both editors)                         editor/scripts/map_editor.gd, editor/scripts/placement_editor.gd
-- [ ] 6. Guard `_populate_grid()` behind store-empty check in `_ready`                editor/scripts/map_editor.gd
+- [x] 0. Create this plan doc                                                      docs/PLAN-2026-08-14-editor-palette-load-boot.md
+- [x] 1. TilePalette grid: `max_columns = 0` in `_ready()`                            editor/scripts/tile_palette.gd
+- [x] 2. TilePalette no filename: empty label, tooltip kept                          editor/scripts/tile_palette.gd
+- [x] 3. Map Editor button `Import...` -> `Load World...`                             editor/scenes/map_editor.tscn
+- [x] 4. Placement Editor `Import Map...` -> `Load World...`                          editor/scenes/placement_editor.tscn
+- [x] 5. Dialog titles -> `Load world package` (both editors)                         editor/scripts/map_editor.gd, editor/scripts/placement_editor.gd
+- [x] 6. Guard `_populate_grid()` behind store-empty check in `_ready`                editor/scripts/map_editor.gd
 - [ ] 7. File GH issue: editors expose Save but no Load (ref #47/#48)                 gh issue create
 - [ ] 8. Run `./scripts/run.sh`; verify palette grid + screen 1 of world.zip          manual + journal
 - [ ] 9. `.backup` isolation experiment + journal review                              manual

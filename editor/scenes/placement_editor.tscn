@@ -55,7 +55,7 @@ text = "Clone Screen..."
 text = "Save"
 
 [node name="ImportMapBtn" type="Button" parent="LeftPanel/BottomBar"]
-text = "Import Map..."
+text = "Load World..."
 
 [node name="ClearBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Clear All"

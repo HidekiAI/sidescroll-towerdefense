@@ -49,6 +49,7 @@ text = "— Tile Palette —"
 custom_minimum_size = Vector2(0, 22)
 
 [node name="TilePalette" type="ItemList" parent="LeftPanel"]
+size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("3")
 
@@ -76,7 +77,7 @@ text = "Clone Screen..."
 text = "Save"
 
 [node name="ImportBtn" type="Button" parent="LeftPanel/BottomBar"]
-text = "Import..."
+text = "Load World..."
 
 [node name="ExportBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Export..."

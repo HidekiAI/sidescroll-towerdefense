@@ -16,6 +16,8 @@ var _selected_key := ""
 
 func _ready() -> void:
     fixed_icon_size = Vector2i(THUMB, THUMB)
+    fixed_column_width = THUMB
+    max_columns = 0
     icon_mode = ItemList.ICON_MODE_TOP
     allow_reselect = true
     item_selected.connect(_on_item_selected)
@@ -70,7 +72,8 @@ func select_key(key: String) -> void:
 
 
 func _add_entry(kind: String, key: String, label: String, icon: Texture2D) -> void:
-    var idx := add_item(label, icon, true)
+    # No item text: a bare thumbnail grid (filenames stay in the tooltip only).
+    var idx := add_item("", icon, true)
     set_item_tooltip(idx, label)
     set_item_metadata(idx, {"kind": kind, "key": key})
     _entries.append({"kind": kind, "key": key, "label": label})

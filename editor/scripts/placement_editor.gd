@@ -589,7 +589,7 @@ func _on_import_map() -> void:
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
     dialog.add_filter("*.zip", "SSTD World Package")
     dialog.add_filter("*.json", "Screen JSON (legacy)")
-    dialog.title = "Import world package"
+    dialog.title = "Load world package"
     add_child(dialog)
     dialog.file_selected.connect(_on_import_file)
     dialog.popup_centered(Vector2i(600, 400))

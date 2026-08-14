@@ -80,7 +80,10 @@ func _ready() -> void:
     await _load_stamp_catalog()
     _set_busy(false)
     _refresh_tile_palette()
-    _populate_grid()
+    # main._ready may auto-load the last world while this _ready was suspended
+    # on the stamp-catalog await; do not wipe that grid with the default one.
+    if _tiles.is_empty():
+        _populate_grid()
 
     paint_btn.toggled.connect(_on_paint_mode)
     erase_btn.toggled.connect(_on_erase_mode)
@@ -780,7 +783,7 @@ func _on_import() -> void:
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
     dialog.add_filter("*.zip", "SSTD World Package")
     dialog.add_filter("*.json", "Screen JSON (legacy)")
-    dialog.title = "Import world package"
+    dialog.title = "Load world package"
     add_child(dialog)
     dialog.file_selected.connect(_on_import_file)
     dialog.popup_centered(Vector2i(600, 400))
