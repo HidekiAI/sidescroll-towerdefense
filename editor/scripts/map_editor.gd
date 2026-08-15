@@ -957,6 +957,7 @@ func _on_prune_duplicates() -> void:
         return
     _set_busy(true)
     var groups: Dictionary = {}
+    var palette_before: int = tile_palette._entries.size()
     for i in _stamp_catalog.size():
         var sig := _similarity_sig(_as_rgba8(_stamp_catalog[i]["cell"]))
         var h := _fp_hash(sig)
@@ -986,6 +987,11 @@ func _on_prune_duplicates() -> void:
         _set_busy(false)
         info_label.text = "Prune: no duplicates (%d tiles scanned)" % _stamp_catalog.size()
         _log_import("prune", "no duplicates among %d tiles" % _stamp_catalog.size())
+        var dlg := AcceptDialog.new()
+        dlg.title = "Prune Duplicates"
+        dlg.dialog_text = "No duplicates found.\n%d tiles scanned, palette unchanged." % _stamp_catalog.size()
+        add_child(dlg)
+        dlg.popup_centered()
         return
     _rewrite_references(merge_map)
     var removed_pngs := _drop_tiles(dup_keys)
@@ -994,9 +1000,21 @@ func _on_prune_duplicates() -> void:
     tile_grid.reload_textures()
     tile_grid.queue_redraw()
     _set_busy(false)
+    var palette_after: int = tile_palette._entries.size()
     var first := " -> ".join([dup_keys[0], merge_map[dup_keys[0]]["key"]])
     info_label.text = "Pruned %d duplicate tiles (%s); bank now %d tiles" % [dup_keys.size(), first, _tile_images.size()]
     _log_import("prune", "merged %d duplicates onto lowest-id tiles (first %s), removed %d disk PNGs, bank=%d" % [dup_keys.size(), first, removed_pngs, _tile_images.size()])
+    var summary := "Merged %d duplicate tiles onto lowest-id tiles.\n\n" % dup_keys.size()
+    summary += "Example: %s\n\n" % first
+    summary += "Removed %d redundant disk PNGs.\n" % removed_pngs
+    summary += "Tile bank: %d tiles (was %d).\n" % [_tile_images.size(), _tile_images.size() + dup_keys.size()]
+    summary += "Palette entries: %d (was %d).\n" % [palette_after, palette_before]
+    summary += "All map/branch references now point at the surviving tiles."
+    var dlg_ok := AcceptDialog.new()
+    dlg_ok.title = "Prune Duplicates"
+    dlg_ok.dialog_text = summary
+    add_child(dlg_ok)
+    dlg_ok.popup_centered()
 
 # Rewrites every terrain reference that points at a merged duplicate so the map,
 # cached screens, and stamp brushes all use the canonical lowest-id tile. Flip

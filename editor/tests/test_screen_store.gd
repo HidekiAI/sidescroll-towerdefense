@@ -310,12 +310,24 @@ func _test_prune_duplicates() -> void:
     ed._tile_images["stamp_5002"] = cell_c
     ed._rebuild_stamp_index()
     ed._tiles[ed._key(2, 2)] = "stamp_5001"
+    ed._refresh_tile_palette()
+    var entries_before: int = ed.tile_palette._entries.size()
+    var pal_keys_before := {}
+    for e in ed.tile_palette._entries:
+        pal_keys_before[e["key"]] = true
 
     await ed._on_prune_duplicates()
     check(not ed._tile_images.has("stamp_5001"), "duplicate tile dropped from bank")
     check(ed._tile_images.has("stamp_5000"), "lowest-id representative kept")
     check(ed._tile_images.has("stamp_5002"), "distinct tile kept")
     check(ed.get_tile(2, 2) == "stamp_5000", "grid reference rewritten to lowest-id tile")
+    print("    palette entries before=%d after=%d" % [entries_before, ed.tile_palette._entries.size()])
+    var pal_after: Dictionary = {}
+    for e in ed.tile_palette._entries:
+        pal_after[e["key"]] = true
+    check(not pal_after.has("stamp_5001"), "dup key absent from palette after prune")
+    check(pal_after.has("stamp_5000"), "rep key present in palette after prune")
+    check(pal_after.has("stamp_5002"), "distinct key present in palette after prune")
     var dups := 0
     for e in ed._stamp_catalog:
         if e["key"] == "stamp_5001":
