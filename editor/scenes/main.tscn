@@ -584,11 +584,15 @@ text = "Save"
 
 [node name="ImportBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
 layout_mode = 2
-text = "Import..."
+text = "Load World..."
 
 [node name="ExportBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
 layout_mode = 2
 text = "Export..."
+
+[node name="PruneBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+layout_mode = 2
+text = "Prune Duplicates"
 
 [node name="StampBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
 layout_mode = 2
@@ -676,7 +680,7 @@ text = "Save"
 
 [node name="ImportMapBtn" type="Button" parent="TabContainer/PlacementEditor/LeftPanel/BottomBar"]
 layout_mode = 2
-text = "Import Map..."
+text = "Load World..."
 
 [node name="ClearBtn" type="Button" parent="TabContainer/PlacementEditor/LeftPanel/BottomBar"]
 layout_mode = 2
