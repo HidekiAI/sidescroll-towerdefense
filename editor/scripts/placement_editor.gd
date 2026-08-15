@@ -212,16 +212,14 @@ func cache_current_screen() -> void:
 
 func _screen_pos_of_current() -> Vector2i:
     if _store:
-        var p := _store.position_of_id(_screen_id)
-        if p.x >= 0:
-            return p
+        return _store.position_of_id(_screen_id)
     return Vector2i(-1, -1)
 
 func _sync_position_from_id() -> void:
     _screen_pos = _screen_pos_of_current()
 
 func _is_current_placed() -> bool:
-    return _screen_pos.x >= 0 and _store != null and _store.is_occupied(_screen_pos.x, _screen_pos.y)
+    return _store != null and _store.has_id(_screen_id)
 
 func _cache_current() -> void:
     if _is_current_placed():
@@ -399,7 +397,7 @@ func _update_hud() -> void:
     var pos := placement_grid.get_local_mouse_position()
     var tx := clampi(int(pos.x / placement_grid.tile_size), 0, _grid_w - 1)
     var ty := clampi(int(pos.y / placement_grid.tile_size), 0, _grid_h - 1)
-    var base := _screen_pos if _screen_pos.x >= 0 else Vector2i.ZERO
+    var base := _screen_pos if _is_current_placed() else Vector2i.ZERO
     var wx := base.x * _grid_w + tx
     var wy := base.y * _grid_h + ty
     var brush := _selected_entity_key if not _selected_entity_key.is_empty() else "—"
@@ -527,7 +525,7 @@ func _on_save() -> void:
             _log_import("world", "FAIL save: " + path)
             return
         if _store:
-            if not WorldArchive.is_world_path(path) and _screen_pos.x < 0:
+            if not WorldArchive.is_world_path(path) and not _is_current_placed():
                 _screen_pos = _store.next_free_position()
             if WorldArchive.is_world_path(path):
                 _store.world_package_path = path
@@ -612,7 +610,7 @@ func _on_import_file(path: String) -> void:
         screen_spin.set_value_no_signal(_screen_id)
     _sync_position_from_id()
     if _store:
-        if _screen_pos.x < 0:
+        if not _is_current_placed():
             _screen_pos = _store.next_free_position()
         _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), parsed)
         _save_world()

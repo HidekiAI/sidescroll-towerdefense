@@ -30,6 +30,14 @@ below so a resume needs no source re-digging.
    - When `_ready` resumes it calls `_populate_grid()` (map_editor.gd:83) which
      CLEARS `_tiles` → default air/grass/dirt. Loaded world is wiped.
    - Same race explains GitHub issues #47, #48.
+4. **Negative-position sentinel collision** (found during verify; the real reason
+   the stamped map did not render): `ScreenStore.position_of_id()` returns
+   `Vector2i(-1,-1)` both for "not found" AND for a legitimately placed screen
+   at (-1,-1). `_is_current_placed()` gated on `_screen_pos.x >= 0`, so a real
+   screen at (-1,-1) was treated as unplaced and `_load_world_package` fell into
+   `_populate_grid()` (default grid). world.zip manifest places screen 1 at -1,-1.
+   Fix: added `ScreenStore.has_id(id)` and made `_is_current_placed()` + all
+   `_screen_pos` sign checks (save/import/minimap HUD) use `has_id` instead.
 
 ## Journal line the verify step must show
 
@@ -46,8 +54,11 @@ below so a resume needs no source re-digging.
 - [x] 4. Placement Editor `Import Map...` -> `Load World...`                          editor/scenes/placement_editor.tscn
 - [x] 5. Dialog titles -> `Load world package` (both editors)                         editor/scripts/map_editor.gd, editor/scripts/placement_editor.gd
 - [x] 6. Guard `_populate_grid()` behind store-empty check in `_ready`                editor/scripts/map_editor.gd
+- [x] 6b. Fix negative-position sentinel: `ScreenStore.has_id`; `_is_current_placed`   editor/scripts/screen_store.gd, map_editor.gd, placement_editor.gd
+          and all `_screen_pos` sign checks use `has_id`; regression tests            editor/tests/test_screen_store.gd
 - [x] 7. File GH issue: editors expose Save but no Load (ref #47/#48)                 gh issue create -> #50
-- [ ] 8. Run `./scripts/run.sh`; verify palette grid + screen 1 of world.zip          manual + journal
+- [x] 8. Run editor headless; journal shows `restored screen 1 (1140 tiles)`,           manual + journal
+          no post-load `populated default grid`; test suite failures=0
 - [ ] 9. `.backup` isolation experiment + journal review                              manual
 - [ ] 10. Update wiki TODO.md session table + commit                                  sidescroll-towerdefense.wiki/TODO.md
 

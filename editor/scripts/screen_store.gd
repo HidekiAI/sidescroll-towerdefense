@@ -43,6 +43,15 @@ func position_of_id(id: int) -> Vector2i:
             return Vector2i(int(parts[0]), int(parts[1]))
     return Vector2i(-1, -1)
 
+# Whether a screen with `id` is registered at any position. Positions may be
+# negative (e.g. a screen at -1,-1), so validity must never be inferred from
+# the sign of a position value.
+func has_id(id: int) -> bool:
+    for k in screens:
+        if int(screens[k].get("id", -1)) == id:
+            return true
+    return false
+
 func next_id() -> int:
     var max_id := 0
     for k in screens:

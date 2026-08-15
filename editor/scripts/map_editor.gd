@@ -155,6 +155,7 @@ func _populate_grid() -> void:
     for x in _grid_w:
         _tiles[_key(x, _grid_h - 1)] = "grass"
         _tiles[_key(x, _grid_h - 2)] = "dirt"
+    print("[editor/map] populated default grid (%d tiles)" % _tiles.size())
     tile_grid.queue_redraw()
 
 func _key(x: int, y: int) -> String:
@@ -468,16 +469,14 @@ func cache_current_screen() -> void:
 
 func _screen_pos_of_current() -> Vector2i:
     if _store:
-        var p := _store.position_of_id(_screen_id)
-        if p.x >= 0:
-            return p
+        return _store.position_of_id(_screen_id)
     return Vector2i(-1, -1)
 
 func _sync_position_from_id() -> void:
     _screen_pos = _screen_pos_of_current()
 
 func _is_current_placed() -> bool:
-    return _screen_pos.x >= 0 and _store != null and _store.is_occupied(_screen_pos.x, _screen_pos.y)
+    return _store != null and _store.has_id(_screen_id)
 
 func _merge_placed_entities(data: Dictionary) -> Dictionary:
     if _is_current_placed():
@@ -534,6 +533,7 @@ func _restore_screen() -> void:
                 else _load_screen_file(_store.screen_path(_screen_pos.x, _screen_pos.y))
         if not parsed.is_empty() and parsed.has("tiles"):
             _apply_screen(parsed)
+            print("[editor/map] restored screen %d (%d tiles)" % [_screen_id, parsed["tiles"].size()])
             return
     _populate_grid()
 
@@ -649,7 +649,7 @@ func _update_hud() -> void:
     var pos := tile_grid.get_local_mouse_position()
     var tx := clampi(int(pos.x / tile_grid.tile_size), 0, _grid_w - 1)
     var ty := clampi(int(pos.y / tile_grid.tile_size), 0, _grid_h - 1)
-    var base := _screen_pos if _screen_pos.x >= 0 else Vector2i.ZERO
+    var base := _screen_pos if _is_current_placed() else Vector2i.ZERO
     var wx := base.x * _grid_w + tx
     var wy := base.y * _grid_h + ty
     var brush := "—"
@@ -756,7 +756,7 @@ func _on_save() -> void:
             _log_import("world", "FAIL save: " + path)
             return
         if _store:
-            if not WorldArchive.is_world_path(path) and _screen_pos.x < 0:
+            if not WorldArchive.is_world_path(path) and not _is_current_placed():
                 _screen_pos = _store.next_free_position()
             if WorldArchive.is_world_path(path):
                 _store.world_package_path = path
@@ -807,7 +807,7 @@ func _on_import_file(path: String) -> void:
         screen_spin.set_value_no_signal(_screen_id)
     _sync_position_from_id()
     if _store:
-        if _screen_pos.x < 0:
+        if not _is_current_placed():
             _screen_pos = _store.next_free_position()
         _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), parsed)
         _save_world()

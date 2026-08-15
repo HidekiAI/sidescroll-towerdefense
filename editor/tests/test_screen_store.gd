@@ -68,6 +68,15 @@ func _test_screen_store() -> void:
     store.remove(0, 1)
     check(not store.is_occupied(0, 1), "remove")
 
+    # Negative positions are valid placements and must not collide with the
+    # "not found" sentinel Vector2i(-1,-1) (regression: screen 1 at -1,-1 was
+    # treated as unplaced and the stamped map rendered as the default grid).
+    store.register(-1, -1, 7, "screen_7.json")
+    check(store.is_occupied(-1, -1), "negative position is occupied")
+    check(store.has_id(7), "has_id true for screen at -1,-1")
+    check(store.position_of_id(7) == Vector2i(-1, -1), "position_of_id returns the real negative position")
+    check(not store.has_id(999), "has_id false for unregistered id")
+
     var tmp := "/tmp/user/1000/opencode/sstd_world_test.json"
     store.set_dir("/tmp/user/1000/opencode")
     check(store.save_world(tmp), "save_world")
@@ -102,6 +111,25 @@ func _test_map_editor() -> void:
     ed._on_screen_changed(99)
     check(ed._screen_pos.x < 0, "unregistered id is unplaced")
     check(ed.get_tile(5, 5) == "air", "unregistered id shows empty canvas")
+
+    # A screen placed at negative coordinates is still "placed": restore must
+    # show its grid instead of the default air/grass/dirt (regression).
+    var neg_store := ScreenStore.new()
+    neg_store.register(-1, -1, 1, "screen_1.json")
+    var neg_data: Dictionary = {
+        "version": "0.3.0", "screen_id": 1,
+        "tiles": [{"x": 4, "y": 4, "terrain": "stamp_neg", "sub_tile_mask": 15}],
+    }
+    neg_store.set_cache(-1, -1, neg_data)
+    var ed2 = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed2)
+    await process_frame
+    ed2.set_screen_store(neg_store)
+    check(ed2._is_current_placed(), "screen at -1,-1 is considered placed")
+    ed2._on_screen_changed(1)
+    check(ed2.get_tile(4, 4) == "stamp_neg", "negative-position screen restores its grid, not default")
+    ed2.queue_free()
+    await process_frame
 
     ed._clipboard = ed._serialize()
     ed._on_clone_screen_at(3, 0)
