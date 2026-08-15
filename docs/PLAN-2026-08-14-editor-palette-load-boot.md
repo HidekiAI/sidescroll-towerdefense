@@ -38,6 +38,13 @@ below so a resume needs no source re-digging.
    `_populate_grid()` (default grid). world.zip manifest places screen 1 at -1,-1.
    Fix: added `ScreenStore.has_id(id)` and made `_is_current_placed()` + all
    `_screen_pos` sign checks (save/import/minimap HUD) use `has_id` instead.
+5. **Near-duplicate near-black tiles** (found while pruning): stamp_1..86 and
+   stamp_845..859 are all near-black opaque PNGs (mean ~20,14,27, alpha=255;
+   265/2174 zip-bank tiles near-black, mean.r<32). The 8-bit canonical coarse
+   fingerprint used for the stamp index never groups them (probe: 3025 entries ->
+   3025 unique fingerprints) because any 4x4 block-mean change flips the hash.
+   A 2-bit quantized coarse signature (each channel >> 6) DOES group them
+   (ImageMagick: stamp_1..120 -> 33 unique groups, rep stamp_1 +86).
 
 ## Journal line the verify step must show
 
@@ -61,6 +68,10 @@ below so a resume needs no source re-digging.
           no post-load `populated default grid`; test suite failures=0
 - [ ] 9. `.backup` isolation experiment + journal review                              manual
 - [ ] 10. Update wiki TODO.md session table + commit                                  sidescroll-towerdefense.wiki/TODO.md
+- [x] 11. GH issue #51 for prune/merge duplicates button                                gh issue create -> #51
+- [x] 12. Prune Duplicates button + merge logic + regression test                       editor/scenes/map_editor.tscn, editor/scripts/map_editor.gd, editor/tests/test_screen_store.gd
+- [ ] 13. Headless verify prune on real catalog (expect journal `merged N duplicates`,  manual + journal
+          `removed M disk PNGs`); test suite failures=0
 
 ## .backup isolation experiment (step 9)
 

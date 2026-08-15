@@ -21,6 +21,7 @@ func _run() -> void:
     await _test_placement_editor()
     _test_stamp_fingerprint()
     await _test_stamp_brush_dedupe()
+    await _test_prune_duplicates()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
     await _test_world_pointer_bootstrap()
@@ -282,6 +283,47 @@ func _test_stamp_brush_dedupe() -> void:
     ed.queue_free()
 
     ed.queue_free()
+
+# Acceptance for the opt-in "Prune Duplicates" button (#51): visually-identical
+# tiles (identical 2-bit coarse signature AND exact diff <= tolerance) collapse
+# onto the lowest stamp id; every reference is rewritten; distinct tiles stay.
+func _test_prune_duplicates() -> void:
+    print("--- prune duplicates (#51) ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    var cell_a := _make_gradient_cell()
+    var cell_b := cell_a.duplicate()
+    var cell_c := _make_gradient_cell()
+    for y in 32:
+        cell_c.set_pixel(y, y, Color(1, 0, 0, 1))
+
+    ed._stamp_catalog.append({"key": "stamp_5000", "cell": cell_a, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5001", "cell": cell_b, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5002", "cell": cell_c, "flip_h": false, "flip_v": false})
+    ed._tile_images["stamp_5000"] = cell_a
+    ed._tile_images["stamp_5001"] = cell_b
+    ed._tile_images["stamp_5002"] = cell_c
+    ed._rebuild_stamp_index()
+    ed._tiles[ed._key(2, 2)] = "stamp_5001"
+
+    await ed._on_prune_duplicates()
+    check(not ed._tile_images.has("stamp_5001"), "duplicate tile dropped from bank")
+    check(ed._tile_images.has("stamp_5000"), "lowest-id representative kept")
+    check(ed._tile_images.has("stamp_5002"), "distinct tile kept")
+    check(ed.get_tile(2, 2) == "stamp_5000", "grid reference rewritten to lowest-id tile")
+    var dups := 0
+    for e in ed._stamp_catalog:
+        if e["key"] == "stamp_5001":
+            dups += 1
+    check(dups == 0, "duplicate removed from catalog")
+
+    ed.queue_free()
+    await process_frame
 
 # Acceptance: save/load whole world as a .zip; a tile referenced by many screens
 # is stored ONCE; a world that invents a new gameplay terrain type is rejected.

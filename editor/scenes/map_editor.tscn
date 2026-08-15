@@ -82,6 +82,9 @@ text = "Load World..."
 [node name="ExportBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Export..."
 
+[node name="PruneBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Prune Duplicates"
+
 [node name="StampBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Stamp Image..."
 

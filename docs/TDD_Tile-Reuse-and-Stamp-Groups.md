@@ -198,3 +198,55 @@ lambda and reassigning it (`picked = [...]`) does **not** update the
 caller's variable — use `picked.assign([...])` instead (§10 test uses
 `assign`). Also, `ItemList.icon_mode` is an enum
 (`ItemList.ICON_MODE_TOP`), not a bool.
+
+## 11. Implemented: prune/merge near-duplicate tiles (issue #51)
+
+**#51 — opt-in "Prune Duplicates" button.** The Map Editor carries many
+visually-identical near-black tiles (stamp_1..86, stamp_845..859; 265/2174
+zip-bank tiles near-black, mean.r<32). The exact 8-bit coarse fingerprint
+used by the stamp index never groups them — any 4x4 block-mean change flips
+the hash, so a probe over 3025 tiles produced 3025 unique fingerprints. An
+ImageMagick 2-bit quantized 8x8 gray signature collapsed stamp_1..120 into
+33 unique groups (rep stamp_1 +86).
+
+The merge is **explicitly user-triggered** (button in the Map Editor bottom
+bar), never part of boot/load — dedup at load time would block on a ~3k-tile
+pass and feel hung. Flow (`editor/scripts/map_editor.gd`):
+
+1. `_similarity_sig(img)`: 2-bit quantized coarse bytes (`_coarse_bytes`
+   result `>> 6`), canonicalized over the 4 flips via `_flip_coarse` +
+   `_bytes_less` so flipped duplicates also group.
+2. Group by signature; within a group pick the representative with the
+   lowest numeric stamp id (`_catalog_rank`).
+3. Verify each candidate against the representative with the exact
+   XOR-style diff `_flip_of` (`_cell_bytes` + `_diff <= STAMP_TOLERANCE`,
+   trying all 4 flips) — coarse grouping only buckets; the exact diff
+   confirms visual identity.
+4. `_rewrite_references(merge_map)`: rewrite `_tiles`, `_tile_data` flip
+   flags (XOR of old + merge flips), `_store.cache` screen tiles, and
+   `_tile_set_groupings` brush entries onto the surviving id.
+5. `_drop_tiles(dup_keys)`: erase from `_tile_images`/`_tile_texture_cache`,
+   delete the on-disk `assets/tiles/<key>_32x32.png` (journal records the
+   count), rebuild `_stamp_catalog`, refresh palette + grid.
+6. Journal line: `[editor/prune] merged N duplicates onto lowest-id tiles
+   (first <k> -> <rep>), removed M disk PNGs, bank=B`.
+
+`map_editor._ready` now sets `_ready_done = true` at its end so tests can
+await the async stamp-catalog load deterministically before mutating state.
+
+**Verify**: `_test_prune_duplicates` in `editor/tests/test_screen_store.gd`
+seeds a synthetic 3-tile catalog (two identical + one distinct, using
+nonexistent `stamp_5000..` ids so the disk is never touched), awaits
+`_ready_done`, runs `_on_prune_duplicates`, and asserts the duplicate is
+dropped, the lowest-id representative survives, the distinct tile survives,
+and a grid reference pointing at the duplicate is rewritten to the rep.
+
+**Test isolation lesson (discovered the hard way)**: the first version of
+this test instantiated the editor, awaited one frame, and added seeds — but
+`_ready`'s `await _load_stamp_catalog()` was still mid-load, so the prune
+ran on the real partial catalog and deleted 20 real disk PNGs
+(`editor/assets/tiles/stamp_12_32x32.png` among them; 19 were recoverable
+from the world.zip tile bank, 1 was a disk-only visual duplicate and was
+gone — no map data lost). Tests must always wait for `_ready_done` and clear
+the catalog before seeding, and synthetic ids must not collide with real
+disk keys.

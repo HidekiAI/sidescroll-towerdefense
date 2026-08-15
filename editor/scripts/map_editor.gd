@@ -46,6 +46,7 @@ var _stamp_basename: String = ""
 var _stamp_maps: Array[Dictionary] = []
 var _tile_images: Dictionary = {}  # tile key -> Image (resident in memory; reused across the world)
 var _tile_texture_cache: Dictionary = {}  # tile key -> ImageTexture
+var _ready_done := false  # set when _ready finishes (async catalog load) — used by tests
 
 @onready var tile_palette: _TilePalette = $LeftPanel/TilePalette
 @onready var tile_grid: Control = $RightPanel/Scroll/TileGrid
@@ -55,6 +56,7 @@ var _tile_texture_cache: Dictionary = {}  # tile key -> ImageTexture
 @onready var save_btn: Button = $LeftPanel/BottomBar/SaveBtn
 @onready var import_btn: Button = $LeftPanel/BottomBar/ImportBtn
 @onready var export_btn: Button = $LeftPanel/BottomBar/ExportBtn
+@onready var prune_btn: Button = $LeftPanel/BottomBar/PruneBtn
 @onready var stamp_btn: Button = $LeftPanel/BottomBar/StampBtn
 @onready var collision_btn: CheckButton = $LeftPanel/TopBar/CollisionBtn
 @onready var cursor_label: Label = $LeftPanel/BottomBar/CursorLabel
@@ -90,6 +92,7 @@ func _ready() -> void:
     save_btn.pressed.connect(_on_save)
     import_btn.pressed.connect(_on_import)
     export_btn.pressed.connect(_on_export)
+    prune_btn.pressed.connect(_on_prune_duplicates)
     stamp_btn.pressed.connect(_on_stamp_import)
     screen_spin.value_changed.connect(_on_screen_changed)
     tile_palette.tile_picked.connect(_on_tile_picked)
@@ -101,6 +104,8 @@ func _ready() -> void:
     tile_grid.map_editor = self
 
     paint_btn.button_pressed = true
+
+    _ready_done = true
 
 func _load_defaults() -> void:
     _terrain_types = [
@@ -897,6 +902,157 @@ func _rebuild_stamp_index() -> void:
             info_label.text = "Indexing stamps… %d/%d" % [i + 1, _stamp_catalog.size()]
             await get_tree().process_frame
         _index_stamp_entry(i)
+
+# 2-bit quantized coarse signature (flip-canonicalized). The exact 8-bit coarse
+# fingerprint used for the stamp index changes with any 4x4 block's mean, so
+# near-identical tiles (e.g. many near-black cells) never share a bucket there.
+# Quantizing each channel to its top 2 bits collapses visually-identical tiles
+# into one signature for the prune/merge pass.
+func _similarity_sig(img: Image) -> PackedByteArray:
+    var c := _coarse_bytes(img)
+    var q := PackedByteArray()
+    q.resize(c.size())
+    for i in c.size():
+        q[i] = c[i] >> 6
+    var best := q
+    for h in [false, true]:
+        for v in [false, true]:
+            if h or v:
+                var f := _flip_coarse(q, h, v)
+                if _bytes_less(f, best):
+                    best = f
+    return best
+
+# Lowest numeric stamp id wins so a group keeps its smallest tile id.
+func _catalog_rank(idx: int) -> int:
+    var key: String = _stamp_catalog[idx]["key"]
+    if key.begins_with("stamp_"):
+        var n := key.trim_prefix("stamp_").to_int()
+        if n > 0:
+            return n
+    return 0x7fffffff
+
+# Is `cell` visually the same as some flip of `base_img` (XOR-style exact diff)?
+# Returns {"flip_h", "flip_v"} on match within STAMP_TOLERANCE, else {}.
+func _flip_of(base_img: Image, cell: Image) -> Dictionary:
+    var cand := _cell_bytes(cell, false, false)
+    var best_diff := 0x7fffffff
+    var best := {}
+    for f in [[false, false], [true, false], [false, true], [true, true]]:
+        var d := _diff(cand, _cell_bytes(base_img, f[0], f[1]))
+        if d < best_diff:
+            best_diff = d
+            best = {"flip_h": f[0], "flip_v": f[1]}
+    if best_diff <= STAMP_TOLERANCE:
+        return best
+    return {}
+
+# Opt-in cleanup (never run at boot — that would feel like a hang). Groups tiles
+# by _similarity_sig, verifies each group with the exact diff metric, then merges
+# every duplicate onto the lowest stamp id: rewrites all references, drops the
+# redundant bank entries + disk PNGs, and journals the operation.
+func _on_prune_duplicates() -> void:
+    if _stamp_catalog.is_empty():
+        info_label.text = "Nothing to prune — tile catalog is empty"
+        return
+    _set_busy(true)
+    var groups: Dictionary = {}
+    for i in _stamp_catalog.size():
+        var sig := _similarity_sig(_as_rgba8(_stamp_catalog[i]["cell"]))
+        var h := _fp_hash(sig)
+        if not groups.has(h):
+            groups[h] = {"members": []}
+        groups[h]["members"].append(i)
+    var merge_map: Dictionary = {}  # dup key -> {"key", "flip_h", "flip_v"}
+    var dup_keys: Array = []
+    for h in groups:
+        var members: Array = groups[h]["members"]
+        if members.size() < 2:
+            continue
+        members.sort_custom(func(a, b): return _catalog_rank(a) < _catalog_rank(b))
+        var rep_idx: int = members[0]
+        var rep_key: String = _stamp_catalog[rep_idx]["key"]
+        var rep_img: Image = _as_rgba8(_stamp_catalog[rep_idx]["cell"])
+        for i in members.slice(1):
+            var cand_key: String = _stamp_catalog[i]["key"]
+            if cand_key == rep_key:
+                continue
+            var flip := _flip_of(rep_img, _as_rgba8(_stamp_catalog[i]["cell"]))
+            if flip.is_empty():
+                continue
+            merge_map[cand_key] = {"key": rep_key, "flip_h": flip["flip_h"], "flip_v": flip["flip_v"]}
+            dup_keys.append(cand_key)
+    if dup_keys.is_empty():
+        _set_busy(false)
+        info_label.text = "Prune: no duplicates (%d tiles scanned)" % _stamp_catalog.size()
+        _log_import("prune", "no duplicates among %d tiles" % _stamp_catalog.size())
+        return
+    _rewrite_references(merge_map)
+    var removed_pngs := _drop_tiles(dup_keys)
+    await _rebuild_stamp_index()
+    _refresh_tile_palette()
+    tile_grid.reload_textures()
+    tile_grid.queue_redraw()
+    _set_busy(false)
+    var first := " -> ".join([dup_keys[0], merge_map[dup_keys[0]]["key"]])
+    info_label.text = "Pruned %d duplicate tiles (%s); bank now %d tiles" % [dup_keys.size(), first, _tile_images.size()]
+    _log_import("prune", "merged %d duplicates onto lowest-id tiles (first %s), removed %d disk PNGs, bank=%d" % [dup_keys.size(), first, removed_pngs, _tile_images.size()])
+
+# Rewrites every terrain reference that points at a merged duplicate so the map,
+# cached screens, and stamp brushes all use the canonical lowest-id tile. Flip
+# flags are XOR-combined (the duplicate may itself have been a flipped variant).
+func _rewrite_references(merge_map: Dictionary) -> void:
+    for cell_key in _tiles:
+        var k: String = _tiles[cell_key]
+        if merge_map.has(k):
+            var m: Dictionary = merge_map[k]
+            _tiles[cell_key] = m["key"]
+            var td: Dictionary = _tile_data.get(cell_key, {})
+            if not td.is_empty():
+                td["flip_h"] = bool(td.get("flip_h", false)) != bool(m["flip_h"])
+                td["flip_v"] = bool(td.get("flip_v", false)) != bool(m["flip_v"])
+                _tile_data[cell_key] = td
+    if _store:
+        for pos_key in _store.cache:
+            var screen_data: Dictionary = _store.cache[pos_key]
+            var tiles_arr: Array = screen_data.get("tiles", [])
+            for t in tiles_arr:
+                if t.has("terrain") and merge_map.has(t["terrain"]):
+                    var m: Dictionary = merge_map[t["terrain"]]
+                    t["terrain"] = m["key"]
+                    if t.has("flip_h"):
+                        t["flip_h"] = bool(t["flip_h"]) != bool(m["flip_h"])
+                    if t.has("flip_v"):
+                        t["flip_v"] = bool(t["flip_v"]) != bool(m["flip_v"])
+            screen_data["tiles"] = tiles_arr
+    for ts in _tile_set_groupings:
+        for tile_entry in ts.tiles:
+            if tile_entry.has("terrain_key") and merge_map.has(tile_entry["terrain_key"]):
+                var m: Dictionary = merge_map[tile_entry["terrain_key"]]
+                tile_entry["terrain_key"] = m["key"]
+                tile_entry["flip_h"] = bool(tile_entry.get("flip_h", false)) != bool(m["flip_h"])
+                tile_entry["flip_v"] = bool(tile_entry.get("flip_v", false)) != bool(m["flip_v"])
+
+# Removes merged duplicate keys from the in-memory bank/catalog and deletes the
+# redundant on-disk PNGs. Returns how many disk files were removed.
+func _drop_tiles(dup_keys: Array) -> int:
+    var drop: Dictionary = {}
+    for k in dup_keys:
+        drop[k] = true
+    var removed_pngs := 0
+    for key in dup_keys:
+        _tile_images.erase(key)
+        _tile_texture_cache.erase(key)
+        var abs := ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+        if FileAccess.file_exists(abs):
+            if DirAccess.remove_absolute(abs) == OK:
+                removed_pngs += 1
+    var kept: Array = []
+    for entry in _stamp_catalog:
+        if not drop.has(entry["key"]):
+            kept.append(entry)
+    _stamp_catalog.assign(kept)
+    return removed_pngs
 
 func _on_stamp_import() -> void:
     var dialog := FileDialog.new()
