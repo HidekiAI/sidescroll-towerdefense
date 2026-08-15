@@ -45,6 +45,15 @@ below so a resume needs no source re-digging.
    3025 unique fingerprints) because any 4x4 block-mean change flips the hash.
    A 2-bit quantized coarse signature (each channel >> 6) DOES group them
    (ImageMagick: stamp_1..120 -> 33 unique groups, rep stamp_1 +86).
+6. **Boot scene is a divergent duplicate**: `editor/scenes/main.tscn` builds
+   MapEditor and PlacementEditor **inline**, duplicating the node trees of the
+   standalone `map_editor.tscn` / `placement_editor.tscn`. Editing the standalone
+   scenes is NOT enough — the boot path runs main.tscn. After adding PruneBtn to
+   map_editor.tscn, boot still threw `Invalid access to property 'pressed' on a
+   null instance` at map_editor.gd:95 because main.tscn's BottomBar lacked the
+   button. Fix: add `PruneBtn` and sync `Load World...` labels in main.tscn too.
+   Lesson: when touching Map/Placement editor UI, apply the same change in BOTH
+   the standalone scene and main.tscn.
 
 ## Journal line the verify step must show
 
@@ -72,6 +81,8 @@ below so a resume needs no source re-digging.
 - [x] 12. Prune Duplicates button + merge logic + regression test                       editor/scenes/map_editor.tscn, editor/scripts/map_editor.gd, editor/tests/test_screen_store.gd
 - [ ] 13. Headless verify prune on real catalog (expect journal `merged N duplicates`,  manual + journal
           `removed M disk PNGs`); test suite failures=0
+          -> done: boot clean (no SCRIPT ERROR), suite failures=0; prune run is
+             user-initiated so the destructive pass is left to the user (not run headless)
 
 ## .backup isolation experiment (step 9)
 
