@@ -956,8 +956,38 @@ func _on_prune_duplicates() -> void:
         info_label.text = "Nothing to prune — tile catalog is empty"
         return
     _set_busy(true)
+    var plan: Dictionary = _build_prune_plan()
+    _set_busy(false)
+    if plan["dup_keys"].is_empty():
+        info_label.text = "Prune: no duplicates (%d tiles scanned)" % _stamp_catalog.size()
+        _log_import("prune", "no duplicates among %d tiles" % _stamp_catalog.size())
+        var dlg := AcceptDialog.new()
+        dlg.title = "Prune Duplicates"
+        dlg.dialog_text = "No duplicates found.\n%d tiles scanned, palette unchanged." % _stamp_catalog.size()
+        add_child(dlg)
+        dlg.popup_centered()
+        return
+    var dup_keys: Array = plan["dup_keys"]
+    var merge_map: Dictionary = plan["merge_map"]
+    var first := " -> ".join([str(dup_keys[0]), str(merge_map[dup_keys[0]]["key"])])
+    var dlg_confirm := ConfirmationDialog.new()
+    dlg_confirm.title = "Prune Duplicates"
+    dlg_confirm.ok_button_text = "Prune"
+    dlg_confirm.cancel_button_text = "Cancel"
+    dlg_confirm.dialog_text = "Found %d near-identical tiles.\n\n" % dup_keys.size()
+    dlg_confirm.dialog_text += "This will:\n"
+    dlg_confirm.dialog_text += " • merge them onto the lowest tile id (e.g. %s)\n" % first
+    dlg_confirm.dialog_text += " • rewrite all map/screen/brush references\n"
+    dlg_confirm.dialog_text += " • delete %d redundant disk PNGs (%d will remain)\n\n" % [plan["removed_pngs_est"], plan["bank_after"]]
+    dlg_confirm.dialog_text += "This cannot be undone. Continue?"
+    dlg_confirm.confirmed.connect(_execute_prune.bind(dup_keys, merge_map))
+    add_child(dlg_confirm)
+    dlg_confirm.popup_centered()
+
+# Read-only scan that computes the merge plan without mutating anything.
+# Returns { dup_keys, merge_map, removed_pngs_est, bank_after }.
+func _build_prune_plan() -> Dictionary:
     var groups: Dictionary = {}
-    var palette_before: int = tile_palette._entries.size()
     for i in _stamp_catalog.size():
         var sig := _similarity_sig(_as_rgba8(_stamp_catalog[i]["cell"]))
         var h := _fp_hash(sig)
@@ -983,16 +1013,21 @@ func _on_prune_duplicates() -> void:
                 continue
             merge_map[cand_key] = {"key": rep_key, "flip_h": flip["flip_h"], "flip_v": flip["flip_v"]}
             dup_keys.append(cand_key)
-    if dup_keys.is_empty():
-        _set_busy(false)
-        info_label.text = "Prune: no duplicates (%d tiles scanned)" % _stamp_catalog.size()
-        _log_import("prune", "no duplicates among %d tiles" % _stamp_catalog.size())
-        var dlg := AcceptDialog.new()
-        dlg.title = "Prune Duplicates"
-        dlg.dialog_text = "No duplicates found.\n%d tiles scanned, palette unchanged." % _stamp_catalog.size()
-        add_child(dlg)
-        dlg.popup_centered()
-        return
+    var removed_pngs_est := 0
+    for key in dup_keys:
+        if FileAccess.file_exists(ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])):
+            removed_pngs_est += 1
+    return {
+        "dup_keys": dup_keys,
+        "merge_map": merge_map,
+        "removed_pngs_est": removed_pngs_est,
+        "bank_after": _tile_images.size() - dup_keys.size(),
+    }
+
+# Destructive half run only after the user confirms the preview dialog.
+func _execute_prune(dup_keys: Array, merge_map: Dictionary) -> void:
+    var palette_before: int = tile_palette._entries.size()
+    _set_busy(true)
     _rewrite_references(merge_map)
     var removed_pngs := _drop_tiles(dup_keys)
     await _rebuild_stamp_index()
@@ -1001,7 +1036,7 @@ func _on_prune_duplicates() -> void:
     tile_grid.queue_redraw()
     _set_busy(false)
     var palette_after: int = tile_palette._entries.size()
-    var first := " -> ".join([dup_keys[0], merge_map[dup_keys[0]]["key"]])
+    var first := " -> ".join([str(dup_keys[0]), str(merge_map[dup_keys[0]]["key"])])
     info_label.text = "Pruned %d duplicate tiles (%s); bank now %d tiles" % [dup_keys.size(), first, _tile_images.size()]
     _log_import("prune", "merged %d duplicates onto lowest-id tiles (first %s), removed %d disk PNGs, bank=%d" % [dup_keys.size(), first, removed_pngs, _tile_images.size()])
     var summary := "Merged %d duplicate tiles onto lowest-id tiles.\n\n" % dup_keys.size()

@@ -312,11 +312,14 @@ func _test_prune_duplicates() -> void:
     ed._tiles[ed._key(2, 2)] = "stamp_5001"
     ed._refresh_tile_palette()
     var entries_before: int = ed.tile_palette._entries.size()
-    var pal_keys_before := {}
-    for e in ed.tile_palette._entries:
-        pal_keys_before[e["key"]] = true
 
-    await ed._on_prune_duplicates()
+    var plan: Dictionary = ed._build_prune_plan()
+    check(plan["dup_keys"].size() == 1 and plan["dup_keys"][0] == "stamp_5001", "plan finds the exact duplicate")
+    check(plan["removed_pngs_est"] == 0, "plan estimates disk-PNG removal without touching disk")
+    check(ed._tile_images.has("stamp_5001"), "plan is read-only: no bank mutation yet")
+    check(ed.get_tile(2, 2) == "stamp_5001", "plan is read-only: no grid mutation yet")
+
+    await ed._execute_prune(plan["dup_keys"], plan["merge_map"])
     check(not ed._tile_images.has("stamp_5001"), "duplicate tile dropped from bank")
     check(ed._tile_images.has("stamp_5000"), "lowest-id representative kept")
     check(ed._tile_images.has("stamp_5002"), "distinct tile kept")
