@@ -22,6 +22,13 @@ func _run() -> void:
     _test_stamp_fingerprint()
     await _test_stamp_brush_dedupe()
     await _test_prune_duplicates()
+    await _test_prune_boundary_straddler()
+    await _test_grayscale_projection()
+    await _test_grayscale_candidates()
+    await _test_prune_chain()
+    await _test_a3_neighbor_scan()
+    await _test_deep_prune()
+    _test_diff_capped()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
     await _test_world_pointer_bootstrap()
@@ -298,9 +305,8 @@ func _test_prune_duplicates() -> void:
     ed._rebuild_stamp_index()
     var cell_a := _make_gradient_cell()
     var cell_b := cell_a.duplicate()
-    var cell_c := _make_gradient_cell()
-    for y in 32:
-        cell_c.set_pixel(y, y, Color(1, 0, 0, 1))
+    var cell_c := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    cell_c.fill(Color(0.9, 0.1, 0.1, 1.0))
 
     ed._stamp_catalog.append({"key": "stamp_5000", "cell": cell_a, "flip_h": false, "flip_v": false})
     ed._stamp_catalog.append({"key": "stamp_5001", "cell": cell_b, "flip_h": false, "flip_v": false})
@@ -337,6 +343,213 @@ func _test_prune_duplicates() -> void:
             dups += 1
     check(dups == 0, "duplicate removed from catalog")
 
+    ed.queue_free()
+    await process_frame
+
+# Regression (#51 follow-up): a pair of near-identical tiles whose coarse block
+# means straddle a `>>6` quantization boundary (e.g. 63 vs 64) must still be
+# grouped, because depth-2 shift grids union their buckets.
+func _test_prune_boundary_straddler() -> void:
+    print("--- prune boundary-straddler ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    var near_63 := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    near_63.fill(Color(63.0 / 255.0, 63.0 / 255.0, 63.0 / 255.0, 1.0))
+    var below_64 := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    below_64.fill(Color(64.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0, 1.0))
+    var far := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    far.fill(Color(0.9, 0.1, 0.1, 1.0))
+
+    ed._stamp_catalog.append({"key": "stamp_5010", "cell": near_63, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5011", "cell": below_64, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5012", "cell": far, "flip_h": false, "flip_v": false})
+    ed._tile_images["stamp_5010"] = near_63
+    ed._tile_images["stamp_5011"] = below_64
+    ed._tile_images["stamp_5012"] = far
+    ed._rebuild_stamp_index()
+    ed._tiles[ed._key(3, 3)] = "stamp_5011"
+
+    var plan: Dictionary = ed._build_prune_plan()
+    check(plan["dup_keys"].size() == 1 and plan["dup_keys"][0] == "stamp_5011", "boundary-straddler grouped with 63 (not 64) tile")
+    check(plan["merge_map"]["stamp_5011"]["key"] == "stamp_5010", "straddler merges onto lowest-id rep")
+    check(not plan["dup_keys"].has("stamp_5012"), "distinct tile is not a dup")
+    await ed._execute_prune(plan["dup_keys"], plan["merge_map"])
+    check(not ed._tile_images.has("stamp_5011"), "straddler dropped from bank after prune")
+    check(ed._tile_images.has("stamp_5010"), "63 rep kept")
+    check(ed._tile_images.has("stamp_5012"), "distinct tile kept")
+    check(ed.get_tile(3, 3) == "stamp_5010", "straddler grid reference rewritten")
+
+    ed.queue_free()
+    await process_frame
+
+func _test_grayscale_projection() -> void:
+    print("--- grayscale 4-bit projection ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    var dark := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    dark.fill(Color(0.1, 0.1, 0.1, 1.0))
+    var bright := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    bright.fill(Color(0.8, 0.8, 0.8, 1.0))
+    var sig: PackedByteArray = ed._grayscale_sig(dark)
+    check(sig.size() == 32, "grayscale signature packs 64 nibbles into 32 bytes")
+    check(ed._grayscale_projection(dark) < ed._grayscale_projection(bright), "darker tile sorts before brighter tile")
+    check(ed._grayscale_projection(dark) == ed._grayscale_projection(dark.duplicate()), "identical tiles share projection")
+    ed.queue_free()
+    await process_frame
+
+func _test_grayscale_candidates() -> void:
+    print("--- grayscale candidate range ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    var base := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    base.fill(Color(0.2, 0.2, 0.2, 1.0))
+    var near := base.duplicate()
+    near.fill(Color(0.21, 0.21, 0.21, 1.0))
+    var distinct := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    distinct.fill(Color(0.8, 0.1, 0.1, 1.0))
+    ed._stamp_catalog.append({"key": "stamp_5020", "cell": base})
+    ed._stamp_catalog.append({"key": "stamp_5021", "cell": near})
+    ed._stamp_catalog.append({"key": "stamp_5022", "cell": distinct})
+    var result: Dictionary = ed._grayscale_projection_candidates(256)
+    check(result["candidates"].size() > 0, "projection range produces candidates")
+    check(result["exact_matches"].size() == 1, "exact diff rejects distinct projection neighbor")
+    check(result["exact_matches"][0]["candidate"] == 1, "exact projection match identifies near tile")
+    ed.queue_free()
+    await process_frame
+
+func _test_prune_chain() -> void:
+    print("--- prune chain resolution ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    var a := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    a.fill(Color(0.20, 0.20, 0.20, 1.0))
+    var b := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    b.fill(Color(0.21, 0.21, 0.21, 1.0))
+    var c := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    c.fill(Color(0.22, 0.22, 0.22, 1.0))
+    var far := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    far.fill(Color(0.9, 0.1, 0.1, 1.0))
+
+    ed._stamp_catalog.append({"key": "stamp_5030", "cell": a})
+    ed._stamp_catalog.append({"key": "stamp_5031", "cell": b})
+    ed._stamp_catalog.append({"key": "stamp_5032", "cell": c})
+    ed._stamp_catalog.append({"key": "stamp_5033", "cell": far})
+    ed._tile_images["stamp_5030"] = a
+    ed._tile_images["stamp_5031"] = b
+    ed._tile_images["stamp_5032"] = c
+    ed._tile_images["stamp_5033"] = far
+    ed._rebuild_stamp_index()
+    var plan: Dictionary = ed._build_prune_plan()
+    check(not plan["dup_keys"].has("stamp_5033"), "distinct tile stays in chain test")
+    for key in plan["merge_map"]:
+        if key == "stamp_5033":
+            check(false, "chain plan must not merge distinct tile")
+    check(plan["merge_map"].size() <= 2, "chain resolves without exceeding one merge per dup")
+    ed.queue_free()
+    await process_frame
+
+func _test_a3_neighbor_scan() -> void:
+    print("--- A3 neighbour scan ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    var a := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    a.fill(Color(0.25, 0.25, 0.25, 1.0))
+    var b := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    b.fill(Color(0.25, 0.25, 0.25, 1.0))
+    b.set_pixel(0, 0, Color(0.26, 0.25, 0.25, 1.0))
+    var far := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    far.fill(Color(0.9, 0.1, 0.1, 1.0))
+
+    ed._stamp_catalog.append({"key": "stamp_5040", "cell": a, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5041", "cell": b, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5042", "cell": far, "flip_h": false, "flip_v": false})
+    ed._tile_images["stamp_5040"] = a
+    ed._tile_images["stamp_5041"] = b
+    ed._tile_images["stamp_5042"] = far
+    ed._rebuild_stamp_index()
+
+    var canon: PackedByteArray = ed._canonical_coarse(ed._as_rgba8(a))
+    var neighbor_hashes: Array = ed._a3_neighbor_hashes(canon)
+    check(neighbor_hashes.size() > 0 and neighbor_hashes.size() <= 512, "A3 enumerates bounded one-unit neighbours")
+    var plan: Dictionary = ed._build_prune_plan()
+    check(plan["dup_keys"].has("stamp_5041"), "A3 path merges a one-block-deviation duplicate")
+    check(not plan["dup_keys"].has("stamp_5042"), "A3 path leaves the distinct tile alone")
+    ed.queue_free()
+    await process_frame
+
+func _test_deep_prune() -> void:
+    print("--- deep prune (approach B) ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    var a := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    a.fill(Color(0.2, 0.2, 0.2, 1.0))
+    var b := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    b.fill(Color(0.21, 0.21, 0.21, 1.0))
+    var far := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    far.fill(Color(0.8, 0.1, 0.1, 1.0))
+
+    ed._stamp_catalog.append({"key": "stamp_5050", "cell": a, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5051", "cell": b, "flip_h": false, "flip_v": false})
+    ed._stamp_catalog.append({"key": "stamp_5052", "cell": far, "flip_h": false, "flip_v": false})
+    ed._tile_images["stamp_5050"] = a
+    ed._tile_images["stamp_5051"] = b
+    ed._tile_images["stamp_5052"] = far
+    ed._rebuild_stamp_index()
+    ed._tiles[ed._key(4, 4)] = "stamp_5051"
+
+    var plan: Dictionary = await ed._build_deep_prune_plan()
+    check(plan["dup_keys"].size() == 1 and plan["dup_keys"][0] == "stamp_5051", "deep pass finds the exact duplicate")
+    check(plan["merge_map"]["stamp_5051"]["key"] == "stamp_5050", "deep pass merges onto lowest-id rep")
+    check(not plan["dup_keys"].has("stamp_5052"), "deep pass rejects the distinct tile")
+    check(ed.get_tile(4, 4) == "stamp_5051", "deep plan is read-only: no grid mutation yet")
+    await ed._execute_prune(plan["dup_keys"], plan["merge_map"])
+    check(not ed._tile_images.has("stamp_5051"), "deep merge drops the duplicate from the bank")
+    check(ed.get_tile(4, 4) == "stamp_5050", "deep merge rewrites the grid reference")
+    ed.queue_free()
+    await process_frame
+
+func _test_diff_capped() -> void:
+    print("--- diff capped ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    var a := PackedByteArray()
+    var b := PackedByteArray()
+    var n := 64
+    for i in n:
+        a.append(i)
+        b.append(i)
+    check(is_equal_approx(ed._diff_capped(a, b, 4.0), 0.0), "cap matches for identical input")
+    b[0] = 200
+    check(ed._diff_capped(a, b, 4.0) > 4.0, "cap reports over-limit when deviation is heavy")
+    b[0] = 1
+    check(ed._diff_capped(a, b, 4.0) <= 4.0, "cap returns true value under limit")
     ed.queue_free()
     await process_frame
 

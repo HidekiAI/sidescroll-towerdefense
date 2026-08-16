@@ -594,6 +594,10 @@ text = "Export..."
 layout_mode = 2
 text = "Prune Duplicates"
 
+[node name="DeepPruneBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+layout_mode = 2
+text = "Prune (deep)"
+
 [node name="StampBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
 layout_mode = 2
 text = "Stamp Image..."

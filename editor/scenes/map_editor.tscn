@@ -85,6 +85,9 @@ text = "Export..."
 [node name="PruneBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Prune Duplicates"
 
+[node name="DeepPruneBtn" type="Button" parent="LeftPanel/BottomBar"]
+text = "Prune (deep)"
+
 [node name="StampBtn" type="Button" parent="LeftPanel/BottomBar"]
 text = "Stamp Image..."
 

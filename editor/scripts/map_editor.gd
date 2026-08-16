@@ -35,6 +35,10 @@ var _hud_start_pos: Vector2 = Vector2.ZERO
 const STAMP_CELL := 32
 const STAMP_TOLERANCE := 4.0
 const _BUSY_YIELD_EVERY := 128  # yield + repaint once per N heavy-loop iterations
+const A3_K := 8
+const A3_LRU_CAP := 64
+const DEEP_CONFIRM_THRESHOLD := 2500
+const DEEP_YIELD_EVERY := 500
 var _stamp_active: bool = false
 var _stamp_image: Image
 var _stamp_texture: ImageTexture
@@ -57,6 +61,7 @@ var _ready_done := false  # set when _ready finishes (async catalog load) — us
 @onready var import_btn: Button = $LeftPanel/BottomBar/ImportBtn
 @onready var export_btn: Button = $LeftPanel/BottomBar/ExportBtn
 @onready var prune_btn: Button = $LeftPanel/BottomBar/PruneBtn
+@onready var deep_prune_btn: Button = $LeftPanel/BottomBar/DeepPruneBtn
 @onready var stamp_btn: Button = $LeftPanel/BottomBar/StampBtn
 @onready var collision_btn: CheckButton = $LeftPanel/TopBar/CollisionBtn
 @onready var cursor_label: Label = $LeftPanel/BottomBar/CursorLabel
@@ -93,6 +98,7 @@ func _ready() -> void:
     import_btn.pressed.connect(_on_import)
     export_btn.pressed.connect(_on_export)
     prune_btn.pressed.connect(_on_prune_duplicates)
+    deep_prune_btn.pressed.connect(_on_prune_deep)
     stamp_btn.pressed.connect(_on_stamp_import)
     screen_spin.value_changed.connect(_on_screen_changed)
     tile_palette.tile_picked.connect(_on_tile_picked)
@@ -907,13 +913,15 @@ func _rebuild_stamp_index() -> void:
 # fingerprint used for the stamp index changes with any 4x4 block's mean, so
 # near-identical tiles (e.g. many near-black cells) never share a bucket there.
 # Quantizing each channel to its top 2 bits collapses visually-identical tiles
-# into one signature for the prune/merge pass.
-func _similarity_sig(img: Image) -> PackedByteArray:
+# into one signature for the prune/merge pass. `shift` offsets the bucket grid
+# by `shift` units so a value straddling a quantization boundary under one grid
+# sits mid-bucket under the other (prune runs both `shift=0` and `shift=32`).
+func _similarity_sig(img: Image, shift := 0) -> PackedByteArray:
     var c := _coarse_bytes(img)
     var q := PackedByteArray()
     q.resize(c.size())
     for i in c.size():
-        q[i] = c[i] >> 6
+        q[i] = mini(3, (int(c[i]) + shift) >> 6)
     var best := q
     for h in [false, true]:
         for v in [false, true]:
@@ -922,6 +930,155 @@ func _similarity_sig(img: Image) -> PackedByteArray:
                 if _bytes_less(f, best):
                     best = f
     return best
+
+func _grayscale_sig(img: Image) -> PackedByteArray:
+    _as_rgba8(img)
+    var data := img.get_data()
+    var sig := PackedByteArray()
+    sig.resize(32)
+    for block_y in 8:
+        for block_x in 8:
+            var luminance_sum := 0
+            for y in 4:
+                for x in 4:
+                    var pixel := ((block_y * 4 + y) * STAMP_CELL + block_x * 4 + x) * 4
+                    luminance_sum += int(0.299 * data[pixel] + 0.587 * data[pixel + 1] + 0.114 * data[pixel + 2])
+            var level := mini(15, (luminance_sum / 16) >> 4)
+            var block := block_y * 8 + block_x
+            var byte_index := block / 2
+            if block % 2 == 0:
+                sig[byte_index] = level << 4
+            else:
+                sig[byte_index] |= level
+    return sig
+
+func _grayscale_projection(img: Image) -> int:
+    var sig := _grayscale_sig(img)
+    var total := 0
+    for value in sig:
+        total += (value >> 4) + (value & 0x0f)
+    return total
+
+func _grayscale_luminance_projection(img: Image) -> int:
+    _as_rgba8(img)
+    var data := img.get_data()
+    var total := 0
+    for block_y in 8:
+        for block_x in 8:
+            var luminance_sum := 0
+            for y in 4:
+                for x in 4:
+                    var pixel := ((block_y * 4 + y) * STAMP_CELL + block_x * 4 + x) * 4
+                    luminance_sum += int(0.299 * data[pixel] + 0.587 * data[pixel + 1] + 0.114 * data[pixel + 2])
+            total += luminance_sum / 16
+    return total
+
+func _grayscale_sig_sort_key(entry: Dictionary) -> Array:
+    return [_grayscale_luminance_projection(_as_rgba8(entry["cell"])), str(entry["key"])]
+
+func _grayscale_projection_candidates(max_delta: int) -> Dictionary:
+    var ordered: Array = []
+    var images: Array = []
+    var bytes: Array = []
+    var signatures: Array = []
+    images.resize(_stamp_catalog.size())
+    bytes.resize(_stamp_catalog.size())
+    signatures.resize(_stamp_catalog.size())
+    for i in _stamp_catalog.size():
+        var img: Image = _as_rgba8(_stamp_catalog[i]["cell"])
+        images[i] = img
+        bytes[i] = _cell_bytes(img, false, false)
+        signatures[i] = _grayscale_sig(img)
+        ordered.append({
+            "index": i,
+            "projection": _grayscale_luminance_projection(img),
+        })
+    ordered.sort_custom(func(a, b):
+        if a["projection"] == b["projection"]:
+            return str(_stamp_catalog[a["index"]]["key"]) < str(_stamp_catalog[b["index"]]["key"])
+        return a["projection"] < b["projection"]
+    )
+    var candidates: Array = []
+    var exact_matches: Array = []
+    var variants: Array = []
+    variants.resize(_stamp_catalog.size())
+    for i in _stamp_catalog.size():
+        variants[i] = _flip_variants(bytes[i])
+    var gate_survivors := 0
+    var exact_comparisons := 0
+    for position in ordered.size():
+        var current: Dictionary = ordered[position]
+        var previous_position: int = position - 1
+        while previous_position >= 0:
+            var previous: Dictionary = ordered[previous_position]
+            if current["projection"] - previous["projection"] > max_delta:
+                break
+            candidates.append([previous["index"], current["index"]])
+            previous_position -= 1
+            if not _grayscale_sig_near(signatures[previous["index"]], signatures[current["index"]]):
+                continue
+            gate_survivors += 1
+            exact_comparisons += 1
+            var match_flip := _flip_of_variants(
+                variants[previous["index"]],
+                bytes[current["index"]]
+            )
+            if not match_flip.is_empty():
+                exact_matches.append({
+                    "base": previous["index"],
+                    "candidate": current["index"],
+                    "flip_h": match_flip["flip_h"],
+                    "flip_v": match_flip["flip_v"],
+                })
+    return {
+        "candidates": candidates,
+        "exact_matches": exact_matches,
+        "ordered": ordered,
+        "candidate_count": candidates.size(),
+        "grayscale_survivor_count": gate_survivors,
+        "exact_comparison_count": exact_comparisons,
+    }
+
+func _flip_variants(base: PackedByteArray) -> Array:
+    var out: Array = []
+    for f in [[false, false], [true, false], [false, true], [true, true]]:
+        var variant := PackedByteArray()
+        variant.resize(base.size())
+        for y in STAMP_CELL:
+            for x in STAMP_CELL:
+                var src_x := (STAMP_CELL - 1 - x) if f[0] else x
+                var src_y := (STAMP_CELL - 1 - y) if f[1] else y
+                var source := (src_y * STAMP_CELL + src_x) * 4
+                var target := (y * STAMP_CELL + x) * 4
+                variant[target] = base[source]
+                variant[target + 1] = base[source + 1]
+                variant[target + 2] = base[source + 2]
+                variant[target + 3] = base[source + 3]
+        out.append(variant)
+    return out
+
+func _flip_of_variants(variants: Array, cand: PackedByteArray) -> Dictionary:
+    var best_diff := 0x7fffffff
+    var best := {}
+    var flip_list := [[false, false], [true, false], [false, true], [true, true]]
+    for i in variants.size():
+        var d := _diff_capped(cand, variants[i], STAMP_TOLERANCE)
+        if d < best_diff:
+            best_diff = d
+            best = {"flip_h": flip_list[i][0], "flip_v": flip_list[i][1]}
+    if best_diff <= STAMP_TOLERANCE:
+        return best
+    return {}
+
+func _grayscale_sig_near(a: PackedByteArray, b: PackedByteArray) -> bool:
+    var diff := 0
+    for i in a.size():
+        var av_hi := a[i] >> 4
+        var av_lo := a[i] & 0x0f
+        var bv_hi := b[i] >> 4
+        var bv_lo := b[i] & 0x0f
+        diff += abs(av_hi - bv_hi) + abs(av_lo - bv_lo)
+    return diff <= 96
 
 # Lowest numeric stamp id wins so a group keeps its smallest tile id.
 func _catalog_rank(idx: int) -> int:
@@ -935,11 +1092,25 @@ func _catalog_rank(idx: int) -> int:
 # Is `cell` visually the same as some flip of `base_img` (XOR-style exact diff)?
 # Returns {"flip_h", "flip_v"} on match within STAMP_TOLERANCE, else {}.
 func _flip_of(base_img: Image, cell: Image) -> Dictionary:
-    var cand := _cell_bytes(cell, false, false)
+    return _flip_of_bytes(_cell_bytes(base_img, false, false), _cell_bytes(cell, false, false))
+
+func _flip_of_bytes(base: PackedByteArray, cand: PackedByteArray) -> Dictionary:
     var best_diff := 0x7fffffff
     var best := {}
     for f in [[false, false], [true, false], [false, true], [true, true]]:
-        var d := _diff(cand, _cell_bytes(base_img, f[0], f[1]))
+        var variant := PackedByteArray()
+        variant.resize(base.size())
+        for y in STAMP_CELL:
+            for x in STAMP_CELL:
+                var src_x := (STAMP_CELL - 1 - x) if f[0] else x
+                var src_y := (STAMP_CELL - 1 - y) if f[1] else y
+                var source := (src_y * STAMP_CELL + src_x) * 4
+                var target := (y * STAMP_CELL + x) * 4
+                variant[target] = base[source]
+                variant[target + 1] = base[source + 1]
+                variant[target + 2] = base[source + 2]
+                variant[target + 3] = base[source + 3]
+        var d := _diff(cand, variant)
         if d < best_diff:
             best_diff = d
             best = {"flip_h": f[0], "flip_v": f[1]}
@@ -958,11 +1129,42 @@ func _on_prune_duplicates() -> void:
     _set_busy(true)
     var plan: Dictionary = _build_prune_plan()
     _set_busy(false)
+    _present_prune_plan(plan, "Prune Duplicates")
+
+# Separate deep prune control (approach B): exhaustive pairwise exact-diff.
+# Budget-gated: above DEEP_CONFIRM_THRESHOLD tiles the scan is confirmed first;
+# below it runs immediately. Runs inside the awaited busy pass with periodic
+# yields so the UI stays responsive.
+func _on_prune_deep() -> void:
+    if _stamp_catalog.is_empty():
+        info_label.text = "Nothing to prune — tile catalog is empty"
+        return
+    if _stamp_catalog.size() > DEEP_CONFIRM_THRESHOLD:
+        var dlg_gate := ConfirmationDialog.new()
+        dlg_gate.title = "Prune (deep)"
+        dlg_gate.ok_button_text = "Scan"
+        dlg_gate.cancel_button_text = "Cancel"
+        dlg_gate.dialog_text = "Deep prune compares every tile pair exactly.\n\n"
+        dlg_gate.dialog_text += "%d tiles may take a while and cannot be interrupted once started.\n" % _stamp_catalog.size()
+        dlg_gate.dialog_text += "Continue?"
+        dlg_gate.confirmed.connect(_run_deep_scan)
+        add_child(dlg_gate)
+        dlg_gate.popup_centered()
+        return
+    _run_deep_scan()
+
+func _run_deep_scan() -> void:
+    _set_busy(true)
+    var plan: Dictionary = await _build_deep_prune_plan()
+    _set_busy(false)
+    _present_prune_plan(plan, "Prune (deep)")
+
+func _present_prune_plan(plan: Dictionary, title: String) -> void:
     if plan["dup_keys"].is_empty():
         info_label.text = "Prune: no duplicates (%d tiles scanned)" % _stamp_catalog.size()
         _log_import("prune", "no duplicates among %d tiles" % _stamp_catalog.size())
         var dlg := AcceptDialog.new()
-        dlg.title = "Prune Duplicates"
+        dlg.title = title
         dlg.dialog_text = "No duplicates found.\n%d tiles scanned, palette unchanged." % _stamp_catalog.size()
         add_child(dlg)
         dlg.popup_centered()
@@ -971,7 +1173,7 @@ func _on_prune_duplicates() -> void:
     var merge_map: Dictionary = plan["merge_map"]
     var first := " -> ".join([str(dup_keys[0]), str(merge_map[dup_keys[0]]["key"])])
     var dlg_confirm := ConfirmationDialog.new()
-    dlg_confirm.title = "Prune Duplicates"
+    dlg_confirm.title = title
     dlg_confirm.ok_button_text = "Prune"
     dlg_confirm.cancel_button_text = "Cancel"
     dlg_confirm.dialog_text = "Found %d near-identical tiles.\n\n" % dup_keys.size()
@@ -986,25 +1188,98 @@ func _on_prune_duplicates() -> void:
 
 # Read-only scan that computes the merge plan without mutating anything.
 # Returns { dup_keys, merge_map, removed_pngs_est, bank_after }.
+#
+# Dedup discovery uses the grayscale scalar-projection candidate pass:
+# candidates within a conservative luminance range are verified by the exact
+# diff. Union-find merges the confirmed graph; the final root is the lowest
+# stamp id; every member is re-verified against that root so chained
+# near-matches cannot widen the tolerance.
 func _build_prune_plan() -> Dictionary:
-    var groups: Dictionary = {}
+    var projection_range := 256
+    var scan: Dictionary = _grayscale_projection_candidates(projection_range)
+    var uf_parent: Array = []
     for i in _stamp_catalog.size():
-        var sig := _similarity_sig(_as_rgba8(_stamp_catalog[i]["cell"]))
-        var h := _fp_hash(sig)
-        if not groups.has(h):
-            groups[h] = {"members": []}
-        groups[h]["members"].append(i)
+        uf_parent.append(i)
+    for match in scan["exact_matches"]:
+        _uf_union(uf_parent, int(match["base"]), int(match["candidate"]))
+    for match in _a3_discover(uf_parent):
+        _uf_union(uf_parent, int(match["base"]), int(match["candidate"]))
+    return _finalize_prune_plan(uf_parent)
+
+# A3 hardening: for tiles the primary pass left as singleton roots (no exact
+# match found), probe the coarse-bucket index for one-unit neighbour signatures
+# and exact-verify a bounded number of distinct reps. A3_LRU caches each tile's
+# neighbour-hash enumeration so repeated canonical sigs share work. Only exact
+# matches are returned; _finalize_prune_plan re-verifies against the root.
+func _a3_discover(uf_parent: Array) -> Array:
+    var lru: Dictionary = {}
+    var lru_order: Array = []
+    var matches: Array = []
+    for m in _stamp_catalog.size():
+        if _find_root(uf_parent, m) != m:
+            continue
+        var canon := _canonical_coarse(_as_rgba8(_stamp_catalog[m]["cell"]))
+        var ch := _fp_hash(canon)
+        var neighbor_hashes: Array
+        if lru.has(ch):
+            neighbor_hashes = lru[ch]
+        else:
+            neighbor_hashes = _a3_neighbor_hashes(canon)
+            lru[ch] = neighbor_hashes
+            lru_order.append(ch)
+            if lru_order.size() > A3_LRU_CAP:
+                lru.erase(lru_order.pop_front())
+        var examined := 0
+        var seen_bucket: Dictionary = {}
+        for h in neighbor_hashes:
+            if seen_bucket.has(h):
+                continue
+            seen_bucket[h] = true
+            var bucket: Array = _stamp_fp_index.get(h, [])
+            for other in bucket:
+                if other == m:
+                    continue
+                if examined >= A3_K:
+                    break
+                examined += 1
+                if not _flip_of(_as_rgba8(_stamp_catalog[other]["cell"]), _as_rgba8(_stamp_catalog[m]["cell"])).is_empty():
+                    matches.append({"base": other, "candidate": m})
+                    break
+            if examined >= A3_K:
+                break
+    return matches
+
+# One-unit neighbour signatures of a canonical-coarse sig: each of the 256
+# bytes (64 blocks x 4 channels) perturbed by +/- 1 (one 8-bit block-mean unit,
+# which is the index key space), clamped. Returns distinct _fp_hash keys so
+# buckets are visited once.
+func _a3_neighbor_hashes(canon: PackedByteArray) -> Array:
+    var out: Array = []
+    var seen: Dictionary = {}
+    for i in canon.size():
+        for delta in [-1, 1]:
+            var s := canon.duplicate()
+            s[i] = clampi(int(canon[i]) + delta, 0, 255)
+            var h := _fp_hash(s)
+            if not seen.has(h):
+                seen[h] = true
+                out.append(h)
+    return out
+
+func _finalize_prune_plan(uf_parent: Array) -> Dictionary:
+    var root_to_members: Dictionary = {}  # root idx -> [member idx, ...]
+    for i in uf_parent.size():
+        var root: int = _find_root(uf_parent, i)
+        if root != i:
+            if not root_to_members.has(root):
+                root_to_members[root] = []
+            root_to_members[root].append(i)
     var merge_map: Dictionary = {}  # dup key -> {"key", "flip_h", "flip_v"}
     var dup_keys: Array = []
-    for h in groups:
-        var members: Array = groups[h]["members"]
-        if members.size() < 2:
-            continue
-        members.sort_custom(func(a, b): return _catalog_rank(a) < _catalog_rank(b))
-        var rep_idx: int = members[0]
-        var rep_key: String = _stamp_catalog[rep_idx]["key"]
-        var rep_img: Image = _as_rgba8(_stamp_catalog[rep_idx]["cell"])
-        for i in members.slice(1):
+    for root in root_to_members:
+        var rep_key: String = _stamp_catalog[root]["key"]
+        var rep_img: Image = _as_rgba8(_stamp_catalog[root]["cell"])
+        for i in root_to_members[root]:
             var cand_key: String = _stamp_catalog[i]["key"]
             if cand_key == rep_key:
                 continue
@@ -1023,6 +1298,60 @@ func _build_prune_plan() -> Dictionary:
         "removed_pngs_est": removed_pngs_est,
         "bank_after": _tile_images.size() - dup_keys.size(),
     }
+
+# Approach B deep pass: exhaustive pairwise exact-diff over kept representatives
+# in catalog rank order. Formally complete (no bucket to escape); reuses the
+# shared finalize/merge semantics. Yields to the engine every DEEP_YIELD_EVERY
+# comparisons so the busy cursor stays responsive.
+func _build_deep_prune_plan() -> Dictionary:
+    var ordered: Array = []
+    for i in _stamp_catalog.size():
+        ordered.append(i)
+    ordered.sort_custom(func(a: int, b: int) -> bool:
+        return _catalog_rank(a) < _catalog_rank(b)
+    )
+    var bytes: Array = []
+    bytes.resize(_stamp_catalog.size())
+    for i in _stamp_catalog.size():
+        bytes[i] = _cell_bytes(_as_rgba8(_stamp_catalog[i]["cell"]), false, false)
+    var variants: Array = []
+    variants.resize(_stamp_catalog.size())
+    for i in _stamp_catalog.size():
+        variants[i] = _flip_variants(bytes[i])
+    var uf_parent: Array = []
+    for i in _stamp_catalog.size():
+        uf_parent.append(i)
+    var kept: Array = []
+    var comparisons := 0
+    for m in ordered:
+        var matched := false
+        for k in kept:
+            comparisons += 1
+            if comparisons % DEEP_YIELD_EVERY == 0:
+                await get_tree().process_frame
+            if not _flip_of_variants(variants[k], bytes[m]).is_empty():
+                _uf_union(uf_parent, k, m)
+                matched = true
+                break
+        if not matched:
+            kept.append(m)
+    return _finalize_prune_plan(uf_parent)
+
+func _find_root(p: Array, i: int) -> int:
+    if p[i] != i:
+        p[i] = _find_root(p, p[i])
+    return p[i]
+
+func _uf_union(p: Array, a: int, b: int) -> void:
+    var ra := _find_root(p, a)
+    var rb := _find_root(p, b)
+    if ra == rb:
+        return
+    # lowest stamp id wins as root
+    if _catalog_rank(ra) <= _catalog_rank(rb):
+        p[rb] = ra
+    else:
+        p[ra] = rb
 
 # Destructive half run only after the user confirms the preview dialog.
 func _execute_prune(dup_keys: Array, merge_map: Dictionary) -> void:
@@ -1327,9 +1656,19 @@ func _cell_bytes(cell: Image, flip_h: bool, flip_v: bool) -> PackedByteArray:
 
 func _diff(a: PackedByteArray, b: PackedByteArray) -> float:
     var sum := 0
-    for i in a.size():
+    var n := a.size()
+    for i in n:
         sum += abs(a[i] - b[i])
-    return float(sum) / max(1, a.size())
+    return float(sum) / max(1, n)
+
+func _diff_capped(a: PackedByteArray, b: PackedByteArray, limit: float) -> float:
+    var sum := 0
+    var n := a.size()
+    for i in n:
+        sum += abs(a[i] - b[i])
+        if float(sum) / max(1, i + 1) > limit:
+            return limit + 1.0
+    return float(sum) / max(1, n)
 
 func _find_match(cell: Image) -> Dictionary:
     var base := _cell_bytes(cell, false, false)
