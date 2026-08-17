@@ -327,7 +327,8 @@ Implemented in `editor/scripts/map_editor.gd` and both `editor/scenes/map_editor
 and `editor/scenes/main.tscn`:
 
 - Constants: `A3_K := 8`, `A3_LRU_CAP := 64`, `DEEP_CONFIRM_THRESHOLD := 2500`,
-  `DEEP_YIELD_EVERY := 500`.
+  `DEEP_YIELD_EVERY := 500`, `PRUNE_WARN_THRESHOLD := 500`,
+  `PRUNE_EST_MS_PER_TILE := 197`.
 - Fast tier refactor: `_build_prune_plan()` now runs grayscale scan -> union-find
   -> `_a3_discover()` -> union-find -> `_finalize_prune_plan()`. `_a3_discover()`
   probes the existing `_stamp_fp_index` one-unit neighbour buckets for singleton
@@ -341,6 +342,39 @@ and `editor/scenes/main.tscn`:
   same `_present_prune_plan()` presentation helper.
 - A "Prune (deep)" button added after `PruneBtn` in the BottomBar of both
   scenes, wired via `deep_prune_btn`.
+- **Scan-window binary search**: `_grayscale_projection_candidates()` now finds
+  the lower bound of each tile's projection window via `_projection_lower_bound()`
+  (classic binary search over the projection-sorted `ordered` array) instead of
+  walking backward tile-by-tile. Sparse regions jump straight to the window
+  start in `O(log N)`; the in-window walk is unchanged. Measured equivalent on
+  dense synthetic data (window covers most tiles there).
+- **Cost warning dialog**: pressing "Prune Duplicates" with more than
+  `PRUNE_WARN_THRESHOLD` tiles first shows a `ConfirmationDialog` that states
+  the estimated wall time (`tiles * PRUNE_EST_MS_PER_TILE`, the serial
+  fast-tier rate measured on the real 2718-tile catalog: 535 s -> 197 ms/tile,
+  so ~3000 tiles ~= 10 min) and that the UI pauses with a busy cursor while it
+  scans. The scan runs only on confirm; below the threshold it runs immediately.
+
+### Parallelism finding (measured 2026-08-16)
+
+Attempted to speed the exact-comparison hot loop with GDScript `Thread`s over
+`OS.get_processor_count()` (32 on this host). Measured results on Godot 4.4.1
+headless:
+
+- Pure integer loop: 8 threads -> 5.9x speedup (GDScript threads do run in
+  parallel).
+- The real workload (`_diff_capped` over shared `PackedByteArray` buffers):
+  8 threads -> **0.72x** (slower than serial) with shared arrays, and only
+  **1.77x** with private per-thread copies.
+
+Conclusion: GDScript serializes packed-array element access across threads
+(refcount/GC contention on the shared `Array[PackedByteArray]`), so spawning
+`Thread`s in GDScript is *counterproductive* for this loop. The threaded path
+was reverted; the scan stays serial. The honest paths to real 32-core
+parallelism are (a) move the exact-diff loop into the existing
+`crates/sstd-editor-bridge` godot-rust extension and parallelize with native
+`std::thread`/rayon, or (b) keep the scalar gate so the serial rate stays the
+only cost. Neither is implemented; (a) is the tracked future optimization.
 
 Reconciliation with the pinned A3 text below: the pinned sketch described the
 2-bit `_similarity_sig` space (`delta +/- 64`). The shipped index
@@ -350,14 +384,17 @@ the exact analog of one 2-bit unit in that space. Verified against the actual
 key space (`map_editor.gd:1616` `_index_stamp_entry`).
 
 Tests (all green in the headless suite): `_test_a3_neighbor_scan` (one-block
-deviation duplicate merged, distinct tile kept, bounded neighbour enumeration)
-and `_test_deep_prune` (exact dup found, lowest-id rep, read-only plan, merge
-drops dup + rewrites grid ref). Full suite: `failures=0`, cargo 87 tests pass.
+deviation duplicate merged, distinct tile kept, bounded neighbour enumeration),
+`_test_deep_prune` (exact dup found, lowest-id rep, read-only plan, merge
+drops dup + rewrites grid ref), and `_test_parallel_exact_scan` (48 identical
+tiles -> 1128 gate-surviving pairs merge onto the lowest id; validates the
+serial path stays correct). Full suite: `failures=0`, cargo 87 tests pass.
 `main.tscn` smoke-loads with the new button attached.
 
 Known limitation (unchanged): the fast real-catalog scan remains ~8.9 min for
-~2718 tiles (see Optimization history above); the deep tier is budget-gated and
-opt-in, and destructive confirmation is unchanged.
+~2718 tiles (see Optimization history above); the cost warning dialog tells
+the user the estimated wall time before the scan runs. The deep tier is
+budget-gated and opt-in, and destructive confirmation is unchanged.
 
 ## Open questions to confirm before implementing
 

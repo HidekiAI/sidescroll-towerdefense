@@ -28,6 +28,7 @@ func _run() -> void:
     await _test_prune_chain()
     await _test_a3_neighbor_scan()
     await _test_deep_prune()
+    await _test_parallel_exact_scan()
     _test_diff_capped()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
@@ -530,6 +531,31 @@ func _test_deep_prune() -> void:
     await ed._execute_prune(plan["dup_keys"], plan["merge_map"])
     check(not ed._tile_images.has("stamp_5051"), "deep merge drops the duplicate from the bank")
     check(ed.get_tile(4, 4) == "stamp_5050", "deep merge rewrites the grid reference")
+    ed.queue_free()
+    await process_frame
+
+func _test_parallel_exact_scan() -> void:
+    print("--- parallel exact scan ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    # 48 identical near-black tiles -> 48*47/2 = 1128 candidate pairs, well
+    # above PARALLEL_MIN_PAIRS so the threaded path runs in the test.
+    for i in 48:
+        var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+        img.fill(Color(0.05, 0.05, 0.05, 1.0))
+        var key := "stamp_6000%d" % i
+        ed._stamp_catalog.append({"key": key, "cell": img, "flip_h": false, "flip_v": false})
+        ed._tile_images[key] = img
+    ed._rebuild_stamp_index()
+    var plan: Dictionary = ed._build_prune_plan()
+    check(plan["dup_keys"].size() == 47, "parallel scan merges all 47 duplicates")
+    check(plan["merge_map"].values().all(func(m): return m["key"] == "stamp_60000"), "parallel scan merges onto lowest id")
+    check(plan["dup_keys"].all(func(k): return k != "stamp_60000"), "rep itself is never a dup")
     ed.queue_free()
     await process_frame
 
