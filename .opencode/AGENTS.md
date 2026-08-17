@@ -1,5 +1,18 @@
 # Project: SSTD (Sidescroll Tower Defense)
 
+## Session Progress Checkpoint (permanent)
+
+The user may switch sessions mid-task at any time. For multi-step work
+(`#51` prune optimization and any long task), **keep `docs/SESSION-CHECKPOINT.md`
+continuously updated as work proceeds** so a fresh session can resume cold:
+
+- Record what shipped/committed, the exact current active step, and the next
+  move after each meaningful milestone — not only at the end.
+- Record any measured numbers, decisions, and commands so the successor does
+  not re-derive them.
+- Commit the checkpoint update together with (or immediately after) the code
+  change it describes. (Rule recorded 2026-08-16.)
+
 ## Wiki Maintenance Rule (permanent)
 
 Whenever a **new wiki page** is added (GDD or TDD), **update the wiki Home page** (`sidescroll-towerdefense.wiki/Home.md`) in the same commit — add a row in the relevant section (Game Design / Technical Design) linking the new page. Do the same in `TODO.md` (tracked-work session table). A newly shipped wiki page with no Home.md/TODO.md entry is an oversight. (Rule recorded 2026-08-09, see #40.)

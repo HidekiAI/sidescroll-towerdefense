@@ -34,6 +34,8 @@ var _hud_start_pos: Vector2 = Vector2.ZERO
 
 const STAMP_CELL := 32
 const STAMP_TOLERANCE := 4.0
+const TILE_BYTES := STAMP_CELL * STAMP_CELL * 4
+const _GRAY_SIG_BYTES := 32
 const BRIDGE_MIN_PAIRS := 512
 const BRIDGE_MAX_WORKERS := 32
 const _BUSY_YIELD_EVERY := 128  # yield + repaint once per N heavy-loop iterations
@@ -999,25 +1001,64 @@ func _grayscale_projection_candidates(max_delta: int) -> Dictionary:
             return str(_stamp_catalog[a["index"]]["key"]) < str(_stamp_catalog[b["index"]]["key"])
         return a["projection"] < b["projection"]
     )
-    var variants: Array = []
-    variants.resize(_stamp_catalog.size())
-    for i in _stamp_catalog.size():
-        variants[i] = _flip_variants(bytes[i])
+
+    var use_bridge := _bridge != null and _bridge.has_method("scan_gate_pairs")
     var candidate_count := 0
     var gate_survivors := 0
     var exact_pairs: Array = []
-    for position in ordered.size():
-        var current: Dictionary = ordered[position]
-        var target_projection: int = current["projection"] - max_delta
-        var window_start := _projection_lower_bound(ordered, target_projection)
-        for previous_position in range(window_start, position):
-            var previous: Dictionary = ordered[previous_position]
-            candidate_count += 1
-            if not _grayscale_sig_near(signatures[previous["index"]], signatures[current["index"]]):
-                continue
-            gate_survivors += 1
-            exact_pairs.append([previous["index"], current["index"]])
-    var exact_matches: Array = _exact_matches_parallel(exact_pairs, variants, bytes)
+    if use_bridge:
+        # Native projection-window scan + grayscale gate (parallel): pass the
+        # flat signatures plus the sorted projection/index lists; the bridge
+        # returns the [base, candidate] survivor stream directly.
+        var sigs_flat := PackedByteArray()
+        for i in signatures.size():
+            sigs_flat.append_array(signatures[i])
+        var ordered_projections := PackedInt32Array()
+        var ordered_indices := PackedInt32Array()
+        ordered_projections.resize(ordered.size())
+        ordered_indices.resize(ordered.size())
+        for position in ordered.size():
+            ordered_projections[position] = int(ordered[position]["projection"])
+            ordered_indices[position] = int(ordered[position]["index"])
+        var workers := mini(OS.get_processor_count(), BRIDGE_MAX_WORKERS)
+        var pair_stream: PackedInt32Array = _bridge.scan_gate_pairs(
+            sigs_flat, ordered_projections, ordered_indices, max_delta, workers)
+        var idx := 0
+        while idx + 1 < pair_stream.size():
+            exact_pairs.append([pair_stream[idx], pair_stream[idx + 1]])
+            idx += 2
+        candidate_count = exact_pairs.size()
+        gate_survivors = exact_pairs.size()
+    else:
+        for position in ordered.size():
+            var current: Dictionary = ordered[position]
+            var target_projection: int = current["projection"] - max_delta
+            var window_start := _projection_lower_bound(ordered, target_projection)
+            for previous_position in range(window_start, position):
+                var previous: Dictionary = ordered[previous_position]
+                candidate_count += 1
+                if not _grayscale_sig_near(signatures[previous["index"]], signatures[current["index"]]):
+                    continue
+                gate_survivors += 1
+                exact_pairs.append([previous["index"], current["index"]])
+
+    var exact_matches: Array
+    if use_bridge and _bridge.has_method("build_variants"):
+        # Native variant building (N * 4 * 4096) replaces the GDScript
+        # `_flip_variants` loop; the flat buffer goes straight to the exact
+        # scan without a per-tile flatten pass.
+        var bytes_flat := PackedByteArray()
+        for i in bytes.size():
+            bytes_flat.append_array(bytes[i])
+        var workers := mini(OS.get_processor_count(), BRIDGE_MAX_WORKERS)
+        var variants_flat: PackedByteArray = _bridge.build_variants(bytes_flat, workers)
+        exact_matches = _exact_matches_bridge_flat(exact_pairs, variants_flat, bytes_flat)
+    else:
+        var variants: Array = []
+        variants.resize(_stamp_catalog.size())
+        for i in _stamp_catalog.size():
+            variants[i] = _flip_variants(bytes[i])
+        exact_matches = _exact_matches_parallel(exact_pairs, variants, bytes)
     return {
         "candidates": exact_pairs,
         "exact_matches": exact_matches,
@@ -1061,6 +1102,13 @@ func _exact_matches_bridge(exact_pairs: Array, variants: Array, bytes: Array) ->
         bytes_flat.append_array(bytes[i])
         for v in variants[i].size():
             variants_flat.append_array(variants[i][v])
+    return _exact_matches_bridge_flat(exact_pairs, variants_flat, bytes_flat)
+
+# Flat-buffer core of the bridge exact-diff path. `variants_flat` is the
+# concatenation of every tile's 4 flip variants (N * 4 * 4096), `bytes_flat`
+# the canonical bytes (N * 4096). Skips the GDScript per-tile flatten loop so
+# the caller can build variants natively via `build_variants`.
+func _exact_matches_bridge_flat(exact_pairs: Array, variants_flat: PackedByteArray, bytes_flat: PackedByteArray) -> Array:
     var pair_stream := PackedInt32Array()
     pair_stream.resize(exact_pairs.size() * 2)
     for i in exact_pairs.size():
@@ -1295,6 +1343,7 @@ func _a3_discover(uf_parent: Array) -> Array:
     var lru: Dictionary = {}
     var lru_order: Array = []
     var matches: Array = []
+    var use_native := _bridge != null and _bridge.has_method("a3_neighbor_hashes")
     for m in _stamp_catalog.size():
         if _find_root(uf_parent, m) != m:
             continue
@@ -1304,7 +1353,10 @@ func _a3_discover(uf_parent: Array) -> Array:
         if lru.has(ch):
             neighbor_hashes = lru[ch]
         else:
-            neighbor_hashes = _a3_neighbor_hashes(canon)
+            if use_native:
+                neighbor_hashes = Array(_bridge.a3_neighbor_hashes(canon))
+            else:
+                neighbor_hashes = _a3_neighbor_hashes(canon)
             lru[ch] = neighbor_hashes
             lru_order.append(ch)
             if lru_order.size() > A3_LRU_CAP:
@@ -1354,18 +1406,34 @@ func _finalize_prune_plan(uf_parent: Array) -> Dictionary:
             if not root_to_members.has(root):
                 root_to_members[root] = []
             root_to_members[root].append(i)
+    var use_native := _bridge != null and _bridge.has_method("flip_of_bytes")
+    var bytes_cache: Dictionary = {}
     var merge_map: Dictionary = {}  # dup key -> {"key", "flip_h", "flip_v"}
     var dup_keys: Array = []
     for root in root_to_members:
         var rep_key: String = _stamp_catalog[root]["key"]
-        var rep_img: Image = _as_rgba8(_stamp_catalog[root]["cell"])
+        if not bytes_cache.has(root):
+            bytes_cache[root] = _cell_bytes(_as_rgba8(_stamp_catalog[root]["cell"]), false, false)
+        var rep_bytes: PackedByteArray = bytes_cache[root]
         for i in root_to_members[root]:
             var cand_key: String = _stamp_catalog[i]["key"]
             if cand_key == rep_key:
                 continue
-            var flip := _flip_of(rep_img, _as_rgba8(_stamp_catalog[i]["cell"]))
-            if flip.is_empty():
-                continue
+            var flip: Dictionary
+            if use_native:
+                if not bytes_cache.has(i):
+                    bytes_cache[i] = _cell_bytes(_as_rgba8(_stamp_catalog[i]["cell"]), false, false)
+                var code := int(_bridge.flip_of_bytes(rep_bytes, bytes_cache[i], STAMP_TOLERANCE))
+                if code == 0:
+                    continue
+                flip = {
+                    "flip_h": code == 2 or code == 8,
+                    "flip_v": code == 4 or code == 8,
+                }
+            else:
+                flip = _flip_of(_as_rgba8(_stamp_catalog[root]["cell"]), _as_rgba8(_stamp_catalog[i]["cell"]))
+                if flip.is_empty():
+                    continue
             merge_map[cand_key] = {"key": rep_key, "flip_h": flip["flip_h"], "flip_v": flip["flip_v"]}
             dup_keys.append(cand_key)
     var removed_pngs_est := 0

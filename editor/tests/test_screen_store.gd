@@ -30,6 +30,7 @@ func _run() -> void:
     await _test_deep_prune()
     await _test_parallel_exact_scan()
     await _test_bridge_exact_scan()
+    await _test_bridge_gate_and_variants()
     _test_diff_capped()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
@@ -597,6 +598,101 @@ func _test_bridge_exact_scan() -> void:
             ok = false
             break
     check(ok, "bridge match stream identical to serial")
+    bridge.queue_free()
+    ed.queue_free()
+    await process_frame
+
+func _test_bridge_gate_and_variants() -> void:
+    print("--- bridge gate + variants (native vs serial) ---")
+    if not ClassDB.class_exists("SstdBridge"):
+        print("skip: SstdBridge extension not loaded")
+        return
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    var bridge = ClassDB.instantiate("SstdBridge")
+    root.add_child(bridge)
+    ed.set_bridge(bridge)
+
+    ed._stamp_catalog.clear()
+    ed._tile_images.clear()
+    ed._rebuild_stamp_index()
+    var shades: Array = [0.05, 0.06, 0.07, 0.2, 0.5, 0.8]
+    for i in shades.size():
+        var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+        img.fill(Color(shades[i], shades[i], shades[i], 1.0))
+        var key := "stamp_5%03d" % (i + 1)
+        ed._stamp_catalog.append({"key": key, "cell": img})
+        ed._tile_images[key] = img
+    ed._rebuild_stamp_index()
+
+    var ordered: Array = []
+    var signatures: Array = []
+    var bytes: Array = []
+    for i in ed._stamp_catalog.size():
+        var img: Image = ed._as_rgba8(ed._stamp_catalog[i]["cell"])
+        bytes.append(ed._cell_bytes(img, false, false))
+        signatures.append(ed._grayscale_sig(img))
+        ordered.append({"index": i, "projection": ed._grayscale_luminance_projection(img)})
+    ordered.sort_custom(func(a, b):
+        if a["projection"] == b["projection"]:
+            return str(ed._stamp_catalog[a["index"]]["key"]) < str(ed._stamp_catalog[b["index"]]["key"])
+        return a["projection"] < b["projection"]
+    )
+
+    # Serial gate as reference.
+    var serial_pairs: Array = []
+    var max_delta := 256
+    for position in ordered.size():
+        var current: Dictionary = ordered[position]
+        var target_projection: int = current["projection"] - max_delta
+        var window_start: int = ed._projection_lower_bound(ordered, target_projection)
+        for previous_position in range(window_start, position):
+            var previous: Dictionary = ordered[previous_position]
+            if ed._grayscale_sig_near(signatures[previous["index"]], signatures[current["index"]]):
+                serial_pairs.append([previous["index"], current["index"]])
+
+    # Bridge gate.
+    var sigs_flat := PackedByteArray()
+    for i in signatures.size():
+        sigs_flat.append_array(signatures[i])
+    var ordered_projections := PackedInt32Array()
+    var ordered_indices := PackedInt32Array()
+    ordered_projections.resize(ordered.size())
+    ordered_indices.resize(ordered.size())
+    for position in ordered.size():
+        ordered_projections[position] = int(ordered[position]["projection"])
+        ordered_indices[position] = int(ordered[position]["index"])
+    var workers := mini(OS.get_processor_count(), ed.BRIDGE_MAX_WORKERS)
+    var pair_stream: PackedInt32Array = bridge.scan_gate_pairs(
+        sigs_flat, ordered_projections, ordered_indices, max_delta, workers)
+    check(pair_stream.size() == serial_pairs.size() * 2,
+        "bridge gate count matches serial (%d vs %d)" % [pair_stream.size() / 2, serial_pairs.size()])
+    var ok := true
+    for i in serial_pairs.size():
+        if int(pair_stream[i * 2]) != serial_pairs[i][0] or int(pair_stream[i * 2 + 1]) != serial_pairs[i][1]:
+            ok = false
+            break
+    check(ok, "bridge gate stream identical to serial")
+
+    # Bridge variants vs serial flip variants.
+    var bytes_flat := PackedByteArray()
+    for i in bytes.size():
+        bytes_flat.append_array(bytes[i])
+    var variants_flat: PackedByteArray = bridge.build_variants(bytes_flat, workers)
+    var expected_flat := PackedByteArray()
+    for i in bytes.size():
+        for v in ed._flip_variants(bytes[i]):
+            expected_flat.append_array(v)
+    check(variants_flat.size() == expected_flat.size(), "bridge variants flat size matches")
+    var var_ok := true
+    for i in expected_flat.size():
+        if variants_flat[i] != expected_flat[i]:
+            var_ok = false
+            break
+    check(var_ok, "bridge variants identical to serial _flip_variants")
+
     bridge.queue_free()
     ed.queue_free()
     await process_frame

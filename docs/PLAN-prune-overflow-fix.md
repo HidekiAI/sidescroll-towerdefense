@@ -558,6 +558,25 @@ Correctness: exhaustive discovery guarantees no straddler escapes; the exact
 `_diff <= STAMP_TOLERANCE` gate remains the only merge authority, and the
 per-root re-verify prevents tolerance widening via chains.
 
+## Findings recorded during native port (2026-08-17)
+
+- **GDScript int-truncation quirk (root cause of the 982-vs-490 dup_keys
+  mismatch)**: GDScript `_flip_of_bytes` (map_editor.gd:1204) declares
+  `var best_diff := 0x7fffffff` (int). Assigning a float diff truncates it, so a
+  variant with `diff in [tol, tol+1)` (e.g. 4.17 with `STAMP_TOLERANCE=4.0`)
+  still matches. The Rust bridge must replicate exactly with `best_diff: i32` +
+  `d as i32` + final check `best_diff as f64 <= tol`. The initial f64 port was
+  stricter and dropped matches (dup_keys 982 -> 490). Verified pair-for-pair
+  parity on the real catalog after the fix: checked=1228, native=982,
+  gdscript=982, 0 mismatches.
+- **`_flip_of_variants` (map_editor.gd:1167, serial scan path) shares the same
+  int best_diff truncation**, but native `flip_of_variants` (used by
+  `scan_exact_matches`) keeps f64 semantics. Consistent on real data
+  (exact=133231) and the 600-tile probe; latent boundary divergence only.
+- **Release build is required**: the debug `.so` was 3-10x slower across the
+  board (scan 8.6s->4.2s, a3 neighbour hashes 4.3s->0.38s). Rebuild workflow is
+  now `cargo build --release -p sstd-editor-bridge` + `cp target/release/...`.
+
 ## Verification plan
 
 - Unit test (extend `editor/tests/test_screen_store.gd` `_test_prune_*`): seed
