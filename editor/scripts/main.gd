@@ -141,10 +141,12 @@ func _on_tab_changed(tab: int) -> void:
 	if tab == 2:
 		placement_editor.cache_current_screen()
 		map_editor.set_terrain_types(terrain_editor.get_terrain_types())
+		map_editor.set_tile_bank(placement_editor.get_tile_bank())
 	if tab == 3:
 		map_editor.cache_current_screen()
 		placement_editor.set_terrain_types(terrain_editor.get_terrain_types())
 		placement_editor.set_entity_defs(entity_editor.get_entity_defs())
+		placement_editor.set_tile_bank(map_editor.get_tile_bank())
 		placement_editor._screen_id = map_editor._screen_id
 		placement_editor.screen_spin.set_value_no_signal(placement_editor._screen_id)
 		placement_editor._sync_position_from_id()

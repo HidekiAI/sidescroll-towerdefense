@@ -9,7 +9,8 @@
 
 Last updated: 2026-08-17 (batch complete: native A3 + finalize committed and
 documented, trunk `164d25c`/`5b6f25e`, wiki `ccffbf6`; design decision recorded
-on the Simulator gRPC boundary, placeholder wiki TDD `6a8aac5`).
+on the Simulator gRPC boundary, placeholder wiki TDD `6a8aac5`; save/load bug
+batch #47/#48/#50 in progress -> committed).
 
 ## Objective
 
@@ -96,25 +97,36 @@ godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
   `editor/scripts/simulator.gd` (stub).
 
 ### Active step
-None — this batch fully committed and documented.
-- Trunk: `164d25c` (native A3 + finalize + truncation fix), `5b6f25e`
-  (self-contained checkpoint rule).
-- Wiki: `ccffbf6` — TDD_Tile-Deduplication.md v6 entry (native A3 + finalize,
-  int-truncation quirk, 6792 ms real catalog, release-build requirement),
-  status blockquote, section 4 cost-dialog wording, section 8 test list.
-- Verified: cargo 101 pass (87 core + 14 bridge), GDScript suite failures=0,
-  real-catalog breakdown profile (scan 3912 / a3 1672 / finalize 445 / full
-  plan 6792 ms, dup_keys=982).
+Save/load bug batch (#47/#48/#50) — fixes implemented and verified; commit +
+issue comments in flight.
+- #47 root cause: placement editor renders grid textures from its OWN
+  `_tile_images`, seeded only when IT loads a world package. When the world was
+  loaded in the map editor, the placement bank stayed empty -> blank grid for
+  non-disk tiles. Fix: `get_tile_bank()`/`set_tile_bank()` on both editors;
+  `main.gd _on_tab_changed` syncs the bank both ways (tab 2 map <- placement,
+  tab 3 placement <- map). Regression `_test_placement_editor_tile_bank_sync`.
+- #48 root causes: placement editor never recorded `last_map_path` — its
+  `_on_save` and `_load_world_package` lacked the `_save_last_map_path` call
+  map_editor has, so a world saved/loaded from the Placement tab was never
+  auto-loaded on reopen -> blank boot. Also stale pre-0.3.0 `editor/world.zip`
+  + config `last_map_path` pointing at it. Fix: record last_map_path in both
+  placement paths. Regression `_test_placement_records_last_map_path`.
+- #50: already fixed by `445460d` (buttons relabeled 'Load World...'); closed.
+- Discovery: map_editor `_register_tile_image` materializes every world tile to
+  disk (`assets/tiles/<key>_32x32.png`) — the source of the 5982 untracked
+  stamp PNGs (gitignored). The placement editor must NOT rely on that.
+- Verified: `repro_blank_world.gd` failures=0; full suite failures=0.
+- Issue comments posted on #47 and #48; #50 close retry needed (GitHub 503s).
 
 ### Next move (proposed order)
-1. Optional speedup / parity items are now tracked as feature requests:
+1. Commit this batch (map_editor.gd, placement_editor.gd, main.gd,
+   test_screen_store.gd + fake_main.gd + repro_blank_world.gd, checkpoint).
+   Retry `gh issue close 50` (transient 503s during this session).
+2. Optional speedup / parity items are now tracked as feature requests:
    - #52: align native `flip_of_variants` with GDScript int-truncation semantics
      (boundary-diff parity; latent only, verified consistent on real data).
    - #53: move the prune gate (phase C) and variant-building (phase B) into the
      bridge for further speedup (current full plan is already 6.8s, under target).
-2. Resume from either issue when the user picks one up; re-measure with
-   `editor/tests/profile_real.gd` and confirm match streams / dup_keys=982 stay
-   identical.
 3. Simulator-gRPC design decision (above) is recorded; placeholder wiki TDD
    authored (wiki `6a8aac5`). Pending follow-ups when picked up:
    - Decide transport face (a) tonic client in `sstd-editor-bridge` vs

@@ -157,6 +157,22 @@ func _restore_tile_bank(bank: Dictionary) -> void:
             _tile_images[str(key)] = img
             _tile_texture_cache.erase(str(key))
 
+# Tile-bank sync between editors: the placement editor renders grid textures
+# from its OWN _tile_images, which is only seeded when THIS editor loads a world
+# package. When the world was loaded in the map editor, main.gd seeds this bank
+# from map_editor.get_tile_bank() on tab switch. See #47.
+func get_tile_bank() -> Dictionary:
+    return _tile_images
+
+func set_tile_bank(bank: Dictionary) -> void:
+    if bank.is_empty():
+        return
+    for key in bank:
+        var img: Image = bank[key]
+        if img:
+            _tile_images[str(key)] = img
+            _tile_texture_cache.erase(str(key))
+
 func _entity_def(key: String) -> Dictionary:
     for e in _entity_defs:
         if e["key"] == key:
@@ -531,6 +547,8 @@ func _on_save() -> void:
                 _store.world_package_path = path
             _store.register(_screen_pos.x, _screen_pos.y, _screen_id, path.get_file(), _serialize())
             _save_world()
+        if _main and _main.has_method("_save_last_map_path"):
+            _main._save_last_map_path(path)
         info_label.text = "Saved: %s (%d screens, %d world-shared tiles)" % [path.get_file(), world["screens"].size(), tiles.size()]
         _update_hud()
         _log_import("world", "saved %s (%d screens, %d shared tiles)" % [path, world["screens"].size(), tiles.size()])
@@ -643,6 +661,8 @@ func _load_world_package(path: String) -> void:
         _restore_screen()
     else:
         _populate_terrain()
+    if _main and _main.has_method("_save_last_map_path"):
+        _main._save_last_map_path(path)
     info_label.text = "Loaded world: %s (%d screens, %d world-shared tiles)" % [path.get_file(), data["screens"].size(), data["tile_images"].size()]
     _update_hud()
     _log_import("world", "loaded package %s: %d screens, %d shared tiles, current screen %d" % [path, data["screens"].size(), data["tile_images"].size(), current_id])

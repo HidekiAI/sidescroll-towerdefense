@@ -225,6 +225,19 @@ func get_tile_texture(key: String) -> Texture2D:
     _tile_texture_cache[key] = null
     return null
 
+# Tile-bank sync between editors: the placement editor renders grid textures
+# from its OWN _tile_images, so it must be seeded from the map editor's bank
+# (the world package restores into the map editor only). See #47.
+func get_tile_bank() -> Dictionary:
+    return _tile_images
+
+func set_tile_bank(bank: Dictionary) -> void:
+    if bank.is_empty():
+        return
+    for key in bank:
+        _tile_images[str(key)] = bank[key]
+        _tile_texture_cache.erase(str(key))
+
 func _restore_embedded_tiles(embedded: Dictionary) -> void:
     if embedded.is_empty():
         return
