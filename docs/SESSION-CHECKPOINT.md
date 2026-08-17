@@ -8,7 +8,8 @@
 > (permanent)".
 
 Last updated: 2026-08-17 (batch complete: native A3 + finalize committed and
-documented, trunk `164d25c`/`5b6f25e`, wiki `ccffbf6`).
+documented, trunk `164d25c`/`5b6f25e`, wiki `ccffbf6`; design decision recorded
+on the Simulator gRPC boundary).
 
 ## Objective
 
@@ -67,6 +68,33 @@ breakdown with the release .so:
 - `flip_of_bytes` return codes (wiring in `_finalize_prune_plan`):
   0=none, 1=identity, 2=h, 4=v, 8=hv; flip_h = code 2 or 8, flip_v = code 4 or 8.
 
+## Design decision (recorded 2026-08-17): Simulator tab is pure gRPC
+
+Context: the Rust<->Godot4 boundary question (from the #51 bridge work).
+`SstdBridge` is godot-rust FFI (in-process) and that stays for the editor's
+per-frame hot loops. But the **Simulator tab in the editor will NOT be a
+godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
+
+- Sim state and stepping live entirely in a Rust process (`sstd-headless`,
+  per TDD_gRPC-Architecture.md line 72). Deterministic, isolated from the Godot
+  main loop; batch eval / AI training / headless CI use the SAME server.
+- Simulator gRPC (port 50052, per `.opencode/AGENTS.md` "gRPC Integration"):
+  chunky `step N ticks / inject / query world` round-trips, so loopback gRPC
+  latency is negligible — the "must be in-process FFI" argument that justified
+  `SstdBridge` for byte-diff hot loops does NOT apply here.
+- No shared `Arc<RwLock<EditorState>>` needed on the sim tier: the sim owns its
+  world state in Rust. The #40 EditorState gap stays scoped to the EDITOR gRPC
+  (50051) tier.
+- **Caveat (must decide when implementing)**: Godot's `HTTPClient` is HTTP/1.1
+  and cannot speak gRPC (HTTP/2). The Godot tab therefore needs a hop:
+  (a) `sstd-editor-bridge` hosts a tonic CLIENT (`SstdBridge.step_sim(...)`),
+  or (b) `sstd-headless` exposes a second JSON-over-unix-socket/WebSocket
+  transport face — consistent with #40's "transport-agnostic, gRPC is one face".
+- Status: design decision, not yet implemented. Tracked via comment on #40.
+  Current crates: only `sstd-core` + `sstd-editor-bridge`; NO simulator crate,
+  NO `sstd-headless` binary yet. Simulator tab exists as `simulator.tscn` +
+  `editor/scripts/simulator.gd` (stub).
+
 ### Active step
 None — this batch fully committed and documented.
 - Trunk: `164d25c` (native A3 + finalize + truncation fix), `5b6f25e`
@@ -87,6 +115,15 @@ None — this batch fully committed and documented.
 2. Resume from either issue when the user picks one up; re-measure with
    `editor/tests/profile_real.gd` and confirm match streams / dup_keys=982 stay
    identical.
+3. Simulator-gRPC design decision (above) is recorded but unimplemented.
+   Pending follow-ups when picked up:
+   - Author the wiki TDD for the simulator service contract
+     (`TechnicalDesign/TDD_Simulator-Service-Contract.md`), with Home.md +
+     TODO.md entries per the Wiki Maintenance Rule.
+   - Decide transport face (a) tonic client in `sstd-editor-bridge` vs
+     (b) JSON-over-unix-socket in `sstd-headless`; then create the simulator
+     crate + `sstd-headless` binary + protobuf contract.
+   - Update `sstd-core` docs for the Rust-owned sim world state.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
@@ -108,7 +145,7 @@ None — this batch fully committed and documented.
   -> expect `=== done, failures=0 ===`.
 - Script syntax check:
   `~/bin/godot4 --headless --path editor --check-only --script res://scripts/map_editor.gd`
-- Cargo: `cargo test -p sstd-editor-bridge` (14 pass; workspace total 92).
+- Cargo: `cargo test -p sstd-editor-bridge` (14 pass; workspace total 101).
 - Bridge rebuild (RELEASE — debug is 3-10x slower):
   `cargo build --release -p sstd-editor-bridge` then
   `cp target/release/libsstd_editor_bridge.so editor/rust/`.
