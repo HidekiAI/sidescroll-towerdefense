@@ -567,9 +567,14 @@ func _restore_screen() -> void:
             return
     _populate_grid()
 
+func _world_json_path() -> String:
+    if _main and _main.has_method("get_world_json_path"):
+        return _main.get_world_json_path()
+    return WORLD_PATH
+
 func _save_world() -> void:
     if _store:
-        _store.save_world(WORLD_PATH)
+        _store.save_world(_world_json_path())
 
 # Journal-style log line: every persist/load failure or step is recorded so an
 # incident can be re-traced from the engine log alone (see AGENTS: log requirement).
@@ -769,7 +774,12 @@ func _on_save() -> void:
     dialog.add_filter("*.zip", "SSTD World Package")
     dialog.add_filter("*.json", "Screen JSON (legacy)")
     dialog.title = "Save world (package)"
-    dialog.current_file = "world.zip"
+    if _main and _main.has_method("get_default_world_file"):
+        dialog.current_file = _main.get_default_world_file()
+    if _main and _main.has_method("get_file_dialog_dir"):
+        var dialog_dir: String = _main.get_file_dialog_dir()
+        if dialog_dir != "":
+            dialog.current_dir = dialog_dir
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
         var wrote := false
@@ -814,6 +824,10 @@ func _on_import() -> void:
     dialog.add_filter("*.zip", "SSTD World Package")
     dialog.add_filter("*.json", "Screen JSON (legacy)")
     dialog.title = "Load world package"
+    if _main and _main.has_method("get_file_dialog_dir"):
+        var dialog_dir: String = _main.get_file_dialog_dir()
+        if dialog_dir != "":
+            dialog.current_dir = dialog_dir
     add_child(dialog)
     dialog.file_selected.connect(_on_import_file)
     dialog.popup_centered(Vector2i(600, 400))

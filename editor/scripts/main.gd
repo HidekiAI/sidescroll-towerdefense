@@ -1,6 +1,12 @@
 extends Control
 
-const WORLD_PATH := "res://world.json"
+const DEFAULT_WORLD_PATH := "res://world.json"
+const DEFAULT_WORLD_FILE := "world.zip"
+const KEY_WORLD_FILE_NAME := "defaults.world_file_name"
+const KEY_WORLD_JSON_PATH := "defaults.world_json_path"
+const KEY_FILE_DIALOG_DIR := "defaults.file_dialog_dir"
+
+var _world_json_path := DEFAULT_WORLD_PATH
 
 var current_tab := 0
 var is_dirty := false
@@ -44,6 +50,8 @@ func _ready() -> void:
 	simulator = tabs.get_child(4)
 	_load_bridge()
 	_init_config_db()
+	_seed_config_defaults()
+	_world_json_path = get_world_json_path()
 	_load_grid_config()
 	tabs.tab_changed.connect(_on_tab_changed)
 	_wire_editors()
@@ -80,6 +88,31 @@ func _init_config_db() -> void:
 	var parsed = JSON.parse_string(result)
 	assert(parsed != null and parsed.get("ok", false), "Failed to init config DB: " + str(parsed))
 
+func _get_config_or(key: String, fallback: String) -> String:
+	if _bridge and _bridge.has_method("get_config_value"):
+		var value: Variant = _bridge.get_config_value(key)
+		if value != null and value != "":
+			return str(value)
+	return fallback
+
+func _seed_config_defaults() -> void:
+	for key in [KEY_WORLD_FILE_NAME, KEY_WORLD_JSON_PATH, KEY_FILE_DIALOG_DIR]:
+		if _get_config_or(key, "") == "":
+			var value: String = DEFAULT_WORLD_FILE if key == KEY_WORLD_FILE_NAME \
+					else DEFAULT_WORLD_PATH if key == KEY_WORLD_JSON_PATH else ""
+			if _bridge and _bridge.has_method("set_config_value"):
+				_bridge.set_config_value(key, value)
+				print("[main] seeded config %s = %s" % [key, value])
+
+func get_default_world_file() -> String:
+	return _get_config_or(KEY_WORLD_FILE_NAME, DEFAULT_WORLD_FILE)
+
+func get_world_json_path() -> String:
+	return _get_config_or(KEY_WORLD_JSON_PATH, DEFAULT_WORLD_PATH)
+
+func get_file_dialog_dir() -> String:
+	return _get_config_or(KEY_FILE_DIALOG_DIR, "")
+
 func _load_grid_config() -> void:
 	assert(_bridge != null and _bridge.has_method("get_grid_config"), "Bridge must be loaded before grid config")
 	var json: Variant = _bridge.get_grid_config()
@@ -89,7 +122,7 @@ func _load_grid_config() -> void:
 
 func _wire_editors() -> void:
 	screen_store = ScreenStore.new()
-	screen_store.load_world(WORLD_PATH)
+	screen_store.load_world(_world_json_path)
 	for ed in [terrain_editor, entity_editor, map_editor, placement_editor, simulator]:
 		if ed.has_method("set_bridge"):
 			ed.set_bridge(_bridge)

@@ -38,6 +38,7 @@ func _run() -> void:
     await _test_placement_editor_tile_bank_sync()
     await _test_placement_records_last_map_path()
     await _test_tile_palette()
+    _test_config_defaults_seed()
     print("=== done, failures=%d ===" % _failures)
     quit(0 if _failures == 0 else 1)
 
@@ -1048,3 +1049,39 @@ func _test_placement_records_last_map_path() -> void:
     fake_main.queue_free()
     await process_frame
     DirAccess.remove_absolute(tmp_zip)
+
+# Issue #55: config-backed editor defaults. Hermetic via FakeBridge — proves
+# seed-if-absent + config-wins without touching the real sstd_config.sqlite3.
+# Orphan instances (never added to the tree) so main._ready side effects (boot
+# world load, tab wiring) cannot run; the tested surface is seed + getters only.
+func _test_config_defaults_seed() -> void:
+    print("--- config defaults seed (issue #55) ---")
+    var main = (load("res://scripts/main.gd") as GDScript).new()
+    var fake_bridge := Node.new()
+    fake_bridge.set_script(load("res://tests/fake_bridge.gd"))
+    main._bridge = fake_bridge
+    main._seed_config_defaults()
+
+    check(fake_bridge.store.get("defaults.world_file_name", "") == "world.zip",
+            "seeded defaults.world_file_name = world.zip")
+    check(fake_bridge.store.get("defaults.world_json_path", "") == "res://world.json",
+            "seeded defaults.world_json_path = res://world.json")
+    check(fake_bridge.store.get("defaults.file_dialog_dir", "") == "",
+            "seeded defaults.file_dialog_dir (empty default)")
+
+    check(main.get_default_world_file() == "world.zip", "get_default_world_file returns seeded default")
+    check(main.get_world_json_path() == "res://world.json", "get_world_json_path returns seeded default")
+    check(main.get_file_dialog_dir() == "", "get_file_dialog_dir returns empty default")
+
+    # Config override wins; a second seed must NOT clobber it (seed-if-absent).
+    fake_bridge.set_config_value("defaults.world_file_name", "custom.zip")
+    fake_bridge.set_config_value("defaults.file_dialog_dir", "/tmp/user/1000/opencode")
+    main._seed_config_defaults()
+    check(main.get_default_world_file() == "custom.zip", "config override wins over default (seed-if-absent)")
+    check(main.get_file_dialog_dir() == "/tmp/user/1000/opencode", "configured dialog dir returned")
+
+    # No bridge at all: getters fall back to constants, never crash.
+    var bare = (load("res://scripts/main.gd") as GDScript).new()
+    check(bare.get_default_world_file() == "world.zip", "getter falls back to constant without bridge")
+    check(bare.get_world_json_path() == "res://world.json", "world_json_path falls back to constant without bridge")
+    check(bare.get_file_dialog_dir() == "", "dialog dir falls back to empty without bridge")

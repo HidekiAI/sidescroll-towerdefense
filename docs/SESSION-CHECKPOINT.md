@@ -7,10 +7,10 @@
 > only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
 > (permanent)".
 
-Last updated: 2026-08-17 (batch complete: native A3 + finalize committed and
-documented, trunk `164d25c`/`5b6f25e`, wiki `ccffbf6`; design decision recorded
-on the Simulator gRPC boundary, placeholder wiki TDD `6a8aac5`; save/load bug
-batch #47/#48/#50 in progress -> committed).
+Last updated: 2026-08-17 (save/load bug batch #47/#48/#50 complete: committed
+`dfa9ca8`, all three issues closed. #51 prune work fully shipped. Active work:
+#55 config-backed defaults — in flight, main.gd partial changes uncommitted).
+See "Active step" for the runnable resume point.
 
 ## Objective
 
@@ -97,44 +97,43 @@ godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
   `editor/scripts/simulator.gd` (stub).
 
 ### Active step
-Save/load bug batch (#47/#48/#50) — fixes implemented and verified; commit +
-issue comments in flight.
-- #47 root cause: placement editor renders grid textures from its OWN
-  `_tile_images`, seeded only when IT loads a world package. When the world was
-  loaded in the map editor, the placement bank stayed empty -> blank grid for
-  non-disk tiles. Fix: `get_tile_bank()`/`set_tile_bank()` on both editors;
-  `main.gd _on_tab_changed` syncs the bank both ways (tab 2 map <- placement,
-  tab 3 placement <- map). Regression `_test_placement_editor_tile_bank_sync`.
-- #48 root causes: placement editor never recorded `last_map_path` — its
-  `_on_save` and `_load_world_package` lacked the `_save_last_map_path` call
-  map_editor has, so a world saved/loaded from the Placement tab was never
-  auto-loaded on reopen -> blank boot. Also stale pre-0.3.0 `editor/world.zip`
-  + config `last_map_path` pointing at it. Fix: record last_map_path in both
-  placement paths. Regression `_test_placement_records_last_map_path`.
-- #50: already fixed by `445460d` (buttons relabeled 'Load World...'); closed.
-- Discovery: map_editor `_register_tile_image` materializes every world tile to
-  disk (`assets/tiles/<key>_32x32.png`) — the source of the 5982 untracked
-  stamp PNGs (gitignored). The placement editor must NOT rely on that.
-- Verified: `repro_blank_world.gd` failures=0; full suite failures=0.
-- Issue comments posted on #47 and #48; #50 close retry needed (GitHub 503s).
+**#55 config-backed defaults — implemented, verified, NOT yet committed.**
+- `main.gd`: `_seed_config_defaults()` (after `_init_config_db`), 3 keys
+  (`defaults.world_file_name`/`world_json_path`/`file_dialog_dir`), getters
+  `get_default_world_file()`/`get_world_json_path()`/`get_file_dialog_dir()`,
+  `_get_config_or()` with constant fallback; `_world_json_path` set from config
+  at `_ready`; boot `screen_store.load_world(_world_json_path)`.
+- `map_editor.gd` + `placement_editor.gd`: save dialog `current_file` from
+  `_main.get_default_world_file()`; save+load dialogs honor
+  `get_file_dialog_dir()` when set; `_save_world()` pointer writes go through
+  new `_world_json_path()` (config-backed, `WORLD_PATH` const stays as fallback).
+- Test: `tests/fake_bridge.gd` (Dictionary-backed get/set_config_value) +
+  `_test_config_defaults_seed` — seed-if-absent, config-wins, no-bridge fallback.
+  Full suite `failures=0`.
+- NOT yet: commit; post issue comment on #55.
+
+### Bug fixes logged this continuation
+- **#47** (placement editor blank after opening a world.zip) and **#48** (blank
+  world after quit+reopen) root causes + fixes are recorded permanently in the
+  issue comments (`gh issue view 47`, `gh issue view 48`), committed in
+  `dfa9ca8`, and both issues closed. #50 was already closed.
+- Save/load regression fixtures keep living in `editor/tests/`:
+  `_test_placement_editor_tile_bank_sync`, `_test_placement_records_last_map_path`,
+  `repro_blank_world.gd`.
 
 ### Next move (proposed order)
-1. Commit this batch (map_editor.gd, placement_editor.gd, main.gd,
-   test_screen_store.gd + fake_main.gd + repro_blank_world.gd, checkpoint).
-   Retry `gh issue close 50` (transient 503s during this session).
-2. Optional speedup / parity items are now tracked as feature requests:
-   - #52: align native `flip_of_variants` with GDScript int-truncation semantics
-     (boundary-diff parity; latent only, verified consistent on real data).
-   - #53: move the prune gate (phase C) and variant-building (phase B) into the
-     bridge for further speedup (current full plan is already 6.8s, under target).
-3. Simulator-gRPC design decision (above) is recorded; placeholder wiki TDD
-   authored (wiki `6a8aac5`). Pending follow-ups when picked up:
-   - Decide transport face (a) tonic client in `sstd-editor-bridge` vs
-     (b) JSON-over-unix-socket in `sstd-headless`; then create the simulator
-     crate + `sstd-headless` binary + protobuf contract.
-   - Fill in `TDD_Simulator-Service-Contract.md` TBD sections (protobuf RPCs,
-     determinism, lifecycle, tab client, EditorState coupling, batch testing).
-   - Update `sstd-core` docs for the Rust-owned sim world state.
+1. Commit #55 batch (main.gd, map_editor.gd, placement_editor.gd,
+   tests/fake_bridge.gd, tests/test_screen_store.gd, .opencode/AGENTS.md
+   Ticket-First Rule, checkpoint) referencing #55; post a comment on #55.
+2. #47/#48 closed this continuation; #50 already closed. Nothing pending there.
+3. Outstanding tracked work (no active branch):
+   - #52/#53: native bridge parity/speedup for `flip_of_variants`, prune gate,
+     variant building (latent; real data verified consistent).
+   - #54: packaged installer / relocate `res://` writes to `user://` first.
+   - Simulator-gRPC: decide transport face (a) tonic client in
+     `sstd-editor-bridge` vs (b) JSON-over-unix-socket face on `sstd-headless`,
+     then create simulator crate + headless binary + protobuf contract; fill
+     TDD_Simulator-Service-Contract.md TBDs (see design decision below).
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.

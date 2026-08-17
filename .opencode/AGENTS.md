@@ -27,6 +27,15 @@ proceeds** so a fresh session can resume cold:
 
 Whenever a **new wiki page** is added (GDD or TDD), **update the wiki Home page** (`sidescroll-towerdefense.wiki/Home.md`) in the same commit — add a row in the relevant section (Game Design / Technical Design) linking the new page. Do the same in `TODO.md` (tracked-work session table). A newly shipped wiki page with no Home.md/TODO.md entry is an oversight. (Rule recorded 2026-08-09, see #40.)
 
+## Ticket-First Rule (permanent)
+
+Do NOT wire up / implement anything (code changes, wiring, edits) until the
+corresponding GitHub issue is created AND documented/planned in the issue body
+(design, approach, scope). Feature requests and bugs alike: create the ticket,
+document the plan in it, then implement — and reference the issue number in the
+commit that implements it. (User directive 2026-08-17, enforced twice on the
+#55 config-defaults work.)
+
 ## gRPC Integration
 
 Three gRPC service contexts, each on a separate port (localhost-only by default, no auth):
