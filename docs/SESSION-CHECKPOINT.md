@@ -79,11 +79,14 @@ None — this batch fully committed and documented.
   plan 6792 ms, dup_keys=982).
 
 ### Next move (proposed order)
-1. (Optional) Decide whether native `flip_of_variants` (scan_exact_matches path)
-   needs the same int-truncation treatment for full GDScript parity on boundary
-   diffs — currently consistent on real data, latent only.
-2. (Optional) If further speedup wanted: port the gate (phase C) and/or
-   variant building (phase B) into the bridge; scan itself is 3.9s.
+1. Optional speedup / parity items are now tracked as feature requests:
+   - #52: align native `flip_of_variants` with GDScript int-truncation semantics
+     (boundary-diff parity; latent only, verified consistent on real data).
+   - #53: move the prune gate (phase C) and variant-building (phase B) into the
+     bridge for further speedup (current full plan is already 6.8s, under target).
+2. Resume from either issue when the user picks one up; re-measure with
+   `editor/tests/profile_real.gd` and confirm match streams / dup_keys=982 stay
+   identical.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
