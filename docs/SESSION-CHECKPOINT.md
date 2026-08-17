@@ -9,7 +9,7 @@
 
 Last updated: 2026-08-17 (batch complete: native A3 + finalize committed and
 documented, trunk `164d25c`/`5b6f25e`, wiki `ccffbf6`; design decision recorded
-on the Simulator gRPC boundary).
+on the Simulator gRPC boundary, placeholder wiki TDD `6a8aac5`).
 
 ## Objective
 
@@ -115,14 +115,13 @@ None — this batch fully committed and documented.
 2. Resume from either issue when the user picks one up; re-measure with
    `editor/tests/profile_real.gd` and confirm match streams / dup_keys=982 stay
    identical.
-3. Simulator-gRPC design decision (above) is recorded but unimplemented.
-   Pending follow-ups when picked up:
-   - Author the wiki TDD for the simulator service contract
-     (`TechnicalDesign/TDD_Simulator-Service-Contract.md`), with Home.md +
-     TODO.md entries per the Wiki Maintenance Rule.
+3. Simulator-gRPC design decision (above) is recorded; placeholder wiki TDD
+   authored (wiki `6a8aac5`). Pending follow-ups when picked up:
    - Decide transport face (a) tonic client in `sstd-editor-bridge` vs
      (b) JSON-over-unix-socket in `sstd-headless`; then create the simulator
      crate + `sstd-headless` binary + protobuf contract.
+   - Fill in `TDD_Simulator-Service-Contract.md` TBD sections (protobuf RPCs,
+     determinism, lifecycle, tab client, EditorState coupling, batch testing).
    - Update `sstd-core` docs for the Rust-owned sim world state.
 
 ## Key numbers / constants
