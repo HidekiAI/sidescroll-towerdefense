@@ -505,19 +505,24 @@ fn diff_full(a: &[u8], b: &[u8]) -> f64 {
 /// Port of the GDScript `_flip_of_variants`: try all 4 flip variants of `base`
 /// against the candidate's canonical bytes and return the best flip on match.
 /// `variants_base` must hold the 4 variants contiguously (4096 bytes each).
+///
+/// IMPORTANT: mirrors `_flip_of_bytes` — the GDScript `_flip_of_variants`
+/// declares `var best_diff := 0x7fffffff` (int), so `best_diff = d` TRUNCATES
+/// the float diff. A variant whose diff is in `[tol, tol+1)` therefore still
+/// matches (int best_diff 4 <= tol 4.0). Ported verbatim (i32 best_diff).
 fn flip_of_variants(variants_base: &[u8], cand: &[u8], tolerance: f64) -> Option<(bool, bool)> {
     let flip_list: [[bool; 2]; 4] = [[false, false], [true, false], [false, true], [true, true]];
-    let mut best_diff: f64 = f64::MAX;
+    let mut best_diff: i32 = 0x7fffffff;
     let mut best: (bool, bool) = (false, false);
     for v in 0..VARIANTS_PER_TILE {
         let variant = &variants_base[v * TILE_BYTES..(v + 1) * TILE_BYTES];
         let d = diff_capped(cand, variant, tolerance);
-        if d < best_diff {
-            best_diff = d;
+        if d < best_diff as f64 {
+            best_diff = d as i32;
             best = (flip_list[v][0], flip_list[v][1]);
         }
     }
-    if best_diff <= tolerance {
+    if best_diff as f64 <= tolerance {
         Some(best)
     } else {
         None
@@ -750,6 +755,80 @@ mod tests {
         variants.extend_from_slice(&tile);
         assert_eq!(
             flip_of_variants(&variants, &tile, 4.0),
+            Some((false, false))
+        );
+    }
+
+    #[test]
+    fn flip_of_variants_truncates_best_diff_like_gdscript() {
+        // Regression for issue #52: GDScript `_flip_of_variants` declares
+        // `var best_diff := 0x7fffffff` (int), so `best_diff = d` TRUNCATES the
+        // float diff. That [tol, tol+1) acceptance window is, however,
+        // UNREACHABLE: `flip_of_variants` scores through `_diff_capped`, which
+        // early-exits to `limit + 1.0`, so the returned diff is always <= tol
+        // or exactly tol+1.0. Int and f64 accumulation are observationally
+        // identical; the i32 port mirrors the GDScript verbatim (defense in
+        // depth). This test pins the parity invariant for an uncapped diff in
+        // (tol, tol+1): such a candidate must still REJECT, as in GDScript.
+        let mut base = [0u8; TILE_BYTES];
+        for i in 0..TILE_BYTES {
+            base[i] = (i % 251) as u8;
+        }
+        let mut cand = [0u8; TILE_BYTES];
+        for i in 0..TILE_BYTES {
+            // +4 on every byte (mean 4.0), plus +1 on every 64th byte pushes
+            // the full-mean diff just above 4.0 while staying below 5.0.
+            cand[i] = (base[i] as i32 + 4 + if i % 64 == 0 { 1 } else { 0 }) as u8;
+        }
+        let full = diff_full(&base, &cand);
+        assert!(
+            full > 4.0 && full < 5.0,
+            "boundary diff expected, got {}",
+            full
+        );
+
+        // Build the 4 contiguous flip variants of `base` (identity, h, v, hv).
+        let flips: [[bool; 2]; 4] = [[false, false], [true, false], [false, true], [true, true]];
+        let mut variants = Vec::with_capacity(TILE_BYTES * 4);
+        for flip in flips {
+            let (flip_h, flip_v) = (flip[0], flip[1]);
+            let mut variant = vec![0u8; TILE_BYTES];
+            for y in 0..STAMP_CELL {
+                for x in 0..STAMP_CELL {
+                    let sx = if flip_h { STAMP_CELL - 1 - x } else { x };
+                    let sy = if flip_v { STAMP_CELL - 1 - y } else { y };
+                    let si = (sy * STAMP_CELL + sx) * 4;
+                    let di = (y * STAMP_CELL + x) * 4;
+                    variant[di..di + 4].copy_from_slice(&base[si..si + 4]);
+                }
+            }
+            variants.extend_from_slice(&variant);
+        }
+
+        // Any flip is a permutation of the bytes, so every variant has the same
+        // uncapped diff of 4.0156 -> `_diff_capped` pops to tol+1 = 5.0,
+        // truncated 5 > 4 -> no match (GDScript-identical).
+        assert_eq!(flip_of_variants(&variants, &cand, 4.0), None);
+    }
+
+    #[test]
+    fn flip_of_variants_still_matches_below_tolerance() {
+        // Guard that the i32 port did not tighten matching: a candidate whose
+        // best diff is <= tol must still match identity (first in flip order).
+        let mut base = [0u8; TILE_BYTES];
+        for i in 0..TILE_BYTES {
+            base[i] = (i % 251) as u8;
+        }
+        let mut tight = base.clone();
+        tight[0] = (tight[0] as i32 + 1) as u8;
+        assert!(diff_capped(&base, &tight, 4.0) <= 4.0);
+        let mut variants = Vec::with_capacity(TILE_BYTES * 4);
+        variants.extend_from_slice(&base);
+        variants.extend_from_slice(&base);
+        variants.extend_from_slice(&base);
+        variants.extend_from_slice(&base);
+        assert_eq!(
+            flip_of_variants(&variants, &tight, 4.0),
             Some((false, false))
         );
     }

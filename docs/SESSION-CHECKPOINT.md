@@ -97,20 +97,27 @@ godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
   `editor/scripts/simulator.gd` (stub).
 
 ### Active step
-**#55 config-backed defaults — implemented, verified, NOT yet committed.**
-- `main.gd`: `_seed_config_defaults()` (after `_init_config_db`), 3 keys
-  (`defaults.world_file_name`/`world_json_path`/`file_dialog_dir`), getters
-  `get_default_world_file()`/`get_world_json_path()`/`get_file_dialog_dir()`,
-  `_get_config_or()` with constant fallback; `_world_json_path` set from config
-  at `_ready`; boot `screen_store.load_world(_world_json_path)`.
-- `map_editor.gd` + `placement_editor.gd`: save dialog `current_file` from
-  `_main.get_default_world_file()`; save+load dialogs honor
-  `get_file_dialog_dir()` when set; `_save_world()` pointer writes go through
-  new `_world_json_path()` (config-backed, `WORLD_PATH` const stays as fallback).
-- Test: `tests/fake_bridge.gd` (Dictionary-backed get/set_config_value) +
-  `_test_config_defaults_seed` — seed-if-absent, config-wins, no-bridge fallback.
-  Full suite `failures=0`.
-- NOT yet: commit; post issue comment on #55.
+**#55 config-backed defaults — DONE, committed `9f33983`, comment on #55.** See
+"Bug fixes logged" for the closed #47/#48/#50 batch.
+
+**#52 native `flip_of_variants` truncation parity — implemented, verified,
+NOT yet committed.**
+- Ported `best_diff: i32` + `d as i32` into `flip_of_variants`
+  (`crates/sstd-editor-bridge/src/lib.rs`), mirroring GDScript `_flip_of_variants`.
+- **Discovery (documented in wiki TDD v7 + issue #52)**: the [tol, tol+1)
+  acceptance window is UNREACHABLE for `flip_of_variants` because it scores via
+  `_diff_capped`, which early-exits to `tol+1.0` whenever any running mean
+  exceeds tol — returned diff is always `<= tol` or exactly `tol+1.0`. Int vs
+  f64 accumulation are observationally identical. Verdict: the port is
+  defense-in-depth (GDScript verbatim parity), not a behavior change.
+- New cargo tests: `flip_of_variants_truncates_best_diff_like_gdscript` (capped
+  path must REJECT an uncapped diff in (4.0, 5.0), as GDScript does) +
+  `flip_of_variants_still_matches_below_tolerance`. Bridge suite 16/16,
+  workspace cargo 103/103, GDScript suite `failures=0` (native vs serial
+  identical), real-catalog profile: full plan 6365 ms, `dup_keys=982` unchanged.
+- Release .so rebuilt and copied to `editor/rust/`.
+- NOT yet: commit (bridge lib.rs + checkpoint); post issue comment on #52; the
+  wiki TDD v7 entry is written but not committed (wiki repo).
 
 ### Bug fixes logged this continuation
 - **#47** (placement editor blank after opening a world.zip) and **#48** (blank
@@ -122,14 +129,13 @@ godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
   `repro_blank_world.gd`.
 
 ### Next move (proposed order)
-1. Commit #55 batch (main.gd, map_editor.gd, placement_editor.gd,
-   tests/fake_bridge.gd, tests/test_screen_store.gd, .opencode/AGENTS.md
-   Ticket-First Rule, checkpoint) referencing #55; post a comment on #55.
-2. #47/#48 closed this continuation; #50 already closed. Nothing pending there.
-3. Outstanding tracked work (no active branch):
-   - #52/#53: native bridge parity/speedup for `flip_of_variants`, prune gate,
-     variant building (latent; real data verified consistent).
-   - #54: packaged installer / relocate `res://` writes to `user://` first.
+1. Commit #52 batch (bridge lib.rs, SESSION-CHECKPOINT under the code repo;
+   `TDD_Tile-Deduplication.md` under the wiki repo) referencing #52; post a
+   comment on #52.
+2. Outstanding tracked work (no active branch):
+   - #53: move prune gate (phase C) + variant building (phase B) into the bridge
+     for further speedup (optional; full plan already 6.4s, under target).
+   - #54: packaged installer — relocate `res://` writes to `user://` first.
    - Simulator-gRPC: decide transport face (a) tonic client in
      `sstd-editor-bridge` vs (b) JSON-over-unix-socket face on `sstd-headless`,
      then create simulator crate + headless binary + protobuf contract; fill
