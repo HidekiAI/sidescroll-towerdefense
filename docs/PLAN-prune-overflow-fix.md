@@ -374,7 +374,46 @@ was reverted; the scan stays serial. The honest paths to real 32-core
 parallelism are (a) move the exact-diff loop into the existing
 `crates/sstd-editor-bridge` godot-rust extension and parallelize with native
 `std::thread`/rayon, or (b) keep the scalar gate so the serial rate stays the
-only cost. Neither is implemented; (a) is the tracked future optimization.
+only cost.
+
+### Rust bridge parallel exact-diff (implemented 2026-08-16)
+
+Path (a) is now implemented. A new `#[func] scan_exact_matches` on
+`SstdBridge` (`crates/sstd-editor-bridge/src/lib.rs`) ports the exact-diff hot
+loop to native Rust and runs it on `std::thread::scope` scoped threads (no new
+crate dependency; rayon already exists in the lockfile as a transitive dep but
+scoped threads need nothing extra). It receives three flat buffers from
+GDScript and returns a flat match stream:
+
+- `variants_flat`: `N * 4 * 4096` bytes (identity, h-flip, v-flip, hv-flip).
+- `bytes_flat`: `N * 4096` canonical RGBA bytes.
+- `pair_stream`: flat `[base, candidate]` index stream.
+- Returns flat `[base, candidate, flip_h, flip_v]` matches.
+
+The GDScript loop it replaces (`_diff_capped` running-mean early-exit,
+`_flip_of_variants` best-of-4-flips, tolerance 4.0) is ported byte-for-byte as
+`diff_capped`/`flip_of_variants`; each worker owns a disjoint slice of the pair
+stream and shares the byte buffers read-only. `_exact_matches_parallel` in
+`map_editor.gd` now calls the bridge when `_bridge.has_method(...)` and
+`exact_pairs.size() >= BRIDGE_MIN_PAIRS` (512), marshalling the arrays into
+flat buffers (`_exact_matches_bridge`), and falls back to the serial GDScript
+loop otherwise (so headless test runs without a bridge stay correct).
+
+Benchmark (19900 identical-ish pairs, 32 processors, Godot 4.4.1 headless):
+
+- Serial GDScript: 89301 ms.
+- Rust bridge: 683 ms -> **~131x speedup**; byte-identical match stream.
+
+Projected on the real catalog (~403k gate-surviving pairs) this moves the exact
+comparison from ~8.9 min to a couple of seconds; the projection/gate phase
+stays GDScript and remains the dominant remaining cost.
+
+Tests: 5 new cargo unit tests in the bridge crate (`diff_capped` port, flip
+parity, parallel scan finds a flipped pair) plus `_test_bridge_exact_scan` in
+the headless GDScript suite, which instantiates the real `SstdBridge` when the
+extension is loaded, runs the same 48-tile synthetic input through both
+`_exact_matches_slice` and `_exact_matches_bridge`, and asserts identical match
+streams. Full suite: `failures=0`, cargo 92 tests pass.
 
 Reconciliation with the pinned A3 text below: the pinned sketch described the
 2-bit `_similarity_sig` space (`delta +/- 64`). The shipped index
@@ -391,10 +430,12 @@ tiles -> 1128 gate-surviving pairs merge onto the lowest id; validates the
 serial path stays correct). Full suite: `failures=0`, cargo 87 tests pass.
 `main.tscn` smoke-loads with the new button attached.
 
-Known limitation (unchanged): the fast real-catalog scan remains ~8.9 min for
-~2718 tiles (see Optimization history above); the cost warning dialog tells
-the user the estimated wall time before the scan runs. The deep tier is
-budget-gated and opt-in, and destructive confirmation is unchanged.
+Known limitation (updated 2026-08-16): the exact-comparison phase is now native
+and ~131x faster in the Rust bridge (see above); the remaining fast-tier cost is
+the GDScript projection/signature-gate phase, still ~8.9 min serial for ~2718
+tiles. The cost warning dialog tells the user the estimated wall time before
+the scan runs. The deep tier is budget-gated and opt-in, and destructive
+confirmation is unchanged.
 
 ## Open questions to confirm before implementing
 

@@ -34,6 +34,8 @@ var _hud_start_pos: Vector2 = Vector2.ZERO
 
 const STAMP_CELL := 32
 const STAMP_TOLERANCE := 4.0
+const BRIDGE_MIN_PAIRS := 512
+const BRIDGE_MAX_WORKERS := 32
 const _BUSY_YIELD_EVERY := 128  # yield + repaint once per N heavy-loop iterations
 const A3_K := 8
 const A3_LRU_CAP := 64
@@ -1040,19 +1042,44 @@ func _projection_lower_bound(ordered: Array, target: int) -> int:
             hi = mid
     return lo
 
-# Exact diff over the gate-surviving pairs, parallelized across
-# min(OS.get_processor_count(), MAX_PARALLEL_WORKERS) threads. Each thread owns
-# a disjoint slice and writes matches into its own slot, so there is no shared
-# mutable state; the scan falls back to serial for tiny pair sets where thread
-# spawn overhead would dominate. `variants`/`bytes` are read-only shared arrays
-# (ref-counted atomically, safe for concurrent reads in Godot 4).
+# Exact diff over the gate-surviving pairs. When the godot-rust bridge exposes
+# scan_exact_matches (native parallel worker threads), the heavy packed-array
+# loop runs there — GDScript Thread workers were measured at 0.72x (shared
+# PackedByteArray refcount contention) and only 1.77x even with private
+# per-thread copies, vs 5.9x for pure integer math. Native code avoids that
+# serialization. Falls back to the serial GDScript loop below BRIDGE_MIN_PAIRS
+# or when the bridge method is absent (e.g. headless test runs).
 func _exact_matches_parallel(exact_pairs: Array, variants: Array, bytes: Array) -> Array:
-    # NOTE (2026-08-16): parallel workers were measured at 0.72x (shared
-    # PackedByteArray refcount contention) and only 1.77x even with private
-    # per-thread copies on 8 threads, vs 5.9x for pure integer math. GDScript
-    # serializes packed-array element access, so spawning Threads here is
-    # slower than the plain serial loop. Keep it serial.
+    if _bridge != null and _bridge.has_method("scan_exact_matches") and exact_pairs.size() >= BRIDGE_MIN_PAIRS:
+        return _exact_matches_bridge(exact_pairs, variants, bytes)
     return _exact_matches_slice(exact_pairs, variants, bytes, 0, exact_pairs.size())
+
+func _exact_matches_bridge(exact_pairs: Array, variants: Array, bytes: Array) -> Array:
+    var variants_flat := PackedByteArray()
+    var bytes_flat := PackedByteArray()
+    for i in bytes.size():
+        bytes_flat.append_array(bytes[i])
+        for v in variants[i].size():
+            variants_flat.append_array(variants[i][v])
+    var pair_stream := PackedInt32Array()
+    pair_stream.resize(exact_pairs.size() * 2)
+    for i in exact_pairs.size():
+        pair_stream[i * 2] = int(exact_pairs[i][0])
+        pair_stream[i * 2 + 1] = int(exact_pairs[i][1])
+    var workers := mini(OS.get_processor_count(), BRIDGE_MAX_WORKERS)
+    var matches_flat: PackedInt32Array = _bridge.scan_exact_matches(
+        variants_flat, bytes_flat, pair_stream, STAMP_TOLERANCE, workers)
+    var matches: Array = []
+    var idx := 0
+    while idx + 3 < matches_flat.size():
+        matches.append({
+            "base": matches_flat[idx],
+            "candidate": matches_flat[idx + 1],
+            "flip_h": matches_flat[idx + 2] == 1,
+            "flip_v": matches_flat[idx + 3] == 1,
+        })
+        idx += 4
+    return matches
 
 func _exact_matches_slice(exact_pairs: Array, variants: Array, bytes: Array, start: int, end: int) -> Array:
     var matches: Array = []

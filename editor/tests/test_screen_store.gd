@@ -29,6 +29,7 @@ func _run() -> void:
     await _test_a3_neighbor_scan()
     await _test_deep_prune()
     await _test_parallel_exact_scan()
+    await _test_bridge_exact_scan()
     _test_diff_capped()
     _test_world_archive_roundtrip()
     await _test_world_reopen_not_blank()
@@ -556,6 +557,47 @@ func _test_parallel_exact_scan() -> void:
     check(plan["dup_keys"].size() == 47, "parallel scan merges all 47 duplicates")
     check(plan["merge_map"].values().all(func(m): return m["key"] == "stamp_60000"), "parallel scan merges onto lowest id")
     check(plan["dup_keys"].all(func(k): return k != "stamp_60000"), "rep itself is never a dup")
+    ed.queue_free()
+    await process_frame
+
+# Native godot-rust bridge path: builds the flat byte buffers, invokes
+# SstdBridge.scan_exact_matches across worker threads, and verifies the match
+# stream is identical to the serial GDScript _exact_matches_slice on the same
+# synthetic input. Skips (does not fail) if the bridge extension is not loaded.
+func _test_bridge_exact_scan() -> void:
+    print("--- bridge exact scan (native parallel) ---")
+    if not ClassDB.class_exists("SstdBridge"):
+        print("skip: SstdBridge extension not loaded")
+        return
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    var bridge = ClassDB.instantiate("SstdBridge")
+    root.add_child(bridge)
+    ed.set_bridge(bridge)
+    var bytes: Array = []
+    var variants: Array = []
+    var pairs: Array = []
+    for i in 48:
+        var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+        img.fill(Color(0.05, 0.05, 0.05, 1.0))
+        var b: PackedByteArray = ed._cell_bytes(img, false, false)
+        bytes.append(b)
+        variants.append(ed._flip_variants(b))
+        for j in range(i):
+            pairs.append([j, i])
+    var serial: Array = ed._exact_matches_slice(pairs, variants, bytes, 0, pairs.size())
+    var bridged: Array = ed._exact_matches_bridge(pairs, variants, bytes)
+    check(bridged.size() == serial.size(), "bridge and serial agree on match count (%d vs %d)" % [bridged.size(), serial.size()])
+    check(bridged.size() == pairs.size(), "all identical pairs match through bridge")
+    var ok := true
+    for i in bridged.size():
+        if serial[i]["base"] != bridged[i]["base"] or serial[i]["candidate"] != bridged[i]["candidate"]:
+            ok = false
+            break
+    check(ok, "bridge match stream identical to serial")
+    bridge.queue_free()
     ed.queue_free()
     await process_frame
 
