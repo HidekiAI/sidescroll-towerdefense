@@ -117,6 +117,15 @@ godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
   identical), real-catalog profile: full plan 6365 ms, `dup_keys=982` unchanged.
 - Release .so rebuilt and copied to `editor/rust/`.
 
+**#53 native scan front-end — DONE, verified; NOT yet committed.**
+- Ported + verified as recorded in issue #53 (v8 plan): `scan_signatures` +
+  `scan_projections` native (f64 = GDScript doubles), `_prune_bytes` shared
+  cache, `_exact_matches_bridge_stream`, a3/finalize reuse. Real catalog:
+  6507 -> **4551 ms** full plan, `dup_keys=982` unchanged. Suites green
+  (GDScript failures=0, cargo 105/105). Issue comment posted; pending commit.
+- Remaining option (not needed): a3_discover ~1.6 s now dominant — native bulk
+  `canonical_coarse` could shave to ~0.8 s.
+
 **Tracked but not started:** #56 Playwright E2E harness for the gRPC stack —
 created (blocked on #40's documented contract); browserless-by-construction
 design recorded in the issue body.
@@ -131,9 +140,10 @@ design recorded in the issue body.
   `repro_blank_world.gd`.
 
 ### Next move (proposed order)
-1. Outstanding tracked work (no active branch):
-   - #53: move prune gate (phase C) + variant building (phase B) into the bridge
-     for further speedup (optional; full plan already 6.4s, under target).
+1. Commit #53 batch (bridge lib.rs, map_editor.gd, test_screen_store.gd,
+   profile_scan_breakdown.gd, checkpoint; wiki TDD v8 under the wiki repo)
+   referencing #53.
+2. Outstanding tracked work (no active branch):
    - #54: packaged installer — relocate `res://` writes to `user://` first.
    - Simulator-gRPC: decide transport face (a) tonic client in
      `sstd-editor-bridge` vs (b) JSON-over-unix-socket face on `sstd-headless`,
@@ -141,6 +151,8 @@ design recorded in the issue body.
      TDD_Simulator-Service-Contract.md TBDs (see design decision below).
    - #56 Playwright E2E: harness scaffolding can land anytime; full coverage
      blocked on #40 (documented service contract) + simulator contract.
+   - Optional: #53 follow-up — native bulk `canonical_coarse` to cut a3_discover
+     from ~1.6 s toward ~0.8 s (not needed for acceptance; only if wanted).
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.

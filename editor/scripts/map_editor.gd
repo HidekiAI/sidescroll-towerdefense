@@ -52,6 +52,7 @@ var _stamp_origin: Vector2i = Vector2i(-1, -1)
 var _stamp_seq: int = 0
 var _stamp_catalog: Array[Dictionary] = []
 var _stamp_fp_index: Dictionary = {}  # FNV(int) -> Array[int] of catalog indices with that canonical-coarse fingerprint
+var _prune_bytes: Array = []  # canonical RGBA bytes per catalog index, cached by the prune scan for reuse in a3/finalize (#53)
 var _stamp_basename: String = ""
 var _stamp_maps: Array[Dictionary] = []
 var _tile_images: Dictionary = {}  # tile key -> Image (resident in memory; reused across the world)
@@ -1010,36 +1011,54 @@ func _grayscale_sig_sort_key(entry: Dictionary) -> Array:
     return [_grayscale_luminance_projection(_as_rgba8(entry["cell"])), str(entry["key"])]
 
 func _grayscale_projection_candidates(max_delta: int) -> Dictionary:
+    var n := _stamp_catalog.size()
+    var use_scan := _bridge != null \
+            and _bridge.has_method("scan_signatures") \
+            and _bridge.has_method("scan_projections")
     var ordered: Array = []
-    var bytes: Array = []
     var signatures: Array = []
-    bytes.resize(_stamp_catalog.size())
-    signatures.resize(_stamp_catalog.size())
-    for i in _stamp_catalog.size():
+    if not use_scan:
+        signatures.resize(n)
+    # Canonical bytes are required regardless (exact scan + variant building); a
+    # single materialization pass populates both `bytes` and the flat buffer.
+    var bytes: Array = []
+    bytes.resize(n)
+    var bytes_flat := PackedByteArray()
+    for i in n:
         var img: Image = _as_rgba8(_stamp_catalog[i]["cell"])
-        bytes[i] = _cell_bytes(img, false, false)
-        signatures[i] = _grayscale_sig(img)
-        ordered.append({
-            "index": i,
-            "projection": _grayscale_luminance_projection(img),
-        })
+        var b := _cell_bytes(img, false, false)
+        bytes[i] = b
+        bytes_flat.append_array(b)
+        if not use_scan:
+            signatures[i] = _grayscale_sig(img)
+            ordered.append({"index": i, "projection": _grayscale_luminance_projection(img)})
+
+    var sigs_flat := PackedByteArray()
+    if use_scan:
+        # Native grayscale signature + projection in one pass over the flat RGBA.
+        sigs_flat = _bridge.scan_signatures(bytes_flat)
+        var projections_flat: PackedInt32Array = _bridge.scan_projections(bytes_flat)
+        for i in n:
+            ordered.append({"index": i, "projection": projections_flat[i]})
+    else:
+        for i in n:
+            sigs_flat.append_array(signatures[i])
     ordered.sort_custom(func(a, b):
         if a["projection"] == b["projection"]:
             return str(_stamp_catalog[a["index"]]["key"]) < str(_stamp_catalog[b["index"]]["key"])
         return a["projection"] < b["projection"]
     )
+    _prune_bytes = bytes
 
-    var use_bridge := _bridge != null and _bridge.has_method("scan_gate_pairs")
+    var use_gate := _bridge != null and _bridge.has_method("scan_gate_pairs")
     var candidate_count := 0
     var gate_survivors := 0
     var exact_pairs: Array = []
-    if use_bridge:
+    var pair_stream := PackedInt32Array()
+    if use_gate:
         # Native projection-window scan + grayscale gate (parallel): pass the
         # flat signatures plus the sorted projection/index lists; the bridge
         # returns the [base, candidate] survivor stream directly.
-        var sigs_flat := PackedByteArray()
-        for i in signatures.size():
-            sigs_flat.append_array(signatures[i])
         var ordered_projections := PackedInt32Array()
         var ordered_indices := PackedInt32Array()
         ordered_projections.resize(ordered.size())
@@ -1048,7 +1067,7 @@ func _grayscale_projection_candidates(max_delta: int) -> Dictionary:
             ordered_projections[position] = int(ordered[position]["projection"])
             ordered_indices[position] = int(ordered[position]["index"])
         var workers := mini(OS.get_processor_count(), BRIDGE_MAX_WORKERS)
-        var pair_stream: PackedInt32Array = _bridge.scan_gate_pairs(
+        pair_stream = _bridge.scan_gate_pairs(
             sigs_flat, ordered_projections, ordered_indices, max_delta, workers)
         var idx := 0
         while idx + 1 < pair_stream.size():
@@ -1070,20 +1089,16 @@ func _grayscale_projection_candidates(max_delta: int) -> Dictionary:
                 exact_pairs.append([previous["index"], current["index"]])
 
     var exact_matches: Array
-    if use_bridge and _bridge.has_method("build_variants"):
-        # Native variant building (N * 4 * 4096) replaces the GDScript
-        # `_flip_variants` loop; the flat buffer goes straight to the exact
-        # scan without a per-tile flatten pass.
-        var bytes_flat := PackedByteArray()
-        for i in bytes.size():
-            bytes_flat.append_array(bytes[i])
+    if use_gate and _bridge.has_method("build_variants") and _bridge.has_method("scan_exact_matches"):
+        # Native variant building + parallel exact scan; feed the pair_stream
+        # straight through (no intermediate Array churn).
         var workers := mini(OS.get_processor_count(), BRIDGE_MAX_WORKERS)
         var variants_flat: PackedByteArray = _bridge.build_variants(bytes_flat, workers)
-        exact_matches = _exact_matches_bridge_flat(exact_pairs, variants_flat, bytes_flat)
+        exact_matches = _exact_matches_bridge_stream(pair_stream, variants_flat, bytes_flat)
     else:
         var variants: Array = []
-        variants.resize(_stamp_catalog.size())
-        for i in _stamp_catalog.size():
+        variants.resize(n)
+        for i in n:
             variants[i] = _flip_variants(bytes[i])
         exact_matches = _exact_matches_parallel(exact_pairs, variants, bytes)
     return {
@@ -1141,6 +1156,12 @@ func _exact_matches_bridge_flat(exact_pairs: Array, variants_flat: PackedByteArr
     for i in exact_pairs.size():
         pair_stream[i * 2] = int(exact_pairs[i][0])
         pair_stream[i * 2 + 1] = int(exact_pairs[i][1])
+    return _exact_matches_bridge_stream(pair_stream, variants_flat, bytes_flat)
+
+# Stream variant of the bridge exact-diff path: take the survivor pair stream
+# (as returned by `scan_gate_pairs`) straight to `scan_exact_matches`, skipping
+# the GDScript pair_stream -> Array -> re-flatten round trip (#53).
+func _exact_matches_bridge_stream(pair_stream: PackedInt32Array, variants_flat: PackedByteArray, bytes_flat: PackedByteArray) -> Array:
     var workers := mini(OS.get_processor_count(), BRIDGE_MAX_WORKERS)
     var matches_flat: PackedInt32Array = _bridge.scan_exact_matches(
         variants_flat, bytes_flat, pair_stream, STAMP_TOLERANCE, workers)
@@ -1371,10 +1392,16 @@ func _a3_discover(uf_parent: Array) -> Array:
     var lru_order: Array = []
     var matches: Array = []
     var use_native := _bridge != null and _bridge.has_method("a3_neighbor_hashes")
+    var use_native_flip := _bridge != null and _bridge.has_method("flip_of_bytes")
+    var bytes_ready: bool = _prune_bytes.size() == _stamp_catalog.size()
     for m in _stamp_catalog.size():
         if _find_root(uf_parent, m) != m:
             continue
-        var canon := _canonical_coarse(_as_rgba8(_stamp_catalog[m]["cell"]))
+        var canon: PackedByteArray
+        if bytes_ready:
+            canon = _canonical_coarse_bytes(_prune_bytes[m])
+        else:
+            canon = _canonical_coarse(_as_rgba8(_stamp_catalog[m]["cell"]))
         var ch := _fp_hash(canon)
         var neighbor_hashes: Array
         if lru.has(ch):
@@ -1401,7 +1428,12 @@ func _a3_discover(uf_parent: Array) -> Array:
                 if examined >= A3_K:
                     break
                 examined += 1
-                if not _flip_of(_as_rgba8(_stamp_catalog[other]["cell"]), _as_rgba8(_stamp_catalog[m]["cell"])).is_empty():
+                if bytes_ready and use_native_flip:
+                    # Native exact verify over cached canonical bytes (#53).
+                    if int(_bridge.flip_of_bytes(_prune_bytes[other], _prune_bytes[m], STAMP_TOLERANCE)) != 0:
+                        matches.append({"base": other, "candidate": m})
+                        break
+                elif not _flip_of(_as_rgba8(_stamp_catalog[other]["cell"]), _as_rgba8(_stamp_catalog[m]["cell"])).is_empty():
                     matches.append({"base": other, "candidate": m})
                     break
             if examined >= A3_K:
@@ -1435,6 +1467,11 @@ func _finalize_prune_plan(uf_parent: Array) -> Dictionary:
             root_to_members[root].append(i)
     var use_native := _bridge != null and _bridge.has_method("flip_of_bytes")
     var bytes_cache: Dictionary = {}
+    if _prune_bytes.size() == _stamp_catalog.size():
+        # Reuse the scan's materialized canonical bytes (#53) instead of
+        # re-running `_cell_bytes` per unique key.
+        for i in _prune_bytes.size():
+            bytes_cache[i] = _prune_bytes[i]
     var merge_map: Dictionary = {}  # dup key -> {"key", "flip_h", "flip_v"}
     var dup_keys: Array = []
     for root in root_to_members:
@@ -1875,10 +1912,15 @@ func _find_match(cell: Image) -> Dictionary:
 
 func _coarse_bytes(img: Image) -> PackedByteArray:
     _as_rgba8(img)
+    var data := img.get_data()
+    return _coarse_bytes_rgba(data)
+
+# Coarse signature from canonical RGBA bytes directly (skips a redundant
+# `_as_rgba8` + `get_data` round trip when bytes are already materialized, #53).
+func _coarse_bytes_rgba(data: PackedByteArray) -> PackedByteArray:
     const CB := 8
     var res := PackedByteArray()
     res.resize(CB * CB * 4)
-    var data := img.get_data()
     for by in CB:
         for bx in CB:
             var r := 0
@@ -1915,6 +1957,13 @@ func _flip_coarse(c: PackedByteArray, flip_h: bool, flip_v: bool) -> PackedByteA
 
 func _canonical_coarse(img: Image) -> PackedByteArray:
     var c := _coarse_bytes(img)
+    return _canonical_of_coarse(c)
+
+# Flip-canonicalization of a coarse signature (bytes already in hand, #53).
+func _canonical_coarse_bytes(data: PackedByteArray) -> PackedByteArray:
+    return _canonical_of_coarse(_coarse_bytes_rgba(data))
+
+func _canonical_of_coarse(c: PackedByteArray) -> PackedByteArray:
     var best: PackedByteArray = c
     for flip_h in [false, true]:
         for flip_v in [false, true]:

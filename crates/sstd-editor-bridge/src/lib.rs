@@ -308,6 +308,45 @@ impl SstdBridge {
         }
         flip_of_bytes_impl(&base_vec, &cand_vec, tolerance) as i32
     }
+
+    /// Native front-end for the prune scan (#53): given the concatenated
+    /// 4096-byte RGBA buffers (N * TILE_BYTES, row-major 32x32), compute each
+    /// tile's 32-byte grayscale signature in one pass. Replaces the GDScript
+    /// `_grayscale_sig` hot loop (half of the ~2.2s prep on the real catalog).
+    #[func]
+    fn scan_signatures(&self, bytes_flat: PackedByteArray) -> PackedByteArray {
+        let bytes = bytes_flat.to_vec();
+        if bytes.is_empty() || bytes.len() % TILE_BYTES != 0 {
+            return PackedByteArray::new();
+        }
+        let n = bytes.len() / TILE_BYTES;
+        let mut sigs_flat = Vec::with_capacity(SIG_BYTES * n);
+        for i in 0..n {
+            sigs_flat.extend_from_slice(&grayscale_signature_impl(
+                &bytes[i * TILE_BYTES..(i + 1) * TILE_BYTES],
+            ));
+        }
+        PackedByteArray::from(sigs_flat)
+    }
+
+    /// Native front-end for the prune scan (#53): each tile's luminance
+    /// projection (`_grayscale_luminance_projection`) over the same flat RGBA
+    /// buffer, index-aligned with `scan_signatures`.
+    #[func]
+    fn scan_projections(&self, bytes_flat: PackedByteArray) -> PackedInt32Array {
+        let bytes = bytes_flat.to_vec();
+        if bytes.is_empty() || bytes.len() % TILE_BYTES != 0 {
+            return PackedInt32Array::new();
+        }
+        let n = bytes.len() / TILE_BYTES;
+        let mut projections = Vec::with_capacity(n);
+        for i in 0..n {
+            projections.push(luminance_projection_impl(
+                &bytes[i * TILE_BYTES..(i + 1) * TILE_BYTES],
+            ));
+        }
+        PackedInt32Array::from(projections)
+    }
 }
 
 /// Port of the GDScript `_a3_neighbor_hashes`: for each of the 256 canonical
@@ -659,6 +698,58 @@ fn fp_hash(bytes: &[u8]) -> u32 {
     h
 }
 
+/// Luminance of one 4x4 RGBA block (`_grayscale_sig`'s inner 16 pixels): the
+/// truncated `int(0.299r + 0.587g + 0.114b)` per pixel, summed as GDScript.
+/// GDScript floats are 64-bit doubles (verified: `0.299*16+0.587*16+0.114*16`
+/// is 15.99999999999999822 -> int 15), so the port uses f64 exactly; an f32
+/// port rounds boundary sums up to the integer and over-counts luminance.
+fn block_luminance(bytes: &[u8], block_y: usize, block_x: usize) -> i64 {
+    let mut sum: i64 = 0;
+    for y in 0..4 {
+        for x in 0..4 {
+            let px = ((block_y * 4 + y) * STAMP_CELL + block_x * 4 + x) * 4;
+            let r = bytes[px] as f64;
+            let g = bytes[px + 1] as f64;
+            let b = bytes[px + 2] as f64;
+            sum += (0.299 * r + 0.587 * g + 0.114 * b) as i64;
+        }
+    }
+    sum
+}
+
+/// Port of GDScript `_grayscale_sig`: 32-byte signature, 2 nibbles per byte
+/// (8x8 blocks). `level = mini(15, (sum/16) >> 4)`; even blocks hold the hi
+/// nibble, odd blocks the lo nibble. Pure over the 4096 RGBA bytes.
+fn grayscale_signature_impl(bytes: &[u8]) -> [u8; SIG_BYTES] {
+    let mut sig = [0u8; SIG_BYTES];
+    for by in 0..8 {
+        for bx in 0..8 {
+            let lum = block_luminance(bytes, by, bx);
+            let level = ((lum / 16) >> 4).min(15) as u8;
+            let block = by * 8 + bx;
+            let byte_index = block / 2;
+            if block % 2 == 0 {
+                sig[byte_index] = level << 4;
+            } else {
+                sig[byte_index] |= level;
+            }
+        }
+    }
+    sig
+}
+
+/// Port of GDScript `_grayscale_luminance_projection`: sum of each block's
+/// integer mean luminance `sum/16`; the scalar used to order the window scan.
+fn luminance_projection_impl(bytes: &[u8]) -> i32 {
+    let mut total: i64 = 0;
+    for by in 0..8 {
+        for bx in 0..8 {
+            total += block_luminance(bytes, by, bx) / 16;
+        }
+    }
+    total as i32
+}
+
 /// Port of the GDScript window scan + `_grayscale_sig_near` gate: for every
 /// position in the projection-sorted list, walk the window of previous entries
 /// within `max_delta` and keep the [base, candidate] pair when the pair's
@@ -962,6 +1053,59 @@ mod tests {
                 assert_eq!(&v_flip[dst..dst + 4], &tile[src_v..src_v + 4]);
                 let src_hv = ((31 - y) * 32 + (31 - x)) * 4;
                 assert_eq!(&hv_flip[dst..dst + 4], &tile[src_hv..src_hv + 4]);
+            }
+        }
+    }
+
+    #[test]
+    fn grayscale_signature_impl_golden() {
+        // All zero RGBA -> every block luminance 0 -> level 0 -> sig all 0x00,
+        // projection 0.
+        let black = vec![0u8; TILE_BYTES];
+        assert!(grayscale_signature_impl(&black).iter().all(|&b| b == 0));
+        assert_eq!(luminance_projection_impl(&black), 0);
+
+        // All-white RGBA (r=g=b=255): per-pixel f64 luminance rounds to 255.0 exactly
+        // (GDScript-identical; verified alongside the parity probe) -> block
+        // sum 4080, level 15 -> sig all 0xFF. Projection = 64 * (4080/16).
+        let white = vec![255u8; TILE_BYTES];
+        assert!(grayscale_signature_impl(&white).iter().all(|&b| b == 0xff));
+        assert_eq!(luminance_projection_impl(&white), 64 * 255);
+    }
+
+    #[test]
+    fn grayscale_signature_impl_gradient_layout() {
+        // Brick pattern: a 4096-byte buffer where luminance differs per 4x4
+        // block deterministically. Check nibble packing only (hi/lo positions)
+        // rather than absolute luminance values: block 0 (byte 0 hi) vs
+        // block 1 (byte 0 lo), block 2 (byte 1 hi), block 3 (byte 1 lo).
+        let mut tile = vec![0u8; TILE_BYTES];
+        // Fill each pixel with the same gray value per block column band:
+        // block_x band values 0..8 -> bytes 0..255.
+        for y in 0..STAMP_CELL {
+            for x in 0..STAMP_CELL {
+                let px = (y * STAMP_CELL + x) * 4;
+                let gray = ((x / 4) * 36) as u8; // 0,36,72,...,252 per 4-col block
+                tile[px] = gray;
+                tile[px + 1] = gray;
+                tile[px + 2] = gray;
+                tile[px + 3] = 255;
+            }
+        }
+        let sig = grayscale_signature_impl(&tile);
+        let by = 0;
+        let levels: Vec<i32> = (0..8)
+            .map(|bx| ((block_luminance(&tile, by, bx) / 16) >> 4).min(15) as i32)
+            .collect();
+        // Need at least one differing pair of adjacent blocks to prove packing.
+        assert_ne!(levels[0], levels[7], "block luminances must differ");
+        for bx in 0..8 {
+            let block = bx;
+            let byte_index = block / 2;
+            if block % 2 == 0 {
+                assert_eq!((sig[byte_index] >> 4) as i32, levels[bx]);
+            } else {
+                assert_eq!((sig[byte_index] & 0x0f) as i32, levels[bx]);
             }
         }
     }

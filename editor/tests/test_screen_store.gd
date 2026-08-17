@@ -25,6 +25,7 @@ func _run() -> void:
     await _test_prune_boundary_straddler()
     await _test_grayscale_projection()
     await _test_grayscale_candidates()
+    await _test_scan_inputs_native_parity()
     await _test_prune_chain()
     await _test_a3_neighbor_scan()
     await _test_deep_prune()
@@ -430,6 +431,66 @@ func _test_grayscale_candidates() -> void:
     check(result["candidates"].size() > 0, "projection range produces candidates")
     check(result["exact_matches"].size() == 1, "exact diff rejects distinct projection neighbor")
     check(result["exact_matches"][0]["candidate"] == 1, "exact projection match identifies near tile")
+    ed.queue_free()
+    await process_frame
+
+func _test_scan_inputs_native_parity() -> void:
+    print("--- native scan inputs parity (issue #53) ---")
+    if not ClassDB.class_exists("SstdBridge"):
+        print("skip: SstdBridge extension not loaded")
+        return
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    while not ed._ready_done:
+        await process_frame
+    var bridge = ClassDB.instantiate("SstdBridge")
+    root.add_child(bridge)
+    ed.set_bridge(bridge)
+
+    # Diverse synthetic RGBA8 stamps: solid ramps, gradients, alpha variations.
+    var imgs: Array = []
+    for k in 8:
+        var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+        for y in 32:
+            for x in 32:
+                img.set_pixel(x, y, Color(
+                    float((x * 3 + k) % 256) / 255.0,
+                    float((y * 5 + k) % 256) / 255.0,
+                    float((x + y + k * 7) % 256) / 255.0,
+                    float((k * 2 + 1) % 256) / 255.0))
+        imgs.append(img)
+    var bytes_flat := PackedByteArray()
+    for img in imgs:
+        bytes_flat.append_array(ed._cell_bytes(img, false, false))
+    var sigs_flat: PackedByteArray = bridge.scan_signatures(bytes_flat)
+    var projections: PackedInt32Array = bridge.scan_projections(bytes_flat)
+    check(sigs_flat.size() == 32 * imgs.size(), "native sigs flat size")
+    check(projections.size() == imgs.size(), "native projections size")
+    var bad := 0
+    for i in imgs.size():
+        var gd_sig: PackedByteArray = ed._grayscale_sig(imgs[i])
+        var gd_proj: int = ed._grayscale_luminance_projection(imgs[i])
+        for b in 32:
+            if sigs_flat[i * 32 + b] != gd_sig[b]:
+                bad += 1
+        if projections[i] != gd_proj:
+            bad += 1
+    check(bad == 0, "native sigs+projections identical to GDScript (%d mismatches)" % bad)
+
+    # Golden: all-black tile -> projection 0, sig all 0x00; all-white -> nibbles 0xF.
+    var black := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    black.fill(Color(0, 0, 0, 1))
+    var white := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    white.fill(Color(1, 1, 1, 1))
+    var golden := PackedByteArray()
+    golden.append_array(ed._cell_bytes(black, false, false))
+    golden.append_array(ed._cell_bytes(white, false, false))
+    var gs: PackedByteArray = bridge.scan_signatures(golden)
+    var gp: PackedInt32Array = bridge.scan_projections(golden)
+    check(gp[0] == 0 and gs[0] == 0, "all-black: projection 0, sig 0x00")
+    check(gs[32] == 0xff and gs[63] == 0xff, "all-white: sig 0xFF (level 15)")
+    check(gp[1] == ed._grayscale_luminance_projection(white), "all-white projection == GDScript oracle")
+    bridge.queue_free()
     ed.queue_free()
     await process_frame
 
