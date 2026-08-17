@@ -100,8 +100,8 @@ godot-rust sim class** — the simulator is the natural pure-gRPC boundary:
 **#55 config-backed defaults — DONE, committed `9f33983`, comment on #55.** See
 "Bug fixes logged" for the closed #47/#48/#50 batch.
 
-**#52 native `flip_of_variants` truncation parity — implemented, verified,
-NOT yet committed.**
+**#52 native `flip_of_variants` truncation parity — DONE, committed `28c3384`
+(bridge) + wiki TDD v7 `303c1b7`; comment on #52 posted.**
 - Ported `best_diff: i32` + `d as i32` into `flip_of_variants`
   (`crates/sstd-editor-bridge/src/lib.rs`), mirroring GDScript `_flip_of_variants`.
 - **Discovery (documented in wiki TDD v7 + issue #52)**: the [tol, tol+1)
@@ -116,8 +116,10 @@ NOT yet committed.**
   workspace cargo 103/103, GDScript suite `failures=0` (native vs serial
   identical), real-catalog profile: full plan 6365 ms, `dup_keys=982` unchanged.
 - Release .so rebuilt and copied to `editor/rust/`.
-- NOT yet: commit (bridge lib.rs + checkpoint); post issue comment on #52; the
-  wiki TDD v7 entry is written but not committed (wiki repo).
+
+**Tracked but not started:** #56 Playwright E2E harness for the gRPC stack —
+created (blocked on #40's documented contract); browserless-by-construction
+design recorded in the issue body.
 
 ### Bug fixes logged this continuation
 - **#47** (placement editor blank after opening a world.zip) and **#48** (blank
@@ -129,10 +131,7 @@ NOT yet committed.**
   `repro_blank_world.gd`.
 
 ### Next move (proposed order)
-1. Commit #52 batch (bridge lib.rs, SESSION-CHECKPOINT under the code repo;
-   `TDD_Tile-Deduplication.md` under the wiki repo) referencing #52; post a
-   comment on #52.
-2. Outstanding tracked work (no active branch):
+1. Outstanding tracked work (no active branch):
    - #53: move prune gate (phase C) + variant building (phase B) into the bridge
      for further speedup (optional; full plan already 6.4s, under target).
    - #54: packaged installer — relocate `res://` writes to `user://` first.
@@ -140,6 +139,8 @@ NOT yet committed.**
      `sstd-editor-bridge` vs (b) JSON-over-unix-socket face on `sstd-headless`,
      then create simulator crate + headless binary + protobuf contract; fill
      TDD_Simulator-Service-Contract.md TBDs (see design decision below).
+   - #56 Playwright E2E: harness scaffolding can land anytime; full coverage
+     blocked on #40 (documented service contract) + simulator contract.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
