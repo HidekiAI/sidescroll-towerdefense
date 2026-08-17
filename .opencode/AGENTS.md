@@ -2,9 +2,11 @@
 
 ## Session Progress Checkpoint (permanent)
 
-The user may switch sessions mid-task at any time. For multi-step work
-(`#51` prune optimization and any long task), **keep `docs/SESSION-CHECKPOINT.md`
-continuously updated as work proceeds** so a fresh session can resume cold:
+The user may switch sessions mid-task at any time, and may also **abandon a
+session (e.g. change of model) and start a brand-new session with zero memory
+of this conversation**. For multi-step work (`#51` prune optimization and any
+long task), **keep `docs/SESSION-CHECKPOINT.md` continuously updated as work
+proceeds** so a fresh session can resume cold:
 
 - Record what shipped/committed, the exact current active step, and the next
   move after each meaningful milestone — not only at the end.
@@ -12,6 +14,14 @@ continuously updated as work proceeds** so a fresh session can resume cold:
   not re-derive them.
 - Commit the checkpoint update together with (or immediately after) the code
   change it describes. (Rule recorded 2026-08-16.)
+- **Write the checkpoint as if the next reader is a different model on a
+  brand-new session that never saw this conversation**: it must be fully
+  self-contained — state the objective, the committed history, the exact
+  in-flight step, the next move in runnable order, and every command/finding
+  needed to resume, without relying on prior chat context. A checkpoint that
+  assumes the reader "knows the project" from memory is not sufficient; if a
+  crash/abandonment means the in-flight step is lost, the checkpoint must be
+  enough to restart that step from scratch. (Rule recorded 2026-08-17.)
 
 ## Wiki Maintenance Rule (permanent)
 

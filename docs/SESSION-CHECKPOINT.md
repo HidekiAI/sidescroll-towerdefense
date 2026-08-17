@@ -1,7 +1,11 @@
 # Session Checkpoint — Prune Optimization (#51)
 
-> Purpose: resume cold after a session switch. Updated continuously, not only at
-> the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint (permanent)".
+> Purpose: resume cold after a session switch or an abandoned session (e.g.
+> model change -> brand-new session with zero prior context). Every section must
+> be self-contained for that reader: committed history, exact in-flight step,
+> next move in runnable order, all commands/numbers. Updated continuously, not
+> only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
+> (permanent)".
 
 Last updated: 2026-08-17 (after commit of A3 + finalize native port).
 
@@ -63,16 +67,24 @@ breakdown with the release .so:
   0=none, 1=identity, 2=h, 4=v, 8=hv; flip_h = code 2 or 8, flip_v = code 4 or 8.
 
 ### Active step
-None — batch verified and committed. Verification commands all green
-(cargo 14 tests, GDScript suite failures=0, real-catalog profile above).
+Wiki TDD v6 entry in progress: add the A3 + finalize-native + truncation-quirk
+optimization history entry to
+`sidescroll-towerdefense.wiki/TechnicalDesign/TDD_Tile-Deduplication.md`
+(section 7, after v5), update the outdated "10-second target still not met"
+paragraph (lines ~149-154) with the 6792 ms result, add the three new cargo
+tests to section 8, and refresh the status blockquote. The file was already
+read; constants needed: `PRUNE_WARN_THRESHOLD=500`,
+`PRUNE_EST_MS_PER_TILE=197` (still 197 in map_editor.gd:47). Trunk commit for
+this batch is `164d25c`. Then commit the wiki change (wiki repo, ref #51) and
+update this checkpoint.
 
 ### Next move (proposed order)
-1. (Optional) Decide whether native `flip_of_variants` (scan_exact_matches path)
+1. Finish the wiki TDD v6 entry (above) and commit it in the wiki repo.
+2. (Optional) Decide whether native `flip_of_variants` (scan_exact_matches path)
    needs the same int-truncation treatment for full GDScript parity on boundary
    diffs — currently consistent on real data, latent only.
-2. (Optional) If further speedup wanted: port the gate (phase C) and/or
+3. (Optional) If further speedup wanted: port the gate (phase C) and/or
    variant building (phase B) into the bridge; scan itself is 3.9s.
-3. Update wiki TDD with the v6 entry (A3 + finalize native, truncation quirk).
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
