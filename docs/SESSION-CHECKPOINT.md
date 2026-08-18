@@ -7,9 +7,10 @@
 > only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
 > (permanent)".
 
-Last updated: 2026-08-18. #54 M1 (relocate `res://` writes to `user://data`) is
-IMPLEMENTED and suite-green, pending commit. See "Active step" for the runnable
-resume point.
+Last updated: 2026-08-18. #54 M1 (relocate `res://` writes to `user://data`)
+committed `ae28994`; #59 native bulk canonical-coarse committed `b8c357e`
+(a3_discover 1.67s -> 0.87s); #60 dirty-save prompt committed `aa3bc6f`. Bug #61
+(prune second-run crash) filed, unfixed. See "Active step" for the resume point.
 
 ## Objective
 
@@ -41,6 +42,10 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
   `cdc2396`. Tracked as deferred feature issue #58.
 - Editor E2E harness issue #56 created (Playwright, browserless-by-construction,
   blocked on #40 documented contract). Not started.
+- #59 native bulk canonical-coarse: committed `b8c357e` (a3_discover
+  1671->873 ms; dup_keys=1328 consistent; cargo 107 pass; parity 0 mismatches).
+- #60 dirty-save prompt: committed `aa3bc6f` (`_confirm_save_dirty` Save/Discard/
+  Cancel modal, quit + import + new/open gated, paint/entity-ops mark dirty).
 
 ### In-flight — #54 M1 (IMPLEMENTED, suite green, NOT yet committed)
 - `editor/scripts/main.gd`: `USER_DATA_DIR := "user://data"`,
@@ -101,26 +106,43 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
   wiki TDD_gRPC-Architecture.md "EditorRemote"; tracked as #58. NOT implemented.
 
 ## Active step
-1. Commit #54 M1 batch: `editor/scripts/main.gd`, `editor/scripts/map_editor.gd`,
-   `editor/tests/test_screen_store.gd`, `docs/SESSION-CHECKPOINT.md` —
-   referencing #54. Post issue comment on #54.
-2. Commit wiki `TDD_World-Editor.md` (persistence matrix section) under the wiki
-   repo, referencing #54.
-3. Refresh `.opencode/AGENTS.md` "Session Progress" table.
+1. **#59 native bulk canonical-coarse — DONE, committed `b8c357e`, comment on #59.**
+   - Bridge: `scan_canonical_coarse` (N*256) + `coarse_bytes_rgba_impl` /
+     `flip_coarse_impl` / `canonical_coarse_impl` (lexicographic-min flip, i64
+     integer block means — GDScript-exact). Cargo +2 tests (workspace 107 pass).
+   - map_editor.gd: `_canonical_flat` cached from the native scan;
+     `_a3_discover` slices per-rep canon when ready, GDScript fallback.
+   - Profile (3346-tile real catalog): a3_discover **1671 -> 873 ms**, native
+     canonical coarse 22 ms, dup_keys=1328 consistent across both profile
+     paths. Full `_build_prune_plan` 5030 ms. GDScript parity 0 mismatches.
+2. **#60 dirty-save prompt — DONE, committed `aa3bc6f`, comment on #60.**
+   - main.gd: `mark_dirty`/`clear_dirty`; `_confirm_save_dirty()` 3-way modal
+     (Save=2 / Discard=1 / Cancel=0, awaited; non-dirty skips -> 1);
+     `_confirm_dirty_or_save()` guard; quit (WM_CLOSE_REQUEST) prompts when
+     dirty; `new_project`/`open_project` gated (stubs remain).
+   - map_editor: `_paint_tile` -> `_mark_dirty`; `_save_world` -> `clear_dirty`;
+     import dialog -> `_on_import_file_guarded`. placement_editor: same on
+     place/remove/clear + guarded import.
+   - `_test_dirty_prompt`: clean skip, mark/clear, paint->dirty, save->clean.
+     Suite failures=0. NOTE: dialog itself needs a manual GUI smoke test
+     (headless never reaches the modal).
+3. **Bug #61 filed (no fix):** prune crash on second run in one session —
+   `Invalid access of index '2017'` in `_finalize_prune_plan` (union-find index
+   space no longer matches a shrunken `_stamp_catalog`). Reproduction log in
+   the issue. Not fixed.
 
 ## Next move (proposed order)
-1. #54 M1 commit + comments (above). Then M2 (packaging/CI) is deferred; mark
-   that on #54.
-2. Outstanding tracked work (no active branch):
+1. Outstanding tracked work (no active branch):
    - Simulator-gRPC: decide transport face (a) tonic client in
      `sstd-editor-bridge` vs (b) JSON-over-unix-socket face on `sstd-headless`,
      then create simulator crate + headless binary + protobuf contract; fill
      TDD_Simulator-Service-Contract.md TBDs.
    - #56 Playwright E2E: harness scaffolding can land anytime; full coverage
      blocked on #40 (documented service contract) + simulator contract.
-   - #57 CLI data-dir override (deferred); #58 EditorRemote (deferred).
-   - Optional: #53 follow-up — native bulk `canonical_coarse` to cut a3_discover
-     from ~1.6 s toward ~0.8 s (not needed for acceptance).
+   - #61 prune-crash bug: root-cause + fix (stale union-find vs shrunken catalog).
+   - #54 M2 packaging/CI (deferred); #57 CLI data-dir override (deferred);
+     #58 EditorRemote (deferred).
+   - Manual GUI smoke: the #60 Save/Discard/Cancel dialog (interactive run).
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.

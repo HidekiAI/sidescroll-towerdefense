@@ -202,6 +202,27 @@ All runtime writes go under `user://data` (never `res://`, which is read-only in
 - Data base dir override: deferred, issue #57 (CLI-arg-only, future).
 - Test hygiene: world-restore tests persist the user:// PNG, so cleanups MUST wipe both `user://data/tiles` and `res://assets/tiles` copies (helper `_wipe_tile_artifact(key)` in `tests/test_screen_store.gd`).
 
+## Dirty-State Save Prompt (#60, 2026-08-18)
+
+- `main.gd` owns `is_dirty`. `mark_dirty()`/`clear_dirty()`; `_confirm_save_dirty()`
+  returns 2=Save / 1=Discard / 0=Cancel (awaited modal; non-dirty skips -> 1);
+  `_confirm_dirty_or_save()` is the guard for interactive loads.
+- Dirty is set by map paint (`_paint_tile`), placement entity place/remove/clear,
+  and cleared by `_save_world()` in either editor. Guards: quit
+  (NOTIFICATION_WM_CLOSE_REQUEST), import dialogs (via `_on_import_file_guarded`),
+  `new_project`/`open_project`.
+- Test seam: tests call load/import methods directly (bypass the guarded dialog
+  path) and never reach the modal; `_test_dirty_prompt` covers the flag mechanics.
+
+## Prune Scan Hot Loops (#51/#53/#59)
+
+Native bridge (`sstd-editor-bridge`) owns the scan hot loops; GDScript is the
+oracle. Current front-end: `scan_signatures`+`scan_projections` (f64),
+`scan_gate_pairs`, `build_variants`, `scan_exact_matches`, `a3_neighbor_hashes`,
+`flip_of_bytes`, and `scan_canonical_coarse` (N*256, #59). `_a3_discover` slices
+per-rep canon from `_canonical_flat` when the bridge produced it. Real catalog
+(3346 tiles): full `_build_prune_plan` 5030 ms, dup_keys=1328.
+
 ## Screen Registry (ScreenStore)
 
 - `editor/scripts/screen_store.gd` is the on-disk registry (`world.json`): maps `screen_id → (x, y) → file`, assigns `next_id`, and provides a per-screen cache.
