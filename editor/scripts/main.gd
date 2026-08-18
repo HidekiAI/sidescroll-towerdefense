@@ -1,6 +1,7 @@
 extends Control
 
-const DEFAULT_WORLD_PATH := "res://world.json"
+const USER_DATA_DIR := "user://data"
+const DEFAULT_WORLD_PATH := "user://data/world.json"
 const DEFAULT_WORLD_FILE := "world.zip"
 const KEY_WORLD_FILE_NAME := "defaults.world_file_name"
 const KEY_WORLD_JSON_PATH := "defaults.world_json_path"
@@ -81,12 +82,19 @@ func _load_bridge() -> void:
 		assert(false, "GDExtension bridge is required")
 
 func _init_config_db() -> void:
-	var config_dir := ProjectSettings.globalize_path("res://config/")
+	var config_dir := user_data_dir().path_join("config")
 	DirAccess.make_dir_recursive_absolute(config_dir)
 	var db_path := config_dir.path_join("sstd_config.sqlite3")
 	var result: Variant = _bridge.init_config_db(db_path)
 	var parsed = JSON.parse_string(result)
 	assert(parsed != null and parsed.get("ok", false), "Failed to init config DB: " + str(parsed))
+
+# Per-user writable base for all runtime writes (`res://` stays read-only so a
+# packaged build works). First call creates the directory.
+func user_data_dir() -> String:
+	var abs := ProjectSettings.globalize_path(USER_DATA_DIR)
+	DirAccess.make_dir_recursive_absolute(abs)
+	return abs
 
 func _get_config_or(key: String, fallback: String) -> String:
 	if _bridge and _bridge.has_method("get_config_value"):

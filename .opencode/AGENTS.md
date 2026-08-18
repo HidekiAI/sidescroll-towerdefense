@@ -185,6 +185,23 @@ All tunable gameplay constants must live in `sstd_config.sqlite3` via the popula
 - After adding a new `class_name` global (e.g. `ScreenStore`, `ScreenMinimap`), run `godot4 --headless --path editor --import` once so other scripts resolve the type.
 - `main.tscn` embeds the map/placement editors **inline** — the standalone `map_editor.tscn`/`placement_editor.tscn` are not what runs at runtime; edit `main.tscn` too.
 
+## Editor Persistence Paths (#54 M1, 2026-08-18)
+
+All runtime writes go under `user://data` (never `res://`, which is read-only in a packaged build):
+
+| Path | Value | SQLite-configurable? |
+|---|---|---|
+| ConfigStore DB | `user://data/config/sstd_config.sqlite3` | No |
+| Boot world pointer | `defaults.world_json_path` = `user://data/world.json` | Yes |
+| Save-dialog file name | `defaults.world_file_name` = `world.zip` | Yes |
+| Save/load dialog start dir | `defaults.file_dialog_dir` = `""` | Yes |
+| Tile/stamp cache | `user://data/tiles` | No |
+
+- `main.gd`: `USER_DATA_DIR := "user://data"`, `DEFAULT_WORLD_PATH := "user://data/world.json"`, `user_data_dir()` (globalized + mkdir). `_init_config_db` writes the config DB under `user://data/config/`.
+- `map_editor.gd`: `_tiles_write_dir()` = `user://data/tiles`; `get_tile_image`/`_load_stamp_catalog` read user dir first then built-in `res://` fallback; `_register_tile_image` persists PNGs to the user dir.
+- Data base dir override: deferred, issue #57 (CLI-arg-only, future).
+- Test hygiene: world-restore tests persist the user:// PNG, so cleanups MUST wipe both `user://data/tiles` and `res://assets/tiles` copies (helper `_wipe_tile_artifact(key)` in `tests/test_screen_store.gd`).
+
 ## Screen Registry (ScreenStore)
 
 - `editor/scripts/screen_store.gd` is the on-disk registry (`world.json`): maps `screen_id → (x, y) → file`, assigns `next_id`, and provides a per-screen cache.

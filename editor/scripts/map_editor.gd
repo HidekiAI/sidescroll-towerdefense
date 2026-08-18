@@ -201,13 +201,27 @@ func get_tile_image(key: String) -> Image:
             var img: Image = entry["cell"]
             _tile_images[key] = img
             return img
-    var abs := ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+    var abs := _tiles_write_dir().path_join("%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+    if not FileAccess.file_exists(abs):
+        # Read-only built-in fallback (packaged res:// has the shipped catalog).
+        abs = ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
     if FileAccess.file_exists(abs):
         var img := Image.new()
         if img.load(abs) == OK:
             _tile_images[key] = _as_rgba8(img)
             return _tile_images[key]
     return null
+
+# Writable per-user tile cache dir (`res://` is read-only in a packaged build).
+func _tiles_write_dir() -> String:
+    var base: String
+    if _main and _main.has_method("user_data_dir"):
+        base = _main.user_data_dir()
+    else:
+        base = ProjectSettings.globalize_path("user://data")
+    var abs := base.path_join("tiles")
+    DirAccess.make_dir_recursive_absolute(abs)
+    return abs
 
 static func _as_rgba8(img: Image) -> Image:
     if img == null or img.get_format() == Image.FORMAT_RGBA8:
@@ -260,8 +274,7 @@ func _restore_tile_bank(bank: Dictionary) -> void:
 func _register_tile_image(key: String, img: Image) -> void:
     _tile_images[key] = img
     _tile_texture_cache.erase(key)
-    var abs_dir := ProjectSettings.globalize_path("res://assets/tiles")
-    DirAccess.make_dir_recursive_absolute(abs_dir)
+    var abs_dir := _tiles_write_dir()
     if not FileAccess.file_exists(abs_dir + "/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL]):
         img.save_png(abs_dir + "/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
     var idx := -1
@@ -908,31 +921,41 @@ func _on_export() -> void:
 
 func _load_stamp_catalog() -> void:
     _stamp_catalog.clear()
-    var abs_dir := ProjectSettings.globalize_path("res://assets/tiles")
-    if not DirAccess.dir_exists_absolute(abs_dir):
-        return
-    var dir := DirAccess.open(abs_dir)
-    if not dir:
-        return
-    dir.list_dir_begin()
-    var fname := dir.get_next()
+    var seen: Dictionary = {}
+    # Precedence: writable user dir (runtime stamps) then built-in res://.
+    var dirs: Array[String] = [
+        _tiles_write_dir(),
+        ProjectSettings.globalize_path("res://assets/tiles"),
+    ]
     var processed := 0
-    while fname != "":
-        processed += 1
-        if processed % _BUSY_YIELD_EVERY == 0:
-            info_label.text = "Loading stamp catalog… %d files" % processed
-            await get_tree().process_frame
-        if fname.begins_with("stamp_") and fname.ends_with("_%dx%d.png" % [STAMP_CELL, STAMP_CELL]):
-            var key := fname.get_basename().rsplit("_%dx%d" % [STAMP_CELL, STAMP_CELL], false)[0]
-            var img := Image.new()
-            if img.load(abs_dir + "/" + fname) == OK:
-                _stamp_catalog.append({"key": key, "cell": _as_rgba8(img)})
-                _tile_images[key] = _stamp_catalog.back()["cell"]
-                var idx := key.trim_prefix("stamp_").to_int()
-                if idx > _stamp_seq:
-                    _stamp_seq = idx
-        fname = dir.get_next()
-    dir.list_dir_end()
+    for abs_dir in dirs:
+        if not DirAccess.dir_exists_absolute(abs_dir):
+            continue
+        var dir := DirAccess.open(abs_dir)
+        if not dir:
+            continue
+        dir.list_dir_begin()
+        var fname := dir.get_next()
+        while fname != "":
+            processed += 1
+            if processed % _BUSY_YIELD_EVERY == 0:
+                info_label.text = "Loading stamp catalog… %d files" % processed
+                await get_tree().process_frame
+            if fname.begins_with("stamp_") and fname.ends_with("_%dx%d.png" % [STAMP_CELL, STAMP_CELL]):
+                var key := fname.get_basename().rsplit("_%dx%d" % [STAMP_CELL, STAMP_CELL], false)[0]
+                if seen.has(key):
+                    fname = dir.get_next()
+                    continue
+                var img := Image.new()
+                if img.load(abs_dir + "/" + fname) == OK:
+                    seen[key] = true
+                    _stamp_catalog.append({"key": key, "cell": _as_rgba8(img)})
+                    _tile_images[key] = _stamp_catalog.back()["cell"]
+                    var idx := key.trim_prefix("stamp_").to_int()
+                    if idx > _stamp_seq:
+                        _stamp_seq = idx
+            fname = dir.get_next()
+        dir.list_dir_end()
     await _rebuild_stamp_index()
 
 func _rebuild_stamp_index() -> void:
@@ -1502,7 +1525,7 @@ func _finalize_prune_plan(uf_parent: Array) -> Dictionary:
             dup_keys.append(cand_key)
     var removed_pngs_est := 0
     for key in dup_keys:
-        if FileAccess.file_exists(ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])):
+        if FileAccess.file_exists(_tiles_write_dir().path_join("%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])):
             removed_pngs_est += 1
     return {
         "dup_keys": dup_keys,
@@ -1637,7 +1660,7 @@ func _drop_tiles(dup_keys: Array) -> int:
     for key in dup_keys:
         _tile_images.erase(key)
         _tile_texture_cache.erase(key)
-        var abs := ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
+        var abs := _tiles_write_dir().path_join("%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL])
         if FileAccess.file_exists(abs):
             if DirAccess.remove_absolute(abs) == OK:
                 removed_pngs += 1

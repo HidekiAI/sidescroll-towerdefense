@@ -11,6 +11,11 @@ func check(cond: bool, msg: String) -> void:
         _failures += 1
         print("FAIL: " + msg)
 
+func _wipe_tile_artifact(key: String) -> void:
+    var fname := "%s_%dx%d.png" % [key, STAMP_CELL, STAMP_CELL]
+    DirAccess.remove_absolute(ProjectSettings.globalize_path("user://data/tiles").path_join(fname))
+    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles").path_join(fname))
+
 func _initialize() -> void:
     _run()
 
@@ -494,6 +499,41 @@ func _test_scan_inputs_native_parity() -> void:
     ed.queue_free()
     await process_frame
 
+# Issue #54 M1: all runtime writes land under user:// (res:// stays read-only).
+func _test_user_data_relocation() -> void:
+    print("--- user:// relocation (issue #54) ---")
+    if not ClassDB.class_exists("SstdBridge"):
+        print("skip: SstdBridge extension not loaded")
+        return
+    # Config DB lands under user://data/config via a real bridge.
+    var main = (load("res://scripts/main.gd") as GDScript).new()
+    var bridge = ClassDB.instantiate("SstdBridge")
+    main._bridge = bridge
+    main._init_config_db()
+    var db: String = main.user_data_dir().path_join("config/sstd_config.sqlite3")
+    check(FileAccess.file_exists(db), "config DB written under user://data/config")
+    check(db.begins_with(ProjectSettings.globalize_path("user://data")), "config DB path is under user://data")
+    bridge.free()
+
+    # Tile materialization + reads prefer user://data/tiles and never write res://.
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    var stamp_tag := "stamp_reloc"
+    var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+    img.fill(Color(0.8, 0.1, 0.1, 1.0))
+    ed._register_tile_image(stamp_tag, img)
+    var user_tiles: String = ed._tiles_write_dir()
+    var png_user := user_tiles.path_join("%s_%dx%d.png" % [stamp_tag, STAMP_CELL, STAMP_CELL])
+    var png_res := ProjectSettings.globalize_path("res://assets/tiles/%s_%dx%d.png" % [stamp_tag, STAMP_CELL, STAMP_CELL])
+    check(FileAccess.file_exists(png_user), "stamp PNG written under user://data/tiles")
+    check(not FileAccess.file_exists(png_res), "no stamp PNG written to res://")
+    check(ed.get_tile_image(stamp_tag) != null, "get_tile_image reads the user-written stamp")
+    DirAccess.remove_absolute(png_user)
+    ed.queue_free()
+    await process_frame
+    DirAccess.remove_absolute(db)
+
 func _test_prune_chain() -> void:
     print("--- prune chain resolution ---")
     var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
@@ -882,7 +922,7 @@ func _test_world_reopen_not_blank() -> void:
     check(once == 1, "shared private tile stored once across whole world")
     ed.queue_free()
     await process_frame
-    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+    _wipe_tile_artifact(tile_key)
 
     var ed2 = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
     root.add_child(ed2)
@@ -908,7 +948,7 @@ func _test_world_reopen_not_blank() -> void:
     ed2.queue_free()
     await process_frame
     DirAccess.remove_absolute(tmp_zip)
-    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+    _wipe_tile_artifact(tile_key)
 
 # Acceptance: the editor's import/bootstrap must follow a world.json *pointer*
 # to the referenced .zip. Regression for #43 hotfix: auto-load passed world.json
@@ -952,7 +992,7 @@ func _test_world_pointer_bootstrap() -> void:
     await process_frame
     DirAccess.remove_absolute(tmp_zip)
     DirAccess.remove_absolute(tmp_pointer)
-    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+    _wipe_tile_artifact(tile_key)
 
 func _test_tile_palette() -> void:
     print("--- TilePalette (issue #49) ---")
@@ -997,7 +1037,7 @@ func _test_placement_editor_tile_bank_sync() -> void:
     var tmp_zip := "/tmp/user/1000/opencode/sstd_47_sync.zip"
     var tile_key := "stamp_47sync"
     DirAccess.remove_absolute(tmp_zip)
-    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
+    _wipe_tile_artifact(tile_key)
 
     var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
     root.add_child(ed)
@@ -1027,8 +1067,9 @@ func _test_placement_editor_tile_bank_sync() -> void:
     # Self-contained premise: even though _register_tile_image materializes tiles
     # to disk on load, the placement editor must NOT rely on that — delete the
     # disk asset and prove the synced in-memory bank is what renders (bug #47).
-    DirAccess.remove_absolute(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key))
-    check(not FileAccess.file_exists(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key)), "no disk asset for private tile")
+    _wipe_tile_artifact(tile_key)
+    check(not FileAccess.file_exists(ProjectSettings.globalize_path("res://assets/tiles/%s_32x32.png" % tile_key)), "no res:// disk asset for private tile")
+    check(not FileAccess.file_exists(ProjectSettings.globalize_path("user://data/tiles/%s_32x32.png" % tile_key)), "no user:// disk asset for private tile")
 
     var pe = (load("res://scenes/placement_editor.tscn") as PackedScene).instantiate()
     root.add_child(pe)
@@ -1125,13 +1166,13 @@ func _test_config_defaults_seed() -> void:
 
     check(fake_bridge.store.get("defaults.world_file_name", "") == "world.zip",
             "seeded defaults.world_file_name = world.zip")
-    check(fake_bridge.store.get("defaults.world_json_path", "") == "res://world.json",
-            "seeded defaults.world_json_path = res://world.json")
+    check(fake_bridge.store.get("defaults.world_json_path", "") == "user://data/world.json",
+            "seeded defaults.world_json_path = user://data/world.json (#54 M1)")
     check(fake_bridge.store.get("defaults.file_dialog_dir", "") == "",
             "seeded defaults.file_dialog_dir (empty default)")
 
     check(main.get_default_world_file() == "world.zip", "get_default_world_file returns seeded default")
-    check(main.get_world_json_path() == "res://world.json", "get_world_json_path returns seeded default")
+    check(main.get_world_json_path() == "user://data/world.json", "get_world_json_path returns seeded default")
     check(main.get_file_dialog_dir() == "", "get_file_dialog_dir returns empty default")
 
     # Config override wins; a second seed must NOT clobber it (seed-if-absent).
@@ -1144,5 +1185,5 @@ func _test_config_defaults_seed() -> void:
     # No bridge at all: getters fall back to constants, never crash.
     var bare = (load("res://scripts/main.gd") as GDScript).new()
     check(bare.get_default_world_file() == "world.zip", "getter falls back to constant without bridge")
-    check(bare.get_world_json_path() == "res://world.json", "world_json_path falls back to constant without bridge")
+    check(bare.get_world_json_path() == "user://data/world.json", "world_json_path falls back to constant without bridge")
     check(bare.get_file_dialog_dir() == "", "dialog dir falls back to empty without bridge")
