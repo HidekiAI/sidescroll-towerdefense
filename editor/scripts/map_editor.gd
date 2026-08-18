@@ -53,6 +53,7 @@ var _stamp_seq: int = 0
 var _stamp_catalog: Array[Dictionary] = []
 var _stamp_fp_index: Dictionary = {}  # FNV(int) -> Array[int] of catalog indices with that canonical-coarse fingerprint
 var _prune_bytes: Array = []  # canonical RGBA bytes per catalog index, cached by the prune scan for reuse in a3/finalize (#53)
+var _canonical_flat := PackedByteArray()  # N*256 canonical coarse sigs, native-computed when the bridge has scan_canonical_coarse (#59)
 var _stamp_basename: String = ""
 var _stamp_maps: Array[Dictionary] = []
 var _tile_images: Dictionary = {}  # tile key -> Image (resident in memory; reused across the world)
@@ -1073,6 +1074,12 @@ func _grayscale_projection_candidates(max_delta: int) -> Dictionary:
     )
     _prune_bytes = bytes
 
+    # Native bulk canonical-coarse (N*256) when available, so _a3_discover can
+    # slice per-rep signatures instead of re-deriving them in GDScript (#59).
+    _canonical_flat = PackedByteArray()
+    if _bridge != null and _bridge.has_method("scan_canonical_coarse"):
+        _canonical_flat = _bridge.scan_canonical_coarse(bytes_flat)
+
     var use_gate := _bridge != null and _bridge.has_method("scan_gate_pairs")
     var candidate_count := 0
     var gate_survivors := 0
@@ -1417,11 +1424,14 @@ func _a3_discover(uf_parent: Array) -> Array:
     var use_native := _bridge != null and _bridge.has_method("a3_neighbor_hashes")
     var use_native_flip := _bridge != null and _bridge.has_method("flip_of_bytes")
     var bytes_ready: bool = _prune_bytes.size() == _stamp_catalog.size()
+    var canon_ready: bool = bytes_ready and _canonical_flat.size() == _stamp_catalog.size() * 256
     for m in _stamp_catalog.size():
         if _find_root(uf_parent, m) != m:
             continue
         var canon: PackedByteArray
-        if bytes_ready:
+        if canon_ready:
+            canon = _canonical_flat.slice(m * 256, (m + 1) * 256)
+        elif bytes_ready:
             canon = _canonical_coarse_bytes(_prune_bytes[m])
         else:
             canon = _canonical_coarse(_as_rgba8(_stamp_catalog[m]["cell"]))

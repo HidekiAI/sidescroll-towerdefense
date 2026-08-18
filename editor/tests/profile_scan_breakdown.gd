@@ -73,6 +73,14 @@ func _initialize() -> void:
         ed._uf_union(uf_parent, int(match["base"]), int(match["candidate"]))
 
     t = Time.get_ticks_msec()
+    var canon_flat: PackedByteArray = bridge.scan_canonical_coarse(bytes_flat)
+    ed._canonical_flat = canon_flat
+    ed._prune_bytes = []
+    for i in n:
+        ed._prune_bytes.append(bytes_flat.slice(i * 4096, (i + 1) * 4096))
+    print("native canonical coarse: %d ms" % (Time.get_ticks_msec() - t))
+
+    t = Time.get_ticks_msec()
     var a3: Array = ed._a3_discover(uf_parent)
     print("a3_discover: %d ms, matches=%d" % [Time.get_ticks_msec() - t, a3.size()])
     t = Time.get_ticks_msec()

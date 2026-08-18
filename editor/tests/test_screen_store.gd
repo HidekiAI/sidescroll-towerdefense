@@ -495,6 +495,19 @@ func _test_scan_inputs_native_parity() -> void:
     check(gp[0] == 0 and gs[0] == 0, "all-black: projection 0, sig 0x00")
     check(gs[32] == 0xff and gs[63] == 0xff, "all-white: sig 0xFF (level 15)")
     check(gp[1] == ed._grayscale_luminance_projection(white), "all-white projection == GDScript oracle")
+
+    # Native bulk canonical-coarse (#59): N*256 bytes, per-tile identical to
+    # GDScript `_canonical_coarse_bytes` (block means + lexicographic-min flip).
+    var canon_flat: PackedByteArray = bridge.scan_canonical_coarse(bytes_flat)
+    check(canon_flat.size() == 256 * imgs.size(), "native canonical flat size")
+    var canon_bad := 0
+    for i in imgs.size():
+        var gd_canon: PackedByteArray = ed._canonical_coarse_bytes(bytes_flat.slice(i * 4096, (i + 1) * 4096))
+        for b in 256:
+            if canon_flat[i * 256 + b] != gd_canon[b]:
+                canon_bad += 1
+    check(canon_bad == 0, "native canonical coarse identical to GDScript (%d mismatches)" % canon_bad)
+
     bridge.queue_free()
     ed.queue_free()
     await process_frame

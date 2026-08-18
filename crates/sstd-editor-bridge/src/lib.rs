@@ -347,6 +347,26 @@ impl SstdBridge {
         }
         PackedInt32Array::from(projections)
     }
+
+    /// Native bulk canonical-coarse (#59): given the concatenated 4096-byte RGBA
+    /// buffers (N * TILE_BYTES), compute each tile's canonical coarse signature
+    /// (N * COARSE_BYTES) in one pass. Ports `_coarse_bytes_rgba` + `_canonical_of_coarse`
+    /// (min of identity / h-flip / v-flip / hv-flip under lexicographic `<`).
+    #[func]
+    fn scan_canonical_coarse(&self, bytes_flat: PackedByteArray) -> PackedByteArray {
+        let bytes = bytes_flat.to_vec();
+        if bytes.is_empty() || bytes.len() % TILE_BYTES != 0 {
+            return PackedByteArray::new();
+        }
+        let n = bytes.len() / TILE_BYTES;
+        let mut canon_flat = Vec::with_capacity(COARSE_BYTES * n);
+        for i in 0..n {
+            canon_flat.extend_from_slice(&canonical_coarse_impl(
+                &bytes[i * TILE_BYTES..(i + 1) * TILE_BYTES],
+            ));
+        }
+        PackedByteArray::from(canon_flat)
+    }
 }
 
 /// Port of the GDScript `_a3_neighbor_hashes`: for each of the 256 canonical
@@ -750,6 +770,74 @@ fn luminance_projection_impl(bytes: &[u8]) -> i32 {
     total as i32
 }
 
+/// Port of GDScript `_coarse_bytes_rgba`: 4x4 RGBA block means -> 8x8x4 bytes
+/// (256). GDScript accumulates `r += data[si]` (i64) then stores `r / 16`
+/// (integer truncation) — port uses i64 exactly.
+fn coarse_bytes_rgba_impl(bytes: &[u8]) -> [u8; COARSE_BYTES] {
+    let mut out = [0u8; COARSE_BYTES];
+    for by in 0..8usize {
+        for bx in 0..8usize {
+            let mut r: i64 = 0;
+            let mut g: i64 = 0;
+            let mut b: i64 = 0;
+            let mut a: i64 = 0;
+            for y in 0..4usize {
+                for x in 0..4usize {
+                    let si = ((by * 4 + y) * STAMP_CELL + (bx * 4 + x)) * 4;
+                    r += bytes[si] as i64;
+                    g += bytes[si + 1] as i64;
+                    b += bytes[si + 2] as i64;
+                    a += bytes[si + 3] as i64;
+                }
+            }
+            let o = (by * 8 + bx) * 4;
+            out[o] = (r / 16) as u8;
+            out[o + 1] = (g / 16) as u8;
+            out[o + 2] = (b / 16) as u8;
+            out[o + 3] = (a / 16) as u8;
+        }
+    }
+    out
+}
+
+/// Port of GDScript `_flip_coarse`: mirror the 8x8x4 coarse bytes horizontally
+/// and/or vertically (channel layout preserved within each block).
+fn flip_coarse_impl(c: &[u8], flip_h: bool, flip_v: bool) -> [u8; COARSE_BYTES] {
+    let mut out = [0u8; COARSE_BYTES];
+    for by in 0..8usize {
+        for bx in 0..8usize {
+            let sby = if flip_v { 7 - by } else { by };
+            let sbx = if flip_h { 7 - bx } else { bx };
+            let si = (sby * 8 + sbx) * 4;
+            let di = (by * 8 + bx) * 4;
+            for k in 0..4 {
+                out[di + k] = c[si + k];
+            }
+        }
+    }
+    out
+}
+
+/// Port of GDScript `_canonical_coarse_bytes` for one tile: coarse block means,
+/// then the lexicographically smallest of identity / h-flip / v-flip / hv-flip
+/// (GDScript `_bytes_less` compares byte-wise, shorter-wins-if-prefix; Rust
+/// slice `<` matches).
+fn canonical_coarse_impl(bytes: &[u8]) -> [u8; COARSE_BYTES] {
+    let c = coarse_bytes_rgba_impl(bytes);
+    let mut best: [u8; COARSE_BYTES] = c;
+    for flip_v in [false, true] {
+        for flip_h in [false, true] {
+            if flip_v || flip_h {
+                let f = flip_coarse_impl(&c, flip_h, flip_v);
+                if f[..] < best[..] {
+                    best = f;
+                }
+            }
+        }
+    }
+    best
+}
+
 /// Port of the GDScript window scan + `_grayscale_sig_near` gate: for every
 /// position in the projection-sorted list, walk the window of previous entries
 /// within `max_delta` and keep the [base, candidate] pair when the pair's
@@ -1122,6 +1210,78 @@ mod tests {
         far_b[2] = 0xff;
         far_b[3] = 0xff;
         assert!(!grayscale_sig_near(&near_a, &far_b));
+    }
+
+    #[test]
+    fn coarse_bytes_rgba_impl_block_means() {
+        // Fill each 4x4 block with a distinct constant color; block means must
+        // equal that constant (integer division of a multiple of 16).
+        let mut tile = vec![0u8; TILE_BYTES];
+        for by in 0..8usize {
+            for bx in 0..8usize {
+                let r = (by * 32) as u8;
+                let g = (bx * 32) as u8;
+                let b = ((by + bx) * 8) as u8;
+                for y in 0..4usize {
+                    for x in 0..4usize {
+                        let px = ((by * 4 + y) * STAMP_CELL + bx * 4 + x) * 4;
+                        tile[px] = r;
+                        tile[px + 1] = g;
+                        tile[px + 2] = b;
+                        tile[px + 3] = 255;
+                    }
+                }
+            }
+        }
+        let c = coarse_bytes_rgba_impl(&tile);
+        assert_eq!(c.len(), COARSE_BYTES);
+        for by in 0..8usize {
+            for bx in 0..8usize {
+                let o = (by * 8 + bx) * 4;
+                assert_eq!(c[o], (by * 32) as u8);
+                assert_eq!(c[o + 1], (bx * 32) as u8);
+                assert_eq!(c[o + 2], ((by + bx) * 8) as u8);
+                assert_eq!(c[o + 3], 255);
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_coarse_picks_lexicographic_min_flip() {
+        // Build a tile whose coarse signature has a v-flip (or h-flip) smaller
+        // than identity: a single colored block in the top-left corner. Its
+        // h/v/hv flips move that block to the other corners; the canonical
+        // form is the lexicographically smallest of the 4.
+        let mut tile = vec![0u8; TILE_BYTES];
+        // Top-left 4x4 block fully red.
+        for y in 0..4usize {
+            for x in 0..4usize {
+                let px = (y * STAMP_CELL + x) * 4;
+                tile[px] = 255;
+                tile[px + 3] = 255;
+            }
+        }
+        let c = coarse_bytes_rgba_impl(&tile);
+        // Identity coarse: block (0,0) = [255,0,0,255], rest zero.
+        assert_eq!(c[0], 255);
+        assert_eq!(c[4], 0); // block (0,1) red channel 0
+                             // Candidate flips of the raw coarse, and the canonical must be the min.
+        let identity = c;
+        let h = flip_coarse_impl(&identity, true, false);
+        let v = flip_coarse_impl(&identity, false, true);
+        let hv = flip_coarse_impl(&identity, true, true);
+        let mut expected: Vec<u8> = identity.to_vec();
+        for cand in [&h, &v, &hv] {
+            if cand[..] < expected[..] {
+                expected = cand.to_vec();
+            }
+        }
+        let canon = canonical_coarse_impl(&tile);
+        assert_eq!(
+            canon.to_vec(),
+            expected,
+            "canonical must be the lexicographic min flip"
+        );
     }
 
     #[test]
