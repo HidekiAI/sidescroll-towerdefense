@@ -43,6 +43,9 @@ func log_warning(msg: String) -> void:
 	push_warning("[%s] %s" % [get_current_tab_name(), msg])
 
 func _ready() -> void:
+	# Quit is handled manually (dirty-save prompt on WM_CLOSE_REQUEST); the
+	# engine's default auto-accept would quit even while the dialog awaits (#60).
+	get_tree().auto_accept_quit = false
 	tabs = $TabContainer
 	terrain_editor = tabs.get_child(0)
 	entity_editor = tabs.get_child(1)
@@ -262,7 +265,10 @@ func _confirm_save_dirty() -> int:
 	return choice
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST and is_dirty:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if not is_dirty:
+			get_tree().quit()
+			return
 		var choice: int = await _confirm_save_dirty()
 		if choice == 2:
 			if map_editor and map_editor.has_method("_save_world"):

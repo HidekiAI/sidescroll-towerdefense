@@ -207,6 +207,11 @@ All runtime writes go under `user://data` (never `res://`, which is read-only in
 - `main.gd` owns `is_dirty`. `mark_dirty()`/`clear_dirty()`; `_confirm_save_dirty()`
   returns 2=Save / 1=Discard / 0=Cancel (awaited modal; non-dirty skips -> 1);
   `_confirm_dirty_or_save()` is the guard for interactive loads.
+- **Godot gotcha**: an `await`ed handler in `_notification(NOTIFICATION_WM_CLOSE_REQUEST)`
+  does NOT block the engine — `SceneTree.auto_accept_quit` defaults to `true`, so the
+  app quits right after the notification fires, even while the dialog awaits. Must set
+  `get_tree().auto_accept_quit = false` in `_ready()` and call `get_tree().quit()`
+  explicitly from the handler (dirty: after the prompt; clean: immediately).
 - Dirty is set by map paint (`_paint_tile`), placement entity place/remove/clear,
   and cleared by `_save_world()` in either editor. Guards: quit
   (NOTIFICATION_WM_CLOSE_REQUEST), import dialogs (via `_on_import_file_guarded`),
