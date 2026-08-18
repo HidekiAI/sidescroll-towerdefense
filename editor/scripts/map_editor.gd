@@ -309,7 +309,12 @@ func _paint_tile(x: int, y: int) -> void:
     else:
         _tiles[_key(x, y)] = "air"
         _tile_data.erase(_key(x, y))
+    _mark_dirty()
     tile_grid.queue_redraw()
+
+func _mark_dirty() -> void:
+    if _main and _main.has_method("mark_dirty"):
+        _main.mark_dirty()
 
 func _load_tile_sets() -> void:
     _tile_set_groupings.clear()
@@ -590,6 +595,8 @@ func _world_json_path() -> String:
 func _save_world() -> void:
     if _store:
         _store.save_world(_world_json_path())
+    if _main and _main.has_method("clear_dirty"):
+        _main.clear_dirty()
 
 # Journal-style log line: every persist/load failure or step is recorded so an
 # incident can be re-traced from the engine log alone (see AGENTS: log requirement).
@@ -844,8 +851,17 @@ func _on_import() -> void:
         if dialog_dir != "":
             dialog.current_dir = dialog_dir
     add_child(dialog)
-    dialog.file_selected.connect(_on_import_file)
+    dialog.file_selected.connect(_on_import_file_guarded)
     dialog.popup_centered(Vector2i(600, 400))
+
+# Guard interactive load against dirty state (#60): Save/Discard/Cancel before
+# replacing the current world. Await-safe; tests call `_on_import_file` directly.
+func _on_import_file_guarded(path: String) -> void:
+    if _main and _main.has_method("_confirm_dirty_or_save"):
+        if await _main._confirm_dirty_or_save() == 0:
+            _log_import("map", "import cancelled (dirty save prompt): " + path)
+            return
+    _on_import_file(path)
 
 func _on_import_file(path: String) -> void:
     _log_import("map", "import start: " + path)

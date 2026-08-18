@@ -45,6 +45,7 @@ func _run() -> void:
     await _test_placement_records_last_map_path()
     await _test_tile_palette()
     _test_config_defaults_seed()
+    await _test_dirty_prompt()
     print("=== done, failures=%d ===" % _failures)
     quit(0 if _failures == 0 else 1)
 
@@ -1169,6 +1170,46 @@ func _test_placement_records_last_map_path() -> void:
 # seed-if-absent + config-wins without touching the real sstd_config.sqlite3.
 # Orphan instances (never added to the tree) so main._ready side effects (boot
 # world load, tab wiring) cannot run; the tested surface is seed + getters only.
+func _test_dirty_prompt() -> void:
+    print("--- dirty save prompt (issue #60) ---")
+    var main = (load("res://scripts/main.gd") as GDScript).new()
+    check(not main.is_dirty, "clean start: not dirty")
+    main.mark_dirty()
+    check(main.is_dirty, "mark_dirty sets is_dirty")
+    main.clear_dirty()
+    check(not main.is_dirty, "clear_dirty clears is_dirty")
+
+    # Non-dirty _confirm_save_dirty returns 1 immediately without a dialog.
+    var choice: int = main._confirm_save_dirty()
+    check(choice == 1, "clean state skips prompt (returns proceed)")
+    main.free()
+
+    # End-to-end: map editor paint marks dirty, save clears it.
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    while not ed._ready_done:
+        await process_frame
+    var store := ScreenStore.new()
+    store.set_dir("/tmp/user/1000/opencode")
+    ed.set_screen_store(store)
+    ed._main = null  # no main ref -> paint must not crash, and no dirty hook
+    ed._paint_tile(0, 0)
+    check(ed._tiles.has(ed._key(0, 0)), "paint writes a tile")
+
+    # With a main reference wired, paint marks dirty and save clears it.
+    var fake_main = (load("res://scripts/main.gd") as GDScript).new()
+    fake_main.is_dirty = false
+    ed._main = fake_main
+    ed._paint_tile(1, 1)
+    check(fake_main.is_dirty, "paint marks main dirty")
+    ed._save_world()
+    check(not fake_main.is_dirty, "save clears dirty")
+
+    ed.queue_free()
+    fake_main.free()
+    await process_frame
+
 func _test_config_defaults_seed() -> void:
     print("--- config defaults seed (issue #55) ---")
     var main = (load("res://scripts/main.gd") as GDScript).new()

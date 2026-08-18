@@ -314,6 +314,8 @@ func _world_json_path() -> String:
 func _save_world() -> void:
     if _store:
         _store.save_world(_world_json_path())
+    if _main and _main.has_method("clear_dirty"):
+        _main.clear_dirty()
 
 func _open_minimap(mode: String, on_pick: Callable) -> void:
     if not _store:
@@ -466,6 +468,7 @@ func place_at(tile_x: int, tile_y: int) -> void:
         "tile_y": float(tile_y),
         "rotation": 0.0,
     })
+    _mark_dirty()
     placement_grid.queue_redraw()
     info_label.text = "Placed %s at %d,%d" % [_selected_entity_key, tile_x, tile_y]
 
@@ -481,11 +484,17 @@ func remove_at(tile_x: int, tile_y: int) -> void:
             removed = true
             break
     if removed:
+        _mark_dirty()
         placement_grid.queue_redraw()
         info_label.text = "Removed at %d,%d" % [tile_x, tile_y]
 
+func _mark_dirty() -> void:
+    if _main and _main.has_method("mark_dirty"):
+        _main.mark_dirty()
+
 func _on_clear() -> void:
     _placements.clear()
+    _mark_dirty()
     _populate_terrain()
     info_label.text = "Reset to default"
 
@@ -621,8 +630,17 @@ func _on_import_map() -> void:
         if dialog_dir != "":
             dialog.current_dir = dialog_dir
     add_child(dialog)
-    dialog.file_selected.connect(_on_import_file)
+    dialog.file_selected.connect(_on_import_file_guarded)
     dialog.popup_centered(Vector2i(600, 400))
+
+# Guard interactive load against dirty state (#60): Save/Discard/Cancel before
+# replacing the current world. Await-safe; tests call `_on_import_file` directly.
+func _on_import_file_guarded(path: String) -> void:
+    if _main and _main.has_method("_confirm_dirty_or_save"):
+        if await _main._confirm_dirty_or_save() == 0:
+            _log_import("placement", "import cancelled (dirty save prompt): " + path)
+            return
+    _on_import_file(path)
 
 func _on_import_file(path: String) -> void:
     _log_import("placement", "import start: " + path)

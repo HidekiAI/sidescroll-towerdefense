@@ -200,11 +200,13 @@ func _on_tab_changed(tab: int) -> void:
 		placement_editor._update_hud()
 
 func new_project() -> void:
-	if is_dirty:
-		_confirm_discard()
+	if await _confirm_save_dirty() == 0:
+		return
 	pass
 
 func open_project(path: String) -> void:
+	if await _confirm_save_dirty() == 0:
+		return
 	pass
 
 func save_project() -> void:
@@ -223,5 +225,56 @@ func export_json(path: String) -> void:
 func import_json(path: String) -> void:
 	pass
 
-func _confirm_discard() -> void:
-	pass
+func mark_dirty() -> void:
+	is_dirty = true
+
+func clear_dirty() -> void:
+	is_dirty = false
+
+# Save/Discard/Cancel prompt for dirty state (#60). Returns 2=save-then-proceed,
+# 1=discard-and-proceed, 0=cancel. Non-dirty callers skip the prompt and get 1.
+# Modal (awaited): safe to call from _notification quit / new / open / import.
+func _confirm_save_dirty() -> int:
+	if not is_dirty:
+		return 1
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Unsaved changes"
+	dlg.dialog_text = "The current map has unsaved changes.\nSave before continuing?"
+	dlg.ok_button_text = "Save"
+	dlg.cancel_button_text = "Discard"
+	var done := false
+	var choice := 0
+	var resolve := func(c: int) -> void:
+		choice = c
+		done = true
+		dlg.queue_free()
+	dlg.get_ok_button().pressed.connect(func() -> void: resolve.call(2))
+	dlg.get_cancel_button().pressed.connect(func() -> void: resolve.call(1))
+	var abort := Button.new()
+	abort.text = "Cancel"
+	abort.pressed.connect(func() -> void: resolve.call(0))
+	dlg.add_child(abort)
+	dlg.close_requested.connect(func() -> void: resolve.call(0))
+	add_child(dlg)
+	dlg.popup_centered()
+	while not done:
+		await get_tree().process_frame
+	return choice
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and is_dirty:
+		var choice: int = await _confirm_save_dirty()
+		if choice == 2:
+			if map_editor and map_editor.has_method("_save_world"):
+				map_editor._save_world()
+		if choice != 0:
+			get_tree().quit()
+
+# Guard for interactive load/new/open: returns 0=cancel, else proceeds (after
+# saving if the user chose Save). Callers await this before replacing the world.
+func _confirm_dirty_or_save() -> int:
+	var choice: int = await _confirm_save_dirty()
+	if choice == 2:
+		if map_editor and map_editor.has_method("_save_world"):
+			map_editor._save_world()
+	return choice
