@@ -212,6 +212,15 @@ All runtime writes go under `user://data` (never `res://`, which is read-only in
   app quits right after the notification fires, even while the dialog awaits. Must set
   `get_tree().auto_accept_quit = false` in `_ready()` and call `get_tree().quit()`
   explicitly from the handler (dirty: after the prompt; clean: immediately).
+- **Godot gotcha #2**: you CANNOT `await` inside a `_notification()` handler at all —
+  Godot calls the handler and discards the returned coroutine, so code after the
+  `await` never runs (the quit prompt "returned" but quit never fired). Use
+  callback-driven dialogs there (connect button signals), not `await`.
+- **World formats**: `.zip` = whole world package (primary, since #43). `.json` in the
+  load/save dialogs = a single legacy screen. `user://data/world.json` = boot pointer
+  file recording the active `.zip` path — never picked in a dialog. Dialog filter
+  default follows the current world format via `_apply_world_default_filter` (#62):
+  `.zip` when `world_package_path` is set, `.json` in legacy manifest mode.
 - Dirty is set by map paint (`_paint_tile`), placement entity place/remove/clear,
   and cleared by `_save_world()` in either editor. Guards: quit
   (NOTIFICATION_WM_CLOSE_REQUEST), import dialogs (via `_on_import_file_guarded`),

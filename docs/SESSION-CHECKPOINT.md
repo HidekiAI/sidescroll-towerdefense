@@ -7,10 +7,13 @@
 > only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
 > (permanent)".
 
-Last updated: 2026-08-18. #54 M1 (relocate `res://` writes to `user://data`)
+Last updated: 2026-08-19. #54 M1 (relocate `res://` writes to `user://data`)
 committed `ae28994`; #59 native bulk canonical-coarse committed `b8c357e`
-(a3_discover 1.67s -> 0.87s); #60 dirty-save prompt committed `aa3bc6f`. Bug #61
-(prune second-run crash) filed, unfixed. See "Active step" for the resume point.
+(a3_discover 1.67s -> 0.87s); #60 dirty-save prompt committed `aa3bc6f`, then
+two GUI-smoke fixes: `3709210` (auto_accept_quit) and `3a76edc` (quit prompt
+actually quits + dialog filter preselect). #62 (dialog filter default) landed
+in `3a76edc`. Bug #61 (prune second-run crash) filed, unfixed. See "Active
+step" for the resume point.
 
 ## Objective
 
@@ -126,7 +129,21 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
    - `_test_dirty_prompt`: clean skip, mark/clear, paint->dirty, save->clean.
      Suite failures=0. NOTE: dialog itself needs a manual GUI smoke test
      (headless never reaches the modal).
-3. **Bug #61 filed (no fix):** prune crash on second run in one session —
+   - **GUI-smoke fixes after the initial commit:**
+     - `3709210`: `get_tree().auto_accept_quit = false` — the engine was
+       quitting right after WM_CLOSE_REQUEST fired, before the dialog.
+     - `3a76edc`: **you cannot `await` inside `_notification()`** — Godot calls
+       the handler and discards the coroutine, so Discard never quit. Quit path
+       is now callback-driven (Save->save+quit, Discard->quit, Cancel->stay)
+       and hides open FileDialogs first (exclusive-child error).
+3. **#62 dialog filter preselect — DONE in `3a76edc`, comment on #62.**
+   - `_apply_world_default_filter(dialog)` in both editors, all four dialogs:
+     `.zip` when `world_package_path` is set (package mode), `.json` in legacy
+     manifest mode. Other format reachable via dropdown.
+   - World formats (docs): `.zip` = whole map (primary since #43). `.json` =
+     single legacy screen. `user://data/world.json` = boot pointer to the
+     active `.zip` — never picked in a dialog.
+4. **Bug #61 filed (no fix):** prune crash on second run in one session —
    `Invalid access of index '2017'` in `_finalize_prune_plan` (union-find index
    space no longer matches a shrunken `_stamp_catalog`). Reproduction log in
    the issue. Not fixed.
@@ -142,7 +159,9 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
    - #61 prune-crash bug: root-cause + fix (stale union-find vs shrunken catalog).
    - #54 M2 packaging/CI (deferred); #57 CLI data-dir override (deferred);
      #58 EditorRemote (deferred).
-   - Manual GUI smoke: the #60 Save/Discard/Cancel dialog (interactive run).
+2. GUI re-verify pending (from the last smoke test): the #60 Save/Discard/Cancel
+   dialog on quit (fixed `3a76edc`) and the #62 filter preselect — confirm Load
+   defaults to `.zip` and that Save/Discard/Cancel each close the app as expected.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
