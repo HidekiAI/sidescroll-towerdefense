@@ -54,6 +54,26 @@ applies to ALL issue types — features, bugs, and chores alike.
     table — must lead (directly or indirectly) to a wiki page. Commit ->
     issue -> wiki; the closing comment is the issue->wiki link, so cite the
     wiki page in it.
+
+## Documentation Reference Architecture (permanent, user directive 2026-08-19)
+
+Rule of thumb for where commit hashes vs. wiki belong:
+
+- **Commit ref-hashes live ONLY in GitHub Issues.** Any document that needs an
+  association to a git ref-hash (commit hash) must anchor that association on a
+  GitHub issue (issue body/comment), never embed the hash itself in the wiki.
+  Example: a closing comment references the commit; the wiki never does.
+- **Everything else is Wiki-based.** Documents that do not need a commit-hash
+  association are grounded on wiki pages (TDD/GDD). Wiki pages cite ISSUE
+  numbers, not commit hashes.
+- **Wiki never contains git ref-hashes.** A commit hash in a wiki page breaks
+  if the wiki moves off GitHub (no link to maintain) or history is rewritten.
+  An issue number is a stable, movable, resolvable anchor; a raw hash is not.
+- **"Document"** = any persisted history of text: commit messages, PR
+  descriptions/comments, GitHub issues (feature/bug/chore), README, wiki pages.
+- **Invariant**: scanning these documents across the GitHub repos must yield a
+  complete record of WHY and WHAT for any change — wiki for design, issues for
+  commit associations, and the issue link between them.
 - **Reopen** it if a follow-up proves the fix incomplete (with the new
   repro/evidence in the body).
 - **Keep open** when the issue is deliberately deferred in-body (e.g. #54 M2)
