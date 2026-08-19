@@ -36,6 +36,22 @@ document the plan in it, then implement — and reference the issue number in th
 commit that implements it. (User directive 2026-08-17, enforced twice on the
 #55 config-defaults work.)
 
+## Issue-State Hygiene (permanent, user directive 2026-08-19)
+
+GitHub issue states are part of the persisted status progression and MUST be
+kept in sync with commits, alongside the checkpoint/wiki/AGENTS updates:
+
+- **Close** an issue the moment its work is addressed and committed (a "DONE
+  (committed ...)" comment alone is NOT enough — the issue stays open).
+  Reference the commit in the closing comment.
+- **Reopen** it if a follow-up proves the fix incomplete (with the new
+  repro/evidence in the body).
+- **Keep open** when the issue is deliberately deferred in-body (e.g. #54 M2)
+  or is a filed-but-unfixed bug (#61).
+- Do this in the SAME pass as the code commit and doc updates, not as a
+  separate "later" step. (Rule recorded 2026-08-19, after #55/#52/#53/#59/#60/
+  #62 shipped but were left open.)
+
 ## gRPC Integration
 
 Three gRPC service contexts, each on a separate port (localhost-only by default, no auth):
