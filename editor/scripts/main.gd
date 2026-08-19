@@ -240,41 +240,70 @@ func clear_dirty() -> void:
 func _confirm_save_dirty() -> int:
 	if not is_dirty:
 		return 1
-	var dlg := ConfirmationDialog.new()
-	dlg.title = "Unsaved changes"
-	dlg.dialog_text = "The current map has unsaved changes.\nSave before continuing?"
-	dlg.ok_button_text = "Save"
-	dlg.cancel_button_text = "Discard"
+	var dlg := _build_unsaved_dialog()
 	var done := false
 	var choice := 0
-	var resolve := func(c: int) -> void:
+	var on_resolve := func(c: int) -> void:
 		choice = c
 		done = true
 		dlg.queue_free()
-	dlg.get_ok_button().pressed.connect(func() -> void: resolve.call(2))
-	dlg.get_cancel_button().pressed.connect(func() -> void: resolve.call(1))
-	var abort := Button.new()
-	abort.text = "Cancel"
-	abort.pressed.connect(func() -> void: resolve.call(0))
-	dlg.add_child(abort)
-	dlg.close_requested.connect(func() -> void: resolve.call(0))
-	add_child(dlg)
+	dlg.get_ok_button().pressed.connect(func() -> void: on_resolve.call(2))
+	dlg.get_cancel_button().pressed.connect(func() -> void: on_resolve.call(1))
+	dlg.close_requested.connect(func() -> void: on_resolve.call(0))
 	dlg.popup_centered()
 	while not done:
 		await get_tree().process_frame
 	return choice
 
+# NOTIFICATION_WM_CLOSE_REQUEST cannot be handled with an await: the engine calls
+# the handler, discards the coroutine, and the continuation never resumes — so the
+# quit prompt would return without quitting. Instead we drive it via callbacks:
+# the dialog must resolve to an explicit get_tree().quit() or Cancel keeps the
+# app alive. (#60)
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		if not is_dirty:
 			get_tree().quit()
 			return
-		var choice: int = await _confirm_save_dirty()
-		if choice == 2:
-			if map_editor and map_editor.has_method("_save_world"):
+		_close_open_file_dialogs()
+		var dlg := _build_unsaved_dialog()
+		var on_resolve := func(c: int) -> void:
+			dlg.queue_free()
+			if c == 2 and map_editor and map_editor.has_method("_save_world"):
 				map_editor._save_world()
-		if choice != 0:
-			get_tree().quit()
+			if c != 0:
+				get_tree().quit()
+		dlg.get_ok_button().pressed.connect(func() -> void: on_resolve.call(2))
+		dlg.get_cancel_button().pressed.connect(func() -> void: on_resolve.call(1))
+		dlg.close_requested.connect(func() -> void: on_resolve.call(0))
+		dlg.popup_centered()
+
+# A still-open FileDialog is an exclusive child window; a second exclusive dialog
+# (the quit prompt) would fail to open. Hide them before prompting. (#60)
+func _close_open_file_dialogs() -> void:
+	for child in get_tree().root.get_children():
+		_hide_dialogs_in(child)
+
+func _hide_dialogs_in(node: Node) -> void:
+	if node is FileDialog and node.visible:
+		node.hide()
+	for child in node.get_children():
+		_hide_dialogs_in(child)
+
+func _build_unsaved_dialog() -> ConfirmationDialog:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Unsaved changes"
+	dlg.dialog_text = "The current map has unsaved changes.\nSave before continuing?"
+	dlg.ok_button_text = "Save"
+	dlg.cancel_button_text = "Discard"
+	var abort := Button.new()
+	abort.text = "Cancel"
+	abort.pressed.connect(func() -> void: dlg.close_requested.emit())
+	dlg.add_child(abort)
+	dlg.get_cancel_button().icon = null
+	dlg.min_size = Vector2(420, 0)
+	add_child(dlg)
+	return dlg
 
 # Guard for interactive load/new/open: returns 0=cancel, else proceeds (after
 # saving if the user chose Save). Callers await this before replacing the world.

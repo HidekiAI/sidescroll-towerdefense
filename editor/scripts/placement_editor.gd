@@ -311,6 +311,12 @@ func _world_json_path() -> String:
         return _main.get_world_json_path()
     return WORLD_PATH
 
+# Preselect the load/save dialog filter to match the current world format (#62):
+# a package-backed world defaults to .zip; legacy manifest mode to .json.
+func _apply_world_default_filter(dialog: FileDialog) -> void:
+    var zip_mode := _store and not _store.world_package_path.is_empty()
+    dialog.current_filter = "*.zip ; SSTD World Package" if zip_mode else "*.json ; Screen JSON (legacy)"
+
 func _save_world() -> void:
     if _store:
         _store.save_world(_world_json_path())
@@ -541,6 +547,7 @@ func _on_save() -> void:
     dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
     dialog.add_filter("*.zip", "SSTD World Package")
     dialog.add_filter("*.json", "Screen JSON (legacy)")
+    _apply_world_default_filter(dialog)
     dialog.title = "Save world (package)"
     if _main and _main.has_method("get_default_world_file"):
         dialog.current_file = _main.get_default_world_file()
@@ -624,6 +631,7 @@ func _on_import_map() -> void:
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
     dialog.add_filter("*.zip", "SSTD World Package")
     dialog.add_filter("*.json", "Screen JSON (legacy)")
+    _apply_world_default_filter(dialog)
     dialog.title = "Load world package"
     if _main and _main.has_method("get_file_dialog_dir"):
         var dialog_dir: String = _main.get_file_dialog_dir()
