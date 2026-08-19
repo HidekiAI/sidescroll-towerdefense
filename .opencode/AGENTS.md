@@ -39,11 +39,21 @@ commit that implements it. (User directive 2026-08-17, enforced twice on the
 ## Issue-State Hygiene (permanent, user directive 2026-08-19)
 
 GitHub issue states are part of the persisted status progression and MUST be
-kept in sync with commits, alongside the checkpoint/wiki/AGENTS updates:
+kept in sync with commits, alongside the checkpoint/wiki/AGENTS updates. This
+applies to ALL issue types — features, bugs, and chores alike.
 
 - **Close** an issue the moment its work is addressed and committed (a "DONE
   (committed ...)" comment alone is NOT enough — the issue stays open).
-  Reference the commit in the closing comment.
+  - For FEATURES: the closing comment must also confirm the feature is
+    implemented as stated on the wiki, citing the wiki page(s) that document
+    it (e.g. `TDD_World-Editor`, `TDD_Tile-Deduplication`).
+  - For BUGS: reference the commit that fixes it AND the wiki page(s)
+    describing the intended/correct behavior.
+  - For CHORES/DOCS: reference the commit (and wiki page if applicable).
+  - Traceability invariant: every path — commit, closing comment, wiki TODO
+    table — must lead (directly or indirectly) to a wiki page. Commit ->
+    issue -> wiki; the closing comment is the issue->wiki link, so cite the
+    wiki page in it.
 - **Reopen** it if a follow-up proves the fix incomplete (with the new
   repro/evidence in the body).
 - **Keep open** when the issue is deliberately deferred in-body (e.g. #54 M2)
