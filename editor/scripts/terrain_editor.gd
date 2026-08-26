@@ -3,6 +3,7 @@ extends Control
 var _bridge: Node
 var _main: Node
 var _terrain_types: Array[Dictionary] = []
+var _framework_terrains: Array[Dictionary] = []
 var _selected_index: int = -1
 var _suppress_prop_change: bool = false
 var _tile_px: int = 32
@@ -90,8 +91,6 @@ func _ready() -> void:
 	pixel_canvas.pixel_changed.connect(_on_canvas_pixel_changed)
 	auto_detect_btn.pressed.connect(_on_auto_detect_mask)
 
-	_add_default_terrains()
-
 func _populate_option_buttons() -> void:
 	for item in ["normal", "ice", "mud"]:
 		surface_option.add_item(item)
@@ -103,21 +102,6 @@ func _refresh_on_destroy_options() -> void:
 	on_destroy_option.add_item("(none)")
 	for t in _terrain_types:
 		on_destroy_option.add_item(t["key"])
-
-func _add_default_terrains() -> void:
-	var defaults: Array[Dictionary] = [
-		{"key": "grass", "display_name": "Grass", "is_walkable": true, "is_buildable": true, "surface": "normal", "hazard": "none", "elevation_tiles": 0, "color_hex": "#4a7c3f", "sub_tile_mask": 0xF, "hazard_damage_per_tick": 0, "is_destructible": false, "destructible_hp": 0, "on_destroy_terrain_key": ""},
-		{"key": "dirt", "display_name": "Dirt", "is_walkable": true, "is_buildable": true, "surface": "normal", "hazard": "none", "elevation_tiles": 0, "color_hex": "#8b5e3c", "sub_tile_mask": 0xF, "hazard_damage_per_tick": 0, "is_destructible": true, "destructible_hp": 50, "on_destroy_terrain_key": "air"},
-		{"key": "stone", "display_name": "Stone", "is_walkable": true, "is_buildable": true, "surface": "normal", "hazard": "none", "elevation_tiles": 0, "color_hex": "#7a7a7a", "sub_tile_mask": 0xF, "hazard_damage_per_tick": 0, "is_destructible": true, "destructible_hp": 200, "on_destroy_terrain_key": "dirt"},
-		{"key": "wall", "display_name": "Wall", "is_walkable": false, "is_buildable": false, "surface": "normal", "hazard": "none", "elevation_tiles": 0, "color_hex": "#555555", "sub_tile_mask": 0x0, "hazard_damage_per_tick": 0, "is_destructible": false, "destructible_hp": 0, "on_destroy_terrain_key": ""},
-		{"key": "water", "display_name": "Water", "is_walkable": true, "is_buildable": false, "surface": "normal", "hazard": "none", "elevation_tiles": 0, "color_hex": "#3a7bd5", "sub_tile_mask": 0xF, "hazard_damage_per_tick": 0, "is_destructible": false, "destructible_hp": 0, "on_destroy_terrain_key": ""},
-		{"key": "lava", "display_name": "Lava", "is_walkable": false, "is_buildable": false, "surface": "normal", "hazard": "lava", "elevation_tiles": 0, "color_hex": "#ff4500", "sub_tile_mask": 0x0, "hazard_damage_per_tick": 10, "is_destructible": false, "destructible_hp": 0, "on_destroy_terrain_key": ""},
-		{"key": "air", "display_name": "Air", "is_walkable": false, "is_buildable": false, "surface": "normal", "hazard": "none", "elevation_tiles": 0, "color_hex": "#87ceeb", "sub_tile_mask": 0x0, "hazard_damage_per_tick": 0, "is_destructible": false, "destructible_hp": 0, "on_destroy_terrain_key": ""},
-	]
-	for t in defaults:
-		_terrain_types.append(t.duplicate(true))
-	_refresh_list()
-	_refresh_on_destroy_options()
 
 func _refresh_list() -> void:
 	list.clear()
@@ -771,3 +755,49 @@ func get_mask_preview() -> int:
 	if _selected_index < 0:
 		return 0xF
 	return int(_terrain_types[_selected_index].get("sub_tile_mask", 0xF))
+
+func set_framework_terrains(terrains: Array[Dictionary]) -> void:
+	_framework_terrains = terrains.duplicate(true)
+	_terrain_types.clear()
+	for t in _framework_terrains:
+		_terrain_types.append(t.duplicate(true))
+	_selected_index = -1
+	_refresh_list()
+	_refresh_on_destroy_options()
+	_clear_props()
+
+func apply_terrain_overrides(overrides: Dictionary) -> void:
+	for t in _terrain_types:
+		var key: String = t.get("key", "")
+		if overrides.has(key):
+			for prop in overrides[key]:
+				t[prop] = overrides[key][prop]
+	_refresh_list()
+	if _selected_index >= 0 and _selected_index < _terrain_types.size():
+		_on_select(_selected_index)
+	_refresh_on_destroy_options()
+
+func collect_terrain_overrides() -> Dictionary:
+	var overrides: Dictionary = {}
+	for t in _terrain_types:
+		var key: String = t.get("key", "")
+		if key.is_empty():
+			continue
+		var fw: Dictionary = {}
+		for ft in _framework_terrains:
+			if ft.get("key", "") == key:
+				fw = ft
+				break
+		if fw.is_empty():
+			continue
+		var diffs: Dictionary = {}
+		for prop in t:
+			if prop == "key":
+				continue
+			if fw.has(prop) and t[prop] != fw[prop]:
+				diffs[prop] = t[prop]
+			elif not fw.has(prop):
+				diffs[prop] = t[prop]
+		if not diffs.is_empty():
+			overrides[key] = diffs
+	return overrides

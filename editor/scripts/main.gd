@@ -15,6 +15,10 @@ var project_path := ""
 var _bridge: Node
 var _grid_config: Dictionary = {}
 var screen_store: ScreenStore
+var _framework_terrains: Array[Dictionary] = []
+var _framework_entities: Array[Dictionary] = []
+var _terrain_overrides: Dictionary = {}
+var _world_entity_defs: Array = []
 
 var tabs: TabContainer
 var terrain_editor: Node
@@ -57,6 +61,7 @@ func _ready() -> void:
 	_seed_config_defaults()
 	_world_json_path = get_world_json_path()
 	_load_grid_config()
+	_load_framework_defaults()
 	tabs.tab_changed.connect(_on_tab_changed)
 	_wire_editors()
 	_auto_load_last_map()
@@ -131,6 +136,59 @@ func _load_grid_config() -> void:
 	assert(parsed != null and typeof(parsed) == TYPE_DICTIONARY, "Failed to parse grid config from bridge")
 	_grid_config = parsed
 
+func _load_framework_defaults() -> void:
+	var terrain_path := "res://default_package/terrain_types.json"
+	var entity_path := "res://default_package/entity_defs.json"
+	var tf := FileAccess.open(terrain_path, FileAccess.READ)
+	if tf:
+		var parsed = JSON.parse_string(tf.get_as_text())
+		tf.close()
+		if typeof(parsed) == TYPE_DICTIONARY and parsed.has("tiles"):
+			_framework_terrains.clear()
+			for item in parsed["tiles"]:
+				_framework_terrains.append(item as Dictionary)
+			print("[main] Loaded %d framework terrain types from %s" % [_framework_terrains.size(), terrain_path])
+		else:
+			push_warning("Failed to parse " + terrain_path)
+	else:
+		push_warning("Framework terrain_types.json not found at " + terrain_path)
+	var ef := FileAccess.open(entity_path, FileAccess.READ)
+	if ef:
+		var parsed = JSON.parse_string(ef.get_as_text())
+		ef.close()
+		if typeof(parsed) == TYPE_DICTIONARY and parsed.has("entities"):
+			_framework_entities.clear()
+			for item in parsed["entities"]:
+				_framework_entities.append(item as Dictionary)
+			print("[main] Loaded %d framework entity defs from %s" % [_framework_entities.size(), entity_path])
+		else:
+			push_warning("Failed to parse " + entity_path)
+	else:
+		push_warning("Framework entity_defs.json not found at " + entity_path)
+
+func on_world_loaded(data: Dictionary) -> void:
+	_terrain_overrides = data.get("terrain_overrides", {})
+	_world_entity_defs = data.get("world_entity_defs", [])
+	if terrain_editor and not _framework_terrains.is_empty():
+		terrain_editor.set_framework_terrains(_framework_terrains)
+		if not _terrain_overrides.is_empty():
+			terrain_editor.apply_terrain_overrides(_terrain_overrides)
+	if entity_editor and not _framework_entities.is_empty():
+		entity_editor.set_framework_entities(_framework_entities)
+		if not _world_entity_defs.is_empty():
+			entity_editor.apply_world_entity_defs(_world_entity_defs)
+	print("[main] World loaded: %d terrain overrides, %d world entity defs" % [_terrain_overrides.size(), _world_entity_defs.size()])
+
+func get_terrain_overrides_for_save() -> Dictionary:
+	if terrain_editor and terrain_editor.has_method("collect_terrain_overrides"):
+		return terrain_editor.collect_terrain_overrides()
+	return {}
+
+func get_world_entity_defs_for_save() -> Array:
+	if entity_editor and entity_editor.has_method("collect_world_entity_defs"):
+		return entity_editor.collect_world_entity_defs()
+	return []
+
 func _wire_editors() -> void:
 	screen_store = ScreenStore.new()
 	screen_store.load_world(_world_json_path)
@@ -143,6 +201,10 @@ func _wire_editors() -> void:
 			ed.set_main_reference(self)
 		if ed.has_method("set_screen_store"):
 			ed.set_screen_store(screen_store)
+	if terrain_editor and not _framework_terrains.is_empty():
+		terrain_editor.set_framework_terrains(_framework_terrains)
+	if entity_editor and not _framework_entities.is_empty():
+		entity_editor.set_framework_entities(_framework_entities)
 
 func _sync_tile_set_categories_to_db() -> void:
 	if not _bridge or not _bridge.has_method("set_tile_set_category"):
