@@ -5,6 +5,8 @@ var tile_size: int = 32
 var grid_w: int = 60
 var grid_h: int = 33
 var show_collision: bool = false
+var collision_paint_mode: String = ""  # "", "direct", "smart"
+var smart_brush_radius: int = 0
 var _texture_cache: Dictionary = {}
 
 func set_grid_config(cfg: Dictionary) -> void:
@@ -112,10 +114,16 @@ func _draw() -> void:
 
     var mouse := get_local_mouse_position()
     var tile := pixel_to_tile(mouse)
-    if tile.x >= 0 and tile.x < grid_w and tile.y >= 0 and tile.y < grid_h:
-        var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size)
-        draw_rect(highlight, Color(1, 1, 1, 0.25), true)
-        draw_rect(highlight, Color.WHITE, false, 2)
+
+    if collision_paint_mode == "direct":
+        _draw_direct_paint_cursor(mouse, tile)
+    elif collision_paint_mode == "smart":
+        _draw_smart_brush_cursor(mouse, tile)
+    else:
+        if tile.x >= 0 and tile.x < grid_w and tile.y >= 0 and tile.y < grid_h:
+            var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size)
+            draw_rect(highlight, Color(1, 1, 1, 0.25), true)
+            draw_rect(highlight, Color.WHITE, false, 2)
 
     if map_editor and map_editor.get("_stamp_active"):
         _draw_stamp_preview(tile)
@@ -153,15 +161,123 @@ func _draw_collision_overlay() -> void:
                     )
                     draw_rect(qrect, Color(0, 1, 0, 0.5) if solid else Color(1, 0, 0, 0.5), true, 0)
 
+func _draw_direct_paint_cursor(mouse: Vector2, tile: Vector2i) -> void:
+    if tile.x < 0 or tile.x >= grid_w or tile.y < 0 or tile.y >= grid_h:
+        return
+    var hw: float = tile_size / 2.0
+    var base_x := tile.x * tile_size
+    var base_y := tile.y * tile_size
+    var local_x := mouse.x - base_x
+    var local_y := mouse.y - base_y
+    var qx: int = 0 if local_x < hw else 1
+    var qy: int = 0 if local_y < hw else 1
+    var tile_rect := Rect2(base_x, base_y, tile_size, tile_size)
+    draw_rect(tile_rect, Color(1, 1, 1, 0.15), true)
+    draw_rect(tile_rect, Color.YELLOW, false, 2)
+    draw_line(Vector2(base_x + hw, base_y), Vector2(base_x + hw, base_y + tile_size), Color.YELLOW, 1)
+    draw_line(Vector2(base_x, base_y + hw), Vector2(base_x + tile_size, base_y + hw), Color.YELLOW, 1)
+    var hl_rect := Rect2(base_x + qx * hw, base_y + qy * hw, hw, hw)
+    draw_rect(hl_rect, Color(1, 1, 1, 0.35), true)
+
+func _draw_smart_brush_cursor(mouse: Vector2, _tile: Vector2i) -> void:
+    var center := pixel_to_tile(mouse)
+    var pixel_radius := float(smart_brush_radius + 0.5) * tile_size
+    var center_px := Vector2(center.x * tile_size + tile_size / 2.0, center.y * tile_size + tile_size / 2.0)
+    var segments := 48
+    for i in segments:
+        var angle_a := TAU * i / segments
+        var angle_b := TAU * (i + 1) / segments
+        var pa := center_px + Vector2(cos(angle_a), sin(angle_a)) * pixel_radius
+        var pb := center_px + Vector2(cos(angle_b), sin(angle_b)) * pixel_radius
+        draw_line(pa, pb, Color(1, 1, 0, 0.6), 2)
+    for dy in range(-smart_brush_radius, smart_brush_radius + 1):
+        for dx in range(-smart_brush_radius, smart_brush_radius + 1):
+            if dx * dx + dy * dy > smart_brush_radius * smart_brush_radius:
+                continue
+            var tx := center.x + dx
+            var ty := center.y + dy
+            if tx < 0 or tx >= grid_w or ty < 0 or ty >= grid_h:
+                continue
+            var trect := Rect2(tx * tile_size, ty * tile_size, tile_size, tile_size)
+            draw_rect(trect, Color(0.3, 0.5, 1.0, 0.15), true)
+
 func _gui_input(event: InputEvent) -> void:
     if map_editor and map_editor.get("_stamp_active"):
         map_editor._stamp_grid_input(event)
         return
-    if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-        var tile := pixel_to_tile(event.position)
-        if map_editor:
-            map_editor._paint_tile(tile.x, tile.y)
-    elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
-        var tile := pixel_to_tile(event.position)
-        if map_editor:
-            map_editor._paint_tile(tile.x, tile.y)
+    if collision_paint_mode == "direct":
+        if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+            _apply_direct_paint(event.position)
+            return
+        if event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+            _apply_direct_paint(event.position)
+            return
+    elif collision_paint_mode == "smart":
+        if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+            _apply_smart_brush(event.position)
+            return
+        if event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+            _apply_smart_brush(event.position)
+            return
+    else:
+        if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+            var tile := pixel_to_tile(event.position)
+            if map_editor:
+                map_editor._paint_tile(tile.x, tile.y)
+        elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+            var tile := pixel_to_tile(event.position)
+            if map_editor:
+                map_editor._paint_tile(tile.x, tile.y)
+
+func _apply_direct_paint(pos: Vector2) -> void:
+    var tile := pixel_to_tile(pos)
+    if tile.x < 0 or tile.x >= grid_w or tile.y < 0 or tile.y >= grid_h:
+        return
+    if not map_editor:
+        return
+    var td: Dictionary = map_editor.get_tile_data(tile.x, tile.y)
+    if td.is_empty():
+        return
+    var hw: float = tile_size / 2.0
+    var local_x := pos.x - tile.x * tile_size
+    var local_y := pos.y - tile.y * tile_size
+    var qx: int = 0 if local_x < hw else 1
+    var qy: int = 0 if local_y < hw else 1
+    var bit_index: int = qy * 2 + qx
+    var mask: int = int(td.get("sub_tile_mask", 15))
+    mask ^= (1 << bit_index)
+    td["sub_tile_mask"] = mask
+    var key := "%d,%d" % [tile.x, tile.y]
+    map_editor._tile_data[key] = td
+    if map_editor.has_method("_mark_dirty"):
+        map_editor._mark_dirty()
+    queue_redraw()
+
+func _apply_smart_brush(pos: Vector2) -> void:
+    if not map_editor:
+        return
+    var center := pixel_to_tile(pos)
+    for dy in range(-smart_brush_radius, smart_brush_radius + 1):
+        for dx in range(-smart_brush_radius, smart_brush_radius + 1):
+            if dx * dx + dy * dy > smart_brush_radius * smart_brush_radius:
+                continue
+            var tx := center.x + dx
+            var ty := center.y + dy
+            if tx < 0 or tx >= grid_w or ty < 0 or ty >= grid_h:
+                continue
+            var key := "%d,%d" % [tx, ty]
+            var terrain_key: String = map_editor.get_tile(tx, ty)
+            if terrain_key.is_empty():
+                continue
+            var img: Image = map_editor.get_tile_image(terrain_key)
+            if not img:
+                continue
+            var new_mask: int = map_editor.auto_detect_mask_from_image(img)
+            var td: Dictionary = map_editor.get_tile_data(tx, ty)
+            if int(td.get("sub_tile_mask", -1)) == new_mask:
+                continue
+            td["sub_tile_mask"] = new_mask
+            map_editor._tile_data[key] = td
+    if map_editor.has_method("_mark_dirty"):
+        map_editor._mark_dirty()
+    queue_redraw()

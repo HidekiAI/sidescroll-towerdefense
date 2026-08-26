@@ -542,6 +542,11 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Collision"
 
+[node name="CollisionMapBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Collision Map"
+
 [node name="PaletteLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel"]
 layout_mode = 2
 custom_minimum_size = Vector2(0, 22)

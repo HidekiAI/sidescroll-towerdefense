@@ -44,6 +44,10 @@ size_flags_horizontal = 3
 text = "Collision"
 size_flags_horizontal = 3
 
+[node name="CollisionMapBtn" type="Button" parent="LeftPanel/TopBar"]
+text = "Collision Map"
+size_flags_horizontal = 3
+
 [node name="PaletteLabel" type="Label" parent="LeftPanel"]
 text = "— Tile Palette —"
 custom_minimum_size = Vector2(0, 22)

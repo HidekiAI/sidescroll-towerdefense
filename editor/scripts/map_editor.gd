@@ -23,6 +23,8 @@ var _tile_set_groupings: Array = []
 var _selected_tile_set_key: String = ""
 var _flip_h_active: bool = false
 var _flip_v_active: bool = false
+var _collision_paint_mode: String = ""  # "", "direct", "smart"
+var _smart_brush_radius: int = 2  # tiles from center, range [1, 5]
 
 var _store: ScreenStore
 var _screen_pos: Vector2i = Vector2i.ZERO
@@ -72,6 +74,7 @@ var _ready_done := false  # set when _ready finishes (async catalog load) — us
 @onready var deep_prune_btn: Button = $LeftPanel/BottomBar/DeepPruneBtn
 @onready var stamp_btn: Button = $LeftPanel/BottomBar/StampBtn
 @onready var collision_btn: CheckButton = $LeftPanel/TopBar/CollisionBtn
+@onready var collision_map_btn: Button = $LeftPanel/TopBar/CollisionMapBtn
 @onready var cursor_label: Label = $LeftPanel/BottomBar/CursorLabel
 @onready var info_label: Label = $LeftPanel/BottomBar/InfoLabel
 @onready var hud_label: Label = $HUD
@@ -111,6 +114,7 @@ func _ready() -> void:
     screen_spin.value_changed.connect(_on_screen_changed)
     tile_palette.tile_picked.connect(_on_tile_picked)
     collision_btn.toggled.connect(_on_toggle_collision)
+    collision_map_btn.pressed.connect(_on_collision_map_pressed)
     add_btn.pressed.connect(_on_add_screen)
     delete_btn.pressed.connect(_on_delete_screen)
     move_btn.pressed.connect(_on_move_screen)
@@ -429,6 +433,147 @@ func _on_tile_picked(kind: String, key: String) -> void:
 func _on_toggle_collision(visible: bool) -> void:
     tile_grid.show_collision = visible
     tile_grid.queue_redraw()
+
+func _on_collision_map_pressed() -> void:
+    var popup := PopupMenu.new()
+    popup.add_item("Update All Tiles in World", 0)
+    popup.add_item("Update Selected Terrain", 1)
+    popup.add_separator()
+    popup.add_item("Paint Direct (quadrant toggle)", 3)
+    popup.add_item("Paint Smart Brush (auto-detect)", 4)
+    popup.id_pressed.connect(_on_collision_map_action)
+    add_child(popup)
+    popup.position = Vector2i(
+        int(collision_map_btn.global_position.x),
+        int(collision_map_btn.global_position.y + collision_map_btn.size.y)
+    )
+    popup.popup()
+
+func _on_collision_map_action(id: int) -> void:
+    match id:
+        0:
+            _bulk_update_collision_masks(false)
+        1:
+            _bulk_update_collision_masks(true)
+        3:
+            _toggle_collision_paint_mode("direct")
+        4:
+            _toggle_collision_paint_mode("smart")
+
+func _toggle_collision_paint_mode(mode: String) -> void:
+    if _collision_paint_mode == mode:
+        mode = ""
+    _collision_paint_mode = mode
+    if mode == "direct":
+        tile_grid.show_collision = true
+        tile_grid.collision_paint_mode = "direct"
+        tile_grid.smart_brush_radius = 0
+        info_label.text = "Collision Paint [Direct]: click to toggle quadrants [Esc to exit]"
+        collision_map_btn.text = "Collision Map [DIRECT]"
+    elif mode == "smart":
+        tile_grid.show_collision = true
+        tile_grid.collision_paint_mode = "smart"
+        tile_grid.smart_brush_radius = _smart_brush_radius
+        info_label.text = "Collision Paint [Smart]: paint auto-detects masks [Scroll: resize brush, Esc to exit]"
+        collision_map_btn.text = "Collision Map [SMART]"
+    else:
+        tile_grid.collision_paint_mode = ""
+        tile_grid.smart_brush_radius = 0
+        collision_map_btn.text = "Collision Map"
+        if collision_btn.button_pressed:
+            info_label.text = ""
+        else:
+            info_label.text = ""
+    tile_grid.queue_redraw()
+
+func _bulk_update_collision_masks(selected_only: bool) -> void:
+    var keys: Array = []
+    if selected_only:
+        if not _selected_terrain.is_empty():
+            keys.append(_selected_terrain)
+    else:
+        var seen: Dictionary = {}
+        for cell_key in _tiles:
+            var tk: String = _tiles[cell_key]
+            if not tk.is_empty() and not seen.has(tk):
+                seen[tk] = true
+                keys.append(tk)
+        if _store:
+            for pos_key in _store.cache:
+                var screen_data: Dictionary = _store.cache[pos_key]
+                for t in screen_data.get("tiles", []):
+                    var tk: String = t.get("terrain", "")
+                    if not tk.is_empty() and not seen.has(tk):
+                        seen[tk] = true
+                        keys.append(tk)
+    if keys.is_empty():
+        info_label.text = "Collision Map: no terrain keys found"
+        return
+    _set_busy(true)
+    var cells_updated := 0
+    var types_updated := 0
+    for terrain_key in keys:
+        var img: Image = get_tile_image(terrain_key)
+        if not img:
+            continue
+        var new_mask: int = auto_detect_mask_from_image(img)
+        var old_mask: int = 0
+        for t in _terrain_types:
+            if t.get("key", "") == terrain_key:
+                old_mask = int(t.get("sub_tile_mask", 15))
+                t["sub_tile_mask"] = new_mask
+                break
+        if new_mask == old_mask:
+            continue
+        for cell_key in _tiles:
+            if _tiles[cell_key] == terrain_key:
+                var td: Dictionary = _tile_data.get(cell_key, {})
+                td["sub_tile_mask"] = new_mask
+                _tile_data[cell_key] = td
+                cells_updated += 1
+        if _store:
+            for pos_key in _store.cache:
+                var screen_data: Dictionary = _store.cache[pos_key]
+                for t in screen_data.get("tiles", []):
+                    if t.get("terrain", "") == terrain_key:
+                        t["sub_tile_mask"] = new_mask
+        for ts in _tile_set_groupings:
+            for entry in ts.tiles:
+                if entry.get("terrain_key", "") == terrain_key:
+                    entry["sub_tile_mask"] = new_mask
+        types_updated += 1
+        _log_import("collision-map", "%s 0x%X -> 0x%X" % [terrain_key, old_mask, new_mask])
+    _set_busy(false)
+    tile_grid.show_collision = true
+    tile_grid.queue_redraw()
+    info_label.text = "Collision masks updated: %d types, %d cells" % [types_updated, cells_updated]
+
+func auto_detect_mask_from_image(img: Image) -> int:
+    var w: int = img.get_width()
+    var h: int = img.get_height()
+    if w == 0 or h == 0:
+        return 0xF
+    var mask: int = 0
+    var quadrants := [
+        {"index": 0, "x0": 0,    "y0": 0,    "x1": w / 2, "y1": h / 2},
+        {"index": 1, "x0": w / 2, "y0": 0,    "x1": w,     "y1": h / 2},
+        {"index": 2, "x0": 0,    "y0": h / 2, "x1": w / 2, "y1": h},
+        {"index": 3, "x0": w / 2, "y0": h / 2, "x1": w,     "y1": h},
+    ]
+    for q in quadrants:
+        var total: float = 0.0
+        var count: int = 0
+        for y in range(q["y0"], q["y1"]):
+            for x in range(q["x0"], q["x1"]):
+                var px := img.get_pixel(x, y)
+                var lum: float = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b
+                total += lum
+                count += 1
+        if count == 0:
+            continue
+        if total / count > 0.5:
+            mask |= 1 << q["index"]
+    return mask
 
 func select_tile_set(key: String) -> void:
     tile_palette.select_key(key)
@@ -807,7 +952,14 @@ func _on_save() -> void:
     dialog.file_selected.connect(func(path: String):
         var wrote := false
         if WorldArchive.is_world_path(path):
-            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles)
+            var terrain_ov := {}
+            var world_ents: Array = []
+            if _main:
+                if _main.has_method("get_terrain_overrides_for_save"):
+                    terrain_ov = _main.get_terrain_overrides_for_save()
+                if _main.has_method("get_world_entity_defs_for_save"):
+                    world_ents = _main.get_world_entity_defs_for_save()
+            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles, {}, terrain_ov, world_ents)
         else:
             var f := FileAccess.open(path, FileAccess.WRITE)
             if f:
@@ -912,6 +1064,8 @@ func _load_world_package(path: String) -> void:
         _store.apply_world_data(data)
         _store.world_package_path = path
         _save_world()
+    if _main and _main.has_method("on_world_loaded"):
+        _main.on_world_loaded(data)
     _restore_tile_bank(data["tile_images"])
     _refresh_tile_palette()
     var current_id: int = _screen_id
@@ -2079,6 +2233,22 @@ func _input(event: InputEvent) -> void:
             get_viewport().set_input_as_handled()
         if event.keycode == KEY_H or event.keycode == KEY_I or event.keycode == KEY_M:
             hud_label.visible = not hud_label.visible
+            get_viewport().set_input_as_handled()
+        if event.keycode == KEY_ESCAPE and not _collision_paint_mode.is_empty():
+            _toggle_collision_paint_mode("")
+            get_viewport().set_input_as_handled()
+    if event is InputEventMouseButton and _collision_paint_mode == "smart":
+        if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+            _smart_brush_radius = mini(_smart_brush_radius + 1, 5)
+            tile_grid.smart_brush_radius = _smart_brush_radius
+            info_label.text = "Collision Paint [Smart]: paint auto-detects masks [Brush radius: %d, Esc to exit]" % _smart_brush_radius
+            tile_grid.queue_redraw()
+            get_viewport().set_input_as_handled()
+        elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+            _smart_brush_radius = maxi(_smart_brush_radius - 1, 1)
+            tile_grid.smart_brush_radius = _smart_brush_radius
+            info_label.text = "Collision Paint [Smart]: paint auto-detects masks [Brush radius: %d, Esc to exit]" % _smart_brush_radius
+            tile_grid.queue_redraw()
             get_viewport().set_input_as_handled()
 
 func set_main_reference(m: Node) -> void:
