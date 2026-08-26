@@ -159,7 +159,7 @@ func _draw_collision_overlay() -> void:
                         y * tile_size + qy * hh,
                         hw, hh
                     )
-                    draw_rect(qrect, Color(0, 1, 0, 0.5) if solid else Color(1, 0, 0, 0.5), true, 0)
+                    draw_rect(qrect, Color(0, 1, 0, 0.5) if solid else Color(0, 0, 0, 0), true)
 
 func _draw_direct_paint_cursor(mouse: Vector2, tile: Vector2i) -> void:
     if tile.x < 0 or tile.x >= grid_w or tile.y < 0 or tile.y >= grid_h:

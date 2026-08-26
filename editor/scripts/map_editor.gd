@@ -999,7 +999,7 @@ func _write_plain_json(path: String, data: Dictionary) -> bool:
 # reachable via the dropdown.
 func _apply_world_default_filter(dialog: FileDialog) -> void:
     var zip_mode := _store and not _store.world_package_path.is_empty()
-    dialog.current_filter = "*.zip ; SSTD World Package" if zip_mode else "*.json ; Screen JSON (legacy)"
+    dialog.current_filter = 0 if zip_mode else 1  # 0=first filter (zip), 1=second (json)
 
 func _on_import() -> void:
     var dialog := FileDialog.new()

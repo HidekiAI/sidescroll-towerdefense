@@ -315,7 +315,7 @@ func _world_json_path() -> String:
 # a package-backed world defaults to .zip; legacy manifest mode to .json.
 func _apply_world_default_filter(dialog: FileDialog) -> void:
     var zip_mode := _store and not _store.world_package_path.is_empty()
-    dialog.current_filter = "*.zip ; SSTD World Package" if zip_mode else "*.json ; Screen JSON (legacy)"
+    dialog.current_filter = 0 if zip_mode else 1  # 0=first filter (zip), 1=second (json)
 
 func _save_world() -> void:
     if _store:
@@ -559,7 +559,14 @@ func _on_save() -> void:
     dialog.file_selected.connect(func(path: String):
         var wrote := false
         if WorldArchive.is_world_path(path):
-            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles, _collect_entity_overrides())
+            var terrain_ov := {}
+            var world_ents: Array = []
+            if _main:
+                if _main.has_method("get_terrain_overrides_for_save"):
+                    terrain_ov = _main.get_terrain_overrides_for_save()
+                if _main.has_method("get_world_entity_defs_for_save"):
+                    world_ents = _main.get_world_entity_defs_for_save()
+            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles, _collect_entity_overrides(), terrain_ov, world_ents)
         else:
             wrote = _write_plain_json(path, _serialize())
         if not wrote:
@@ -689,6 +696,8 @@ func _load_world_package(path: String) -> void:
         _store.apply_world_data(data)
         _store.world_package_path = path
         _save_world()
+    if _main and _main.has_method("on_world_loaded"):
+        _main.on_world_loaded(data)
     _restore_tile_bank(data["tile_images"])
     var current_id: int = _screen_id
     if not data["screens"].has(current_id):
