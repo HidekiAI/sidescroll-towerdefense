@@ -7,6 +7,8 @@ var grid_h: int = 33
 var show_collision: bool = false
 var collision_paint_mode: String = ""  # "", "direct", "smart"
 var smart_brush_radius: int = 0
+var selected_terrain_type: String = "grass"
+var terrain_types: Array[Dictionary] = []
 var _texture_cache: Dictionary = {}
 
 func set_grid_config(cfg: Dictionary) -> void:
@@ -52,6 +54,16 @@ func _sprite_sheet_texture(path: String) -> Texture2D:
             return tex
     _texture_cache[cache_key] = null
     return null
+
+func set_terrain_types(types: Array[Dictionary]) -> void:
+    terrain_types = types
+    queue_redraw()
+
+func get_selected_terrain_type() -> String:
+    return selected_terrain_type
+
+func set_selected_terrain_type(key: String) -> void:
+    selected_terrain_type = key
 
 func pixel_to_tile(pos: Vector2) -> Vector2i:
     return Vector2i(
@@ -128,6 +140,9 @@ func _draw() -> void:
     if map_editor and map_editor.get("_stamp_active"):
         _draw_stamp_preview(tile)
 
+    if collision_paint_mode != "":
+        _draw_terrain_palette()
+
 func _draw_stamp_preview(current_tile: Vector2i) -> void:
     var tex: ImageTexture = map_editor.get("_stamp_texture")
     if not tex:
@@ -140,6 +155,22 @@ func _draw_stamp_preview(current_tile: Vector2i) -> void:
     var rect := Rect2(tile_pos.x * tile_size, tile_pos.y * tile_size, w_cells * tile_size, h_cells * tile_size)
     draw_texture_rect(tex, rect, false, Color(1, 1, 1, 0.55))
     draw_rect(rect, Color(1, 1, 0, 1), false, 1)
+
+func _draw_terrain_palette() -> void:
+    var x_offset := 10.0
+    var y_offset := 50.0
+    var swatch_size := 20.0
+    var padding := 6.0
+    for t in terrain_types:
+        var key: String = t.get("key", "")
+        var color_hex: String = t.get("color_hex", "#888888")
+        var color := Color.html(color_hex)
+        var is_selected := key == selected_terrain_type
+        var rect := Rect2(x_offset, y_offset, swatch_size, swatch_size)
+        draw_rect(rect, color, true)
+        if is_selected:
+            draw_rect(rect, Color.YELLOW, false, 2)
+        x_offset += swatch_size + padding
 
 func _draw_collision_overlay() -> void:
     var hw := tile_size / 2
@@ -202,6 +233,22 @@ func _draw_smart_brush_cursor(mouse: Vector2, _tile: Vector2i) -> void:
             draw_rect(trect, Color(0.3, 0.5, 1.0, 0.15), true)
 
 func _gui_input(event: InputEvent) -> void:
+    if collision_paint_mode != "" and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+        var pal_y := 50.0
+        var swatch_size := 20.0
+        var padding := 6.0
+        if event.position.y >= pal_y and event.position.y <= pal_y + swatch_size:
+            var x_offset := 10.0
+            for t in terrain_types:
+                var key: String = t.get("key", "")
+                var rect := Rect2(x_offset, pal_y, swatch_size, swatch_size)
+                if rect.has_point(event.position):
+                    selected_terrain_type = key
+                    if map_editor and map_editor.has_method("set") and map_editor.get("info_label"):
+                        map_editor.info_label.text = "Terrain: %s | Collision Paint [%s]: click to toggle quadrants [Esc to exit]" % [selected_terrain_type, collision_paint_mode.to_upper()]
+                    queue_redraw()
+                    return
+                x_offset += swatch_size + padding
     if map_editor and map_editor.get("_stamp_active"):
         map_editor._stamp_grid_input(event)
         return
@@ -247,6 +294,7 @@ func _apply_direct_paint(pos: Vector2) -> void:
     var mask: int = int(td.get("sub_tile_mask", 15))
     mask ^= (1 << bit_index)
     td["sub_tile_mask"] = mask
+    td["terrain_type"] = selected_terrain_type if selected_terrain_type != "air" else "air"
     var key := "%d,%d" % [tile.x, tile.y]
     map_editor._tile_data[key] = td
     if map_editor.has_method("_mark_dirty"):
@@ -277,6 +325,7 @@ func _apply_smart_brush(pos: Vector2) -> void:
             if int(td.get("sub_tile_mask", -1)) == new_mask:
                 continue
             td["sub_tile_mask"] = new_mask
+            td["terrain_type"] = selected_terrain_type
             map_editor._tile_data[key] = td
     if map_editor.has_method("_mark_dirty"):
         map_editor._mark_dirty()

@@ -248,6 +248,8 @@ func _on_tab_changed(tab: int) -> void:
 		placement_editor.cache_current_screen()
 		map_editor.set_terrain_types(terrain_editor.get_terrain_types())
 		map_editor.set_tile_bank(placement_editor.get_tile_bank())
+		if map_editor.tile_grid:
+			map_editor.tile_grid.set_terrain_types(terrain_editor.get_terrain_types())
 	if tab == 3:
 		map_editor.cache_current_screen()
 		placement_editor.set_terrain_types(terrain_editor.get_terrain_types())

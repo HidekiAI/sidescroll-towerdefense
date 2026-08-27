@@ -91,6 +91,7 @@ func _set_busy(busy: bool) -> void:
 func _ready() -> void:
     hud_label.visible = false
     _load_defaults()
+    tile_grid.set_terrain_types(_terrain_types)
     _refresh_tile_palette()
     _load_tile_sets()
     _rebuild_terrain_tilesets()
@@ -468,13 +469,15 @@ func _toggle_collision_paint_mode(mode: String) -> void:
         tile_grid.show_collision = true
         tile_grid.collision_paint_mode = "direct"
         tile_grid.smart_brush_radius = 0
-        info_label.text = "Collision Paint [Direct]: click to toggle quadrants [Esc to exit]"
+        var terrain: String = tile_grid.selected_terrain_type if tile_grid.selected_terrain_type != "" else "grass"
+        info_label.text = "Terrain: %s | Collision Paint [Direct]: click to toggle quadrants [Esc to exit]" % terrain
         collision_map_btn.text = "Collision Map [DIRECT]"
     elif mode == "smart":
         tile_grid.show_collision = true
         tile_grid.collision_paint_mode = "smart"
         tile_grid.smart_brush_radius = _smart_brush_radius
-        info_label.text = "Collision Paint [Smart]: paint auto-detects masks [Scroll: resize brush, Esc to exit]"
+        var terrain: String = tile_grid.selected_terrain_type if tile_grid.selected_terrain_type != "" else "grass"
+        info_label.text = "Terrain: %s | Collision Paint [Smart]: paint auto-detects masks [Scroll: resize brush, Esc to exit]" % terrain
         collision_map_btn.text = "Collision Map [SMART]"
     else:
         tile_grid.collision_paint_mode = ""
@@ -2262,6 +2265,8 @@ func set_terrain_types(types: Array[Dictionary]) -> void:
     _rebuild_terrain_tilesets()
     _refresh_palette()
     _refresh_tile_set_palette()
+    if tile_grid:
+        tile_grid.set_terrain_types(types)
     tile_grid.queue_redraw()
 
 func set_grid_config(cfg: Dictionary) -> void:
