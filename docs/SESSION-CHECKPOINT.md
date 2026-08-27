@@ -167,6 +167,17 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
      2 grpc e2e). Headless smoke: bridge loads, `[sstd-bridge] grpc: tab_container
      registered`, `start_grpc_server(50051) -> {"ok": true, "port": 50051}`,
      exit 0.
+   - COMMITTED `b6cbdaa` (amended with `crates/sstd-grpc/examples/grpc_smoke.rs`,
+     a live smoke client: `cargo run -p sstd-grpc --example grpc_smoke [port] [tab]`).
+   - VERIFICATION GAP (keeps #64 OPEN): live `CaptureScreenshot` over the real
+     gRPC path needs a real display session. DISPLAY=:0 was in screensaver/sleep
+     state (Godot: "X11 Display is not available" after xdpyinfo succeeded);
+     Xvfb crashes on this host (NVIDIA libdrm/EGL); headless cannot capture.
+     Full wire path IS proven by e2e tests (real tonic client over TCP against
+     the real server + simulated Godot drain); Godot-side capture reuses the
+     Phase 1-proven viewport->get_image->save_png pattern. Defer final close
+     until a live-display session returns. To close: start editor on DISPLAY=:0,
+     run the smoke example, confirm non-empty PNG; also add grpcurl CI command.
 
 ## Next move (proposed order)
 1. **#64 Phase 2 — commit + GUI close-out.** Commit the Phase 2 work
