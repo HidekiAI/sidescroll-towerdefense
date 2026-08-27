@@ -7,12 +7,14 @@
 > only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
 > (permanent)".
 
-Last updated: 2026-08-27. #67 entity/terrain def overrides shipped `9d78881`.
-#61 prune second-run crash FIXED `6103ba4` (stale union-find vs shrunken
-catalog). #62 dialog filter default re-fixed `6103ba4` (original used
-non-existent FileDialog.current_filter — replaced with filter ordering). #66
-terrain paint palette shipped `98d8d8c`. Next planned: #64 gRPC screenshot +
-tab-switch (Phase 1 headless all-tab capture). See "Active step" for resume.
+Last updated: 2026-08-27. #64 Phase 2 gRPC editor control IMPLEMENTED (not yet
+committed): new `crates/sstd-grpc` (tonic+prost+vendored protoc server, 5
+bridge methods, main.gd wiring), cargo workspace 128 pass, headless smoke shows
+`start_grpc_server(50051) -> {"ok": true}`. #61 prune crash FIXED `6103ba4`
+(stale union-find vs shrunken catalog). #62 dialog filter re-fixed `6103ba4`
+(uses filter ordering, no FileDialog.current_filter). #67 entity/terrain def
+overrides shipped `9d78881`. #64 Phase 1 headless all-tab capture DONE. See
+"Active step" + "Next move" for exact resume state.
 
 ## Objective
 
@@ -134,16 +136,46 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
      + entity_defs.json (8 defs) + 7 tile PNGs.
    - cargo workspace 122 pass. Issue #67 OPEN — close on next pass with final
      GUI/world-roundtrip confirm.
+4. **#64 Phase 1 headless all-tab capture — DONE, committed `4e40cae`.**
+   - `editor/capture_all_tabs.gd` (SceneTree entrypoint) instantiates main.tscn,
+     iterates `TAB_NAMES`, saves `res://captures/{tile,entity,map,placement,simulator}.png`.
+   - Verified 5 valid 1152x648 PNGs against `DISPLAY=:0` (Dummy renderer headless
+     cannot capture — null viewport texture).
+
+5. **#64 Phase 2 gRPC editor control — IMPLEMENTED (not yet committed).**
+   - NEW `crates/sstd-grpc`: `proto/editor.proto` (SwitchTab/CaptureScreenshot,
+     EditorService), `build.rs` (tonic-build + prost-build with VENDORED protoc
+     via `protobuf-src` because no system protoc on host), `lib.rs` exposing
+     `EditorServer` (tonic), `EditorCommand` (mpsc + oneshot bridge),
+     `spawn_server(addr) -> mpsc::Receiver`, `TAB_NAMES`, `resolve_tab_index`,
+     `SwitchTabResult`/`ScreenshotResult`. `#[tokio::test]` unit + 2 full-wire
+     e2e tests.
+   - Bridge `crates/sstd-editor-bridge/src/lib.rs` (new fields `grpc_tx?`,
+     `grpc_rx?`, `tab_container: Option<Gd<TabContainer>>`; 5 `#[func]`s):
+     `set_tab_container`, `switch_tab`, `capture_screenshot`, `start_grpc_server`,
+     `poll_grpc_commands`. Key APIs: `Gd::upcast::<Texture2D>()` +
+     `Texture2D::get_image()` + `Image::save_png_to_buffer()` (returns
+     `PackedByteArray`, not Option); capture resolves from `tab_container`'s
+     viewport (NOT `self.base` — godot-rust 0.5 `Base` has no Deref/get_viewport).
+     `poll_grpc_commands` takes each command OUT of the channel before `&mut self`
+     calls to satisfy the borrow checker. Adds deps: `sstd-grpc`, `tokio`(sync),
+     `base64`.
+   - `editor/scripts/main.gd`: `GRPC_ENABLED=true`, `GRPC_PORT=50051`,
+     `_start_grpc_server_if_enabled()` calls `set_tab_container` +
+     `start_grpc_server`; new `_process(delta)` polls `poll_grpc_commands`.
+   - Verified: cargo workspace 128 pass (102 core + 20 bridge + 4 grpc unit +
+     2 grpc e2e). Headless smoke: bridge loads, `[sstd-bridge] grpc: tab_container
+     registered`, `start_grpc_server(50051) -> {"ok": true, "port": 50051}`,
+     exit 0.
 
 ## Next move (proposed order)
-1. **#64 gRPC screenshot + tab-switch — Phase 1 DONE** (capture_all_tabs.gd works
-   against DISPLAY=:0, 5 valid PNGs). **Phase 2**: create `crates/sstd-grpc`
-   (Cargo.toml, proto/editor.proto, build.rs, lib.rs), add to workspace +
-   sstd-editor-bridge deps, extend SstdBridge (`set_tab_container`, `switch_tab`,
-   `capture_screenshot`, `start_grpc_server`, `poll_grpc_commands`), wire main.gd
-   `_process`. NOTE: tonic gRPC server is independent of the capture display
-   constraint, but in-editor screenshot still needs a real display (Dummy renderer
-   returns null viewport texture).
+1. **#64 Phase 2 — commit + GUI close-out.** Commit the Phase 2 work
+   (sstd-grpc crate, bridge methods, main.gd wiring, tests). Update wiki
+   `TDD_GRPC-Editor-Control.md` Phase 2 with shipped details incl. the vendored-
+   protoc build note and the `Base`/`upcast` godot-rust gotchas. Real-display
+   run: start editor on `DISPLAY=:0`, `grpcurl -plaintext -d '{"tab_name":"simulator"}'`
+   against :50051 -> expect ok + tab_index 4; `CaptureScreenshot` -> PNG bytes.
+   Then close #64.
 2. Re-verify #62 filter preselect in GUI (Load defaults to `.zip` when world
    package active) then close #62.
 3. Validate #67 against real world.zip (editor boot parse of framework +

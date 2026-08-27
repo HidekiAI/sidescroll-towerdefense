@@ -44,3 +44,6 @@ editor/assets/tiles/stamp_*.png.import
 
 # Headless all-tab capture output (runtime-generated PNG snapshots)
 editor/captures/
+
+# World archive package written by the editor on save (runtime-generated data)
+editor/world.zip

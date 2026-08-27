@@ -4,5 +4,6 @@ resolver = "2"
 members = [
     "crates/sstd-core",
     "crates/sstd-editor-bridge",
+    "crates/sstd-grpc",
     "tools/import-tiles",
 ]

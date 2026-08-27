@@ -1,0 +1,25 @@
+syntax = "proto3";
+package sstd.editor;
+
+message SwitchTabRequest {
+  string tab_name = 1;  // "tile", "entity", "map", "placement", "simulator"
+}
+
+message SwitchTabResponse {
+  bool ok = 1;
+  int32 tab_index = 2;  // resolved tab index (0-4)
+  string error = 3;     // error message if ok=false
+}
+
+message CaptureScreenshotRequest {}
+
+message CaptureScreenshotResponse {
+  bytes png_data = 1;   // raw PNG-encoded viewport screenshot
+  int32 width = 2;      // viewport width in pixels
+  int32 height = 3;     // viewport height in pixels
+}
+
+service EditorService {
+  rpc SwitchTab(SwitchTabRequest) returns (SwitchTabResponse);
+  rpc CaptureScreenshot(CaptureScreenshotRequest) returns (CaptureScreenshotResponse);
+}

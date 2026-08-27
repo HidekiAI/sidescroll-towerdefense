@@ -1,0 +1,15 @@
+[package]
+name = "sstd-grpc"
+version = "0.1.0"
+edition = "2021"
+description = "gRPC EditorService server + channel bridge for external editor control (#64)"
+
+[dependencies]
+tonic = "0.12"
+prost = "0.13"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+
+[build-dependencies]
+tonic-build = "0.12"
+prost-build = "0.13"
+protobuf-src = "2.1.1"

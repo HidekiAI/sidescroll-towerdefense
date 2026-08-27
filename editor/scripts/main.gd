@@ -65,6 +65,33 @@ func _ready() -> void:
 	tabs.tab_changed.connect(_on_tab_changed)
 	_wire_editors()
 	_auto_load_last_map()
+	_start_grpc_server_if_enabled()
+
+# #64 Phase 2: expose SwitchTab/CaptureScreenshot over gRPC via the Rust bridge.
+# Enables external test runners (CI scripts, LLM agents) to drive the editor.
+# The gRPC server runs on a background tokio thread; commands are drained by
+# `_bridge.poll_grpc_commands()` in `_process` on the Godot main thread.
+#
+# Port is configurable. Capturing screenshots requires a real display server
+# (headless returns an explicit error), but tab switching works in any mode.
+const GRPC_ENABLED := true
+const GRPC_PORT := 50051
+
+func _start_grpc_server_if_enabled() -> void:
+	if not GRPC_ENABLED:
+		return
+	if not _bridge or not _bridge.has_method("set_tab_container"):
+		return
+	_bridge.set_tab_container(tabs)
+	if _bridge.has_method("start_grpc_server"):
+		var res: Variant = _bridge.start_grpc_server(GRPC_PORT)
+		print("[grpc] start_grpc_server(", GRPC_PORT, ") -> ", res)
+
+func _process(_delta: float) -> void:
+	if _bridge and _bridge.has_method("poll_grpc_commands"):
+		var handled: int = _bridge.poll_grpc_commands()
+		if handled > 0:
+			print("[grpc] handled ", handled, " command(s) this frame")
 
 func _instantiate_tabs() -> void:
 	var scenes := {

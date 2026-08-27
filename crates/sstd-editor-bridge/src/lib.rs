@@ -1,20 +1,38 @@
 use std::path::Path;
 
+use godot::classes::{TabContainer, Texture2D};
 use godot::prelude::*;
 use sstd_core::config::ConfigStore;
 use sstd_core::storage::{EntityDefsFile, ScreenFile, TerrainTypesFile};
 use sstd_core::terrain::GridConfig;
+use sstd_grpc::{spawn_server, EditorCommand, ScreenshotResult, SwitchTabResult};
+use tokio::sync::mpsc;
 
 struct SstdEditorBridge;
 
 #[gdextension]
 unsafe impl ExtensionLibrary for SstdEditorBridge {}
 
+/// Base64-encode raw bytes for JSON transport. Uses the standard (padded)
+/// alphabet from the `base64` crate.
+fn base64_encode(bytes: &[u8]) -> String {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    STANDARD.encode(bytes)
+}
+
+/// Editor control state shared between GDScript (`main.gd`) and the in-process
+/// gRPC server (see #64). The gRPC background thread only holds an mpsc
+/// `Sender`; the `Receiver` and Godot `TabContainer` lives here on the main
+/// thread and are drained/consumed by the `#[func]` methods below.
 #[derive(GodotClass)]
 #[class(init, base=Node)]
 struct SstdBridge {
     base: Base<Node>,
     config_store: Option<ConfigStore>,
+    grpc_tx: Option<mpsc::Sender<EditorCommand>>,
+    grpc_rx: Option<mpsc::Receiver<EditorCommand>>,
+    tab_container: Option<Gd<TabContainer>>,
 }
 
 #[godot_api]
@@ -80,6 +98,166 @@ impl SstdBridge {
             Err(e) => format!("{{\"valid\": false, \"error\": \"{}\"}}", e),
         };
         GString::from(result.as_str())
+    }
+
+    /// Record the editor's `TabContainer` so the gRPC `SwitchTab`/`CaptureScreenshot`
+    /// handlers can reach the real tabs. Must be called from `main.gd._ready`.
+    #[func]
+    fn set_tab_container(&mut self, tab_container: Gd<TabContainer>) {
+        self.tab_container = Some(tab_container);
+        godot_print!("[sstd-bridge] grpc: tab_container registered");
+    }
+
+    /// Apply the resolved tab name to the editor UI. Runs on the Godot main thread.
+    /// Returns `{"ok":true,"tab_index":N}` or `{"ok":false,"error":...}`.
+    fn switch_tab_impl(&mut self, tab_name: &str) -> SwitchTabResult {
+        let idx = match sstd_grpc::resolve_tab_index(tab_name) {
+            Some(i) => i,
+            None => {
+                return SwitchTabResult {
+                    ok: false,
+                    tab_index: -1,
+                    error: format!("unknown tab: {tab_name}"),
+                }
+            }
+        };
+        match self.tab_container.as_mut() {
+            Some(tabs) => {
+                tabs.set_current_tab(idx);
+                SwitchTabResult {
+                    ok: true,
+                    tab_index: idx,
+                    error: String::new(),
+                }
+            }
+            None => SwitchTabResult {
+                ok: false,
+                tab_index: -1,
+                error: "tab_container not set; call set_tab_container first".to_string(),
+            },
+        }
+    }
+
+    /// gRPC-exposed tab switch. Returns a JSON string.
+    #[func]
+    fn switch_tab(&mut self, tab_name: GString) -> GString {
+        let r = self.switch_tab_impl(&tab_name.to_string());
+        let json = if r.ok {
+            format!("{{\"ok\": true, \"tab_index\": {}}}", r.tab_index)
+        } else {
+            format!("{{\"ok\": false, \"error\": \"{}\"}}", r.error)
+        };
+        GString::from(json.as_str())
+    }
+
+    /// Capture a PNG of the root viewport. Returns
+    /// `{"ok":true,"png":<base64>,"width":W,"height":H}` or
+    /// `{"ok":false,"error":...}`. Fails in headless (Dummy) mode because the
+    /// viewport texture is null (see #64 Phase 1).
+    fn capture_screenshot_impl(&mut self) -> Result<ScreenshotResult, String> {
+        let tabs = match self.tab_container.as_ref() {
+            Some(t) => t,
+            None => return Err("tab_container not set; call set_tab_container first".to_string()),
+        };
+        let viewport = match tabs.get_viewport() {
+            Some(v) => v,
+            None => return Err("no viewport available from tab_container".to_string()),
+        };
+        let texture = match viewport.get_texture() {
+            Some(t) => t.upcast::<Texture2D>(),
+            None => {
+                return Err(
+                    "viewport texture is null (headless/Dummy renderer cannot capture)".to_string(),
+                )
+            }
+        };
+        let image = match texture.get_image() {
+            Some(img) => img,
+            None => return Err("could not read viewport texture as image".to_string()),
+        };
+        let w = image.get_width();
+        let h = image.get_height();
+        let png = image.save_png_to_buffer();
+        if png.is_empty() {
+            return Err("save_png_to_buffer returned empty (headless/Dummy renderer)".to_string());
+        }
+        Ok(ScreenshotResult {
+            png_data: png.to_vec(),
+            width: w,
+            height: h,
+        })
+    }
+
+    /// gRPC-exposed screenshot. Returns JSON with base64 PNG.
+    #[func]
+    fn capture_screenshot(&mut self) -> GString {
+        let r = match self.capture_screenshot_impl() {
+            Ok(r) => r,
+            Err(e) => {
+                return GString::from(format!("{{\"ok\": false, \"error\": \"{e}\"}}").as_str())
+            }
+        };
+        let b64 = base64_encode(&r.png_data);
+        let json = format!(
+            "{{\"ok\": true, \"width\": {}, \"height\": {}, \"png_size\": {}, \"png\": \"{}\"}}",
+            r.width,
+            r.height,
+            r.png_data.len(),
+            b64
+        );
+        GString::from(json.as_str())
+    }
+
+    /// Start the tonic gRPC server on the given port (background thread).
+    /// Returns `{"ok":true,"port":N}` or `{"ok":false,"error":...}`.
+    #[func]
+    fn start_grpc_server(&mut self, port: i32) -> GString {
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port as u16);
+        match spawn_server(addr) {
+            Ok(rx) => {
+                self.grpc_tx = None; // Sender is owned by the spawned server.
+                self.grpc_rx = Some(rx);
+                godot_print!("[sstd-bridge] grpc server listening on {}", addr);
+                GString::from(format!("{{\"ok\": true, \"port\": {}}}", port).as_str())
+            }
+            Err(e) => GString::from(format!("{{\"ok\": false, \"error\": \"{}\"}}", e).as_str()),
+        }
+    }
+
+    /// Drain pending gRPC commands and fulfil them on the Godot main thread.
+    /// Call every frame from `main.gd._process`. Returns count of commands handled.
+    #[func]
+    fn poll_grpc_commands(&mut self) -> i32 {
+        let mut handled = 0;
+        loop {
+            // Take the command out of the channel (owned) so the borrow of
+            // `self.grpc_rx` ends before the `&mut self` impl calls below.
+            let cmd = match self.grpc_rx.as_mut() {
+                Some(rx) => match rx.try_recv() {
+                    Ok(c) => c,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        self.grpc_rx = None;
+                        godot_print!("[sstd-bridge] grpc command channel disconnected");
+                        break;
+                    }
+                },
+                None => break,
+            };
+            match cmd {
+                EditorCommand::SwitchTab { tab_name, reply } => {
+                    let r = self.switch_tab_impl(&tab_name);
+                    let _ = reply.send(Ok(r));
+                }
+                EditorCommand::CaptureScreenshot { reply } => {
+                    let r = self.capture_screenshot_impl();
+                    let _ = reply.send(r);
+                }
+            }
+            handled += 1;
+        }
+        handled
     }
 
     #[func]
