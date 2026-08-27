@@ -312,11 +312,6 @@ func _world_json_path() -> String:
     return WORLD_PATH
 
 # Preselect the load/save dialog filter to match the current world format (#62):
-# a package-backed world defaults to .zip; legacy manifest mode to .json.
-func _apply_world_default_filter(dialog: FileDialog) -> void:
-    var zip_mode := _store and not _store.world_package_path.is_empty()
-    dialog.current_filter = 0 if zip_mode else 1  # 0=first filter (zip), 1=second (json)
-
 func _save_world() -> void:
     if _store:
         _store.save_world(_world_json_path())
@@ -545,9 +540,13 @@ func _on_save() -> void:
     var tiles := _collect_world_tiles(world["screens"])
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-    dialog.add_filter("*.zip", "SSTD World Package")
-    dialog.add_filter("*.json", "Screen JSON (legacy)")
-    _apply_world_default_filter(dialog)
+    var zip_mode := _store and not _store.world_package_path.is_empty()
+    if zip_mode:
+        dialog.add_filter("*.zip", "SSTD World Package")
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+    else:
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+        dialog.add_filter("*.zip", "SSTD World Package")
     dialog.title = "Save world (package)"
     if _main and _main.has_method("get_default_world_file"):
         dialog.current_file = _main.get_default_world_file()
@@ -636,9 +635,13 @@ func _write_plain_json(path: String, data: Dictionary) -> bool:
 func _on_import_map() -> void:
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-    dialog.add_filter("*.zip", "SSTD World Package")
-    dialog.add_filter("*.json", "Screen JSON (legacy)")
-    _apply_world_default_filter(dialog)
+    var zip_mode := _store and not _store.world_package_path.is_empty()
+    if zip_mode:
+        dialog.add_filter("*.zip", "SSTD World Package")
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+    else:
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+        dialog.add_filter("*.zip", "SSTD World Package")
     dialog.title = "Load world package"
     if _main and _main.has_method("get_file_dialog_dir"):
         var dialog_dir: String = _main.get_file_dialog_dir()

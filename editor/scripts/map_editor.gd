@@ -941,9 +941,13 @@ func _on_save() -> void:
     var tiles := _collect_world_tiles(world["screens"])
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-    dialog.add_filter("*.zip", "SSTD World Package")
-    dialog.add_filter("*.json", "Screen JSON (legacy)")
-    _apply_world_default_filter(dialog)
+    var zip_mode := _store and not _store.world_package_path.is_empty()
+    if zip_mode:
+        dialog.add_filter("*.zip", "SSTD World Package")
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+    else:
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+        dialog.add_filter("*.zip", "SSTD World Package")
     dialog.title = "Save world (package)"
     if _main and _main.has_method("get_default_world_file"):
         dialog.current_file = _main.get_default_world_file()
@@ -1000,16 +1004,16 @@ func _write_plain_json(path: String, data: Dictionary) -> bool:
 # a package-backed world (world_package_path set) defaults to .zip; legacy
 # manifest mode defaults to single-screen .json. The other format stays
 # reachable via the dropdown.
-func _apply_world_default_filter(dialog: FileDialog) -> void:
-    var zip_mode := _store and not _store.world_package_path.is_empty()
-    dialog.current_filter = 0 if zip_mode else 1  # 0=first filter (zip), 1=second (json)
-
 func _on_import() -> void:
     var dialog := FileDialog.new()
     dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-    dialog.add_filter("*.zip", "SSTD World Package")
-    dialog.add_filter("*.json", "Screen JSON (legacy)")
-    _apply_world_default_filter(dialog)
+    var zip_mode := _store and not _store.world_package_path.is_empty()
+    if zip_mode:
+        dialog.add_filter("*.zip", "SSTD World Package")
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+    else:
+        dialog.add_filter("*.json", "Screen JSON (legacy)")
+        dialog.add_filter("*.zip", "SSTD World Package")
     dialog.title = "Load world package"
     if _main and _main.has_method("get_file_dialog_dir"):
         var dialog_dir: String = _main.get_file_dialog_dir()
@@ -1641,6 +1645,8 @@ func _a3_discover(uf_parent: Array) -> Array:
             for other in bucket:
                 if other == m:
                     continue
+                if other >= _stamp_catalog.size():
+                    continue  # stale index from pre-prune catalog (#61)
                 if examined >= A3_K:
                     break
                 examined += 1
@@ -1674,6 +1680,7 @@ func _a3_neighbor_hashes(canon: PackedByteArray) -> Array:
     return out
 
 func _finalize_prune_plan(uf_parent: Array) -> Dictionary:
+    _log_import("prune", "finalize: catalog=%d, uf_parent=%d, prune_bytes=%d, canonical_flat=%d" % [_stamp_catalog.size(), uf_parent.size(), _prune_bytes.size(), _canonical_flat.size()])
     var root_to_members: Dictionary = {}  # root idx -> [member idx, ...]
     for i in uf_parent.size():
         var root: int = _find_root(uf_parent, i)
@@ -1787,6 +1794,10 @@ func _execute_prune(dup_keys: Array, merge_map: Dictionary) -> void:
     _set_busy(true)
     _rewrite_references(merge_map)
     var removed_pngs := _drop_tiles(dup_keys)
+    # Invalidate caches that reference the pre-prune catalog so no stale
+    # indices survive into the next scan (#61).
+    _prune_bytes = []
+    _canonical_flat = PackedByteArray()
     await _rebuild_stamp_index()
     _refresh_tile_palette()
     tile_grid.reload_textures()
