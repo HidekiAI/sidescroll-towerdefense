@@ -136,14 +136,19 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
      GUI/world-roundtrip confirm.
 
 ## Next move (proposed order)
-1. **#64 gRPC screenshot + tab-switch (next task).** Phase 1: headless all-tab
-   capture script following `capture_map_editor.gd` pattern. Phase 2: tonic
-   gRPC server + channel bridge + 5 new SstdBridge methods. TDD + wiki:
-   `TDD_GRPC-Editor-Control.md` already authored (4d13adb).
+1. **#64 gRPC screenshot + tab-switch — Phase 1 DONE** (capture_all_tabs.gd works
+   against DISPLAY=:0, 5 valid PNGs). **Phase 2**: create `crates/sstd-grpc`
+   (Cargo.toml, proto/editor.proto, build.rs, lib.rs), add to workspace +
+   sstd-editor-bridge deps, extend SstdBridge (`set_tab_container`, `switch_tab`,
+   `capture_screenshot`, `start_grpc_server`, `poll_grpc_commands`), wire main.gd
+   `_process`. NOTE: tonic gRPC server is independent of the capture display
+   constraint, but in-editor screenshot still needs a real display (Dummy renderer
+   returns null viewport texture).
 2. Re-verify #62 filter preselect in GUI (Load defaults to `.zip` when world
    package active) then close #62.
-3. Validate #67 against real world.zip (editor boot parses framework +
-   world overrides) and confirm the entity/terrain merge path, then close #67.
+3. Validate #67 against real world.zip (editor boot parse of framework +
+   world overrides; observe "Loaded 2 terrain overrides, 8 world entity defs" in
+   boot log) + author wiki TDD page + Home/TODO, then close #67.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.

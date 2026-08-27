@@ -41,3 +41,6 @@ editor/*.json
 # Runtime-generated stamp catalog exports (materialized by editor tests/prune runs)
 editor/assets/tiles/stamp_*.png
 editor/assets/tiles/stamp_*.png.import
+
+# Headless all-tab capture output (runtime-generated PNG snapshots)
+editor/captures/
