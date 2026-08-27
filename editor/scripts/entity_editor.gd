@@ -1,6 +1,7 @@
 extends Control
 
 var _entity_defs: Array[Dictionary] = []
+var _framework_entities: Array[Dictionary] = []
 var _selected_index: int = -1
 var _bridge: Node
 var _main: Node
@@ -57,28 +58,11 @@ func _ready() -> void:
     export_png_btn.pressed.connect(_on_export_png)
     pixel_canvas.pixel_changed.connect(_on_canvas_pixel_changed)
 
-    _add_defaults()
-
 func _populate_option_buttons() -> void:
     for item in CLASS_KEYS:
         class_option.add_item(item)
     for item in ELEMENT_KEYS:
         element_option.add_item(item)
-
-func _add_defaults() -> void:
-    var defaults: Array[Dictionary] = [
-        {"key": "arrow_tower",  "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.5, "max_hp": 500,  "speed_pps": 0, "attack_range_tiles": 5, "attack_power": 100,  "element": "physical",  "action_cooldown_ticks": 60,  "projectile_type": "arrow", "requires_ground": true, "requires_ceiling": false},
-        {"key": "ballista",     "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.0, "max_hp": 800,  "speed_pps": 0, "attack_range_tiles": 8, "attack_power": 250,  "element": "physical",  "action_cooldown_ticks": 120, "projectile_type": "bolt",  "requires_ground": true, "requires_ceiling": false},
-        {"key": "catapult",     "class": "tower",  "width_tiles": 2.0, "height_tiles": 2.0, "max_hp": 1200, "speed_pps": 0, "attack_range_tiles": 10, "attack_power": 400,  "element": "physical",  "action_cooldown_ticks": 180, "projectile_type": "boulder", "requires_ground": true, "requires_ceiling": false},
-        {"key": "stone_golem",  "class": "tower",  "width_tiles": 1.0, "height_tiles": 2.5, "max_hp": 3000, "speed_pps": 0, "attack_range_tiles": 1, "attack_power": 0,     "element": "physical",  "action_cooldown_ticks": 0,   "projectile_type": "",      "requires_ground": true, "requires_ceiling": false},
-        {"key": "wall",         "class": "structure", "width_tiles": 1.0, "height_tiles": 1.0, "max_hp": 2000, "speed_pps": 0, "attack_range_tiles": 0, "attack_power": 0,    "element": "physical",  "action_cooldown_ticks": 0,   "projectile_type": "",      "requires_ground": true, "requires_ceiling": false},
-        {"key": "bridge",       "class": "structure", "width_tiles": 2.0, "height_tiles": 0.5, "max_hp": 1000, "speed_pps": 0, "attack_range_tiles": 0, "attack_power": 0,    "element": "physical",  "action_cooldown_ticks": 0,   "projectile_type": "",      "requires_ground": true, "requires_ceiling": false},
-        {"key": "tarpit",       "class": "trap",   "width_tiles": 1.0, "height_tiles": 0.5, "max_hp": 200,  "speed_pps": 0, "attack_range_tiles": 0, "attack_power": 0,    "element": "physical",  "action_cooldown_ticks": 0,   "projectile_type": "",      "requires_ground": true, "requires_ceiling": false},
-        {"key": "mine",         "class": "trap",   "width_tiles": 1.0, "height_tiles": 0.5, "max_hp": 50,   "speed_pps": 0, "attack_range_tiles": 2, "attack_power": 200,  "element": "physical",  "action_cooldown_ticks": 0,   "projectile_type": "",      "requires_ground": true, "requires_ceiling": false},
-    ]
-    for e in defaults:
-        _entity_defs.append(e.duplicate(true))
-    _refresh_list()
 
 func _refresh_list() -> void:
     entity_list.clear()
@@ -293,6 +277,34 @@ func _log(msg: String) -> void:
 
 func get_entity_defs() -> Array[Dictionary]:
     return _entity_defs
+
+func set_framework_entities(entities: Array[Dictionary]) -> void:
+    _framework_entities = entities.duplicate(true)
+    _entity_defs.clear()
+    for e in _framework_entities:
+        _entity_defs.append(e.duplicate(true))
+    _selected_index = -1
+    _refresh_list()
+    _clear_props()
+
+func apply_world_entity_defs(world_defs: Array) -> void:
+    for wd in world_defs:
+        var key: String = wd.get("key", "")
+        var found := false
+        for i in _entity_defs.size():
+            if _entity_defs[i].get("key", "") == key:
+                for prop in wd:
+                    _entity_defs[i][prop] = wd[prop]
+                found = true
+                break
+        if not found:
+            _entity_defs.append(wd.duplicate(true))
+    _refresh_list()
+    if _selected_index >= 0 and _selected_index < _entity_defs.size():
+        _on_select(_selected_index)
+
+func collect_world_entity_defs() -> Array:
+    return _entity_defs.duplicate(true)
 
 func _update_preview() -> void:
     if _selected_index < 0 or _selected_index >= _entity_defs.size():

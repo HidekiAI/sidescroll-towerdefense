@@ -16,6 +16,8 @@ const MANIFEST_PATH := "manifest.json"
 const SCREEN_DIR := "screens"
 const TILE_DIR := "tiles"
 const ENTITY_OVERRIDE_DIR := "entity_overrides"
+const TERRAIN_OVERRIDES_PATH := "terrain_overrides.json"
+const WORLD_ENTITY_DEFS_PATH := "entity_defs.json"
 
 static func is_world_path(path: String) -> bool:
     return path.ends_with(WORLD_EXT)
@@ -73,12 +75,16 @@ static func png_to_image(data: PackedByteArray) -> Image:
 #   screens:  per-screen serialized dicts keyed by screen id: {1: {...}, 2: {...}}
 #   tiles:    shared tile bank keyed by tile id: {"grass": Image, "stamp_5": Image, ...}
 #   entity_overrides: optional overrides of default entity defs keyed by entity key
+#   terrain_overrides: optional partial terrain patches keyed by terrain key (e.g. {"grass": {"color_hex": "#8a8a8a"}})
+#   world_entity_defs: optional full entity definitions (override + new, e.g. [{"key": "steam_tank", ...}])
 static func save_world(
     path: String,
     manifest: Dictionary,
     screens: Dictionary,
     tiles: Dictionary,
     entity_overrides: Dictionary = {},
+    terrain_overrides: Dictionary = {},
+    world_entity_defs: Array = [],
 ) -> bool:
     if FileAccess.file_exists(path):
         DirAccess.remove_absolute(path)
@@ -106,6 +112,20 @@ static func save_world(
         p.start_file("%s/%s.json" % [ENTITY_OVERRIDE_DIR, key])
         p.write_file(JSON.stringify(entity_overrides[key], "\t").to_utf8_buffer())
         p.close_file()
+    if not terrain_overrides.is_empty():
+        p.start_file(TERRAIN_OVERRIDES_PATH)
+        p.write_file(JSON.stringify({
+            "version": WORLD_VERSION,
+            "overrides": terrain_overrides,
+        }, "\t").to_utf8_buffer())
+        p.close_file()
+    if not world_entity_defs.is_empty():
+        p.start_file(WORLD_ENTITY_DEFS_PATH)
+        p.write_file(JSON.stringify({
+            "version": WORLD_VERSION,
+            "entities": world_entity_defs,
+        }, "\t").to_utf8_buffer())
+        p.close_file()
     p.close()
     return true
 
@@ -130,6 +150,8 @@ static func load_world(path: String) -> Dictionary:
     var screens: Dictionary = {}
     var tile_images: Dictionary = {}
     var entity_overrides: Dictionary = {}
+    var terrain_overrides: Dictionary = {}
+    var world_entity_defs: Array = []
     for f in r.get_files():
         if f.begins_with(SCREEN_DIR + "/") and f.ends_with(".json"):
             var id_str: String = f.trim_prefix(SCREEN_DIR + "/").trim_suffix(".json")
@@ -146,6 +168,14 @@ static func load_world(path: String) -> Dictionary:
             var file_json = JSON.parse_string(r.read_file(f).get_string_from_utf8())
             if typeof(file_json) == TYPE_DICTIONARY:
                 entity_overrides[key] = file_json
+        elif f == TERRAIN_OVERRIDES_PATH:
+            var file_json = JSON.parse_string(r.read_file(f).get_string_from_utf8())
+            if typeof(file_json) == TYPE_DICTIONARY and file_json.has("overrides"):
+                terrain_overrides = file_json["overrides"]
+        elif f == WORLD_ENTITY_DEFS_PATH:
+            var file_json = JSON.parse_string(r.read_file(f).get_string_from_utf8())
+            if typeof(file_json) == TYPE_DICTIONARY and file_json.has("entities"):
+                world_entity_defs = file_json["entities"]
     r.close()
     # Validate per-doc rule: a world may only reference canonical terrain types or
     # stamp_* decorative art. Introducing a new gameplay type (e.g. "hotspring")
@@ -164,4 +194,6 @@ static func load_world(path: String) -> Dictionary:
         "screens": screens,
         "tile_images": tile_images,
         "entity_overrides": entity_overrides,
+        "terrain_overrides": terrain_overrides,
+        "world_entity_defs": world_entity_defs,
     }

@@ -1,11 +1,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::entity::EntityDefOverride;
 use crate::error::{SstdResult, StorageError, ValidationResult};
 use crate::map::{Screen, TileEntry};
 #[cfg(test)]
 use crate::terrain::TileSetEntry;
-use crate::terrain::{TerrainTypeDef, TileSet};
+use crate::terrain::{TerrainTypeDef, TerrainTypeOverride, TileSet};
 
 pub const CURRENT_SCHEMA_VERSION: &str = "0.1.0";
 
@@ -100,6 +101,183 @@ impl TerrainTypesFile {
 
     pub fn to_json(&self) -> SstdResult<String> {
         serde_json::to_string_pretty(self).map_err(|e| StorageError::Io(e.to_string()))
+    }
+}
+
+/// Prototype-based terrain overrides file: keys identify which framework
+/// prototype to patch, values are partial `TerrainTypeOverride` entries.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TerrainOverridesFile {
+    pub version: String,
+    #[serde(default)]
+    pub overrides: std::collections::HashMap<String, TerrainTypeOverride>,
+}
+
+impl TerrainOverridesFile {
+    pub fn validate(&self) -> ValidationResult {
+        let mut result = ValidationResult::valid();
+
+        if self.version != CURRENT_SCHEMA_VERSION {
+            result = result.with_message(
+                crate::error::ValidationMessage::warning(
+                    "VERSION_MISMATCH",
+                    format!(
+                        "Expected version {}, got {}",
+                        CURRENT_SCHEMA_VERSION, self.version
+                    ),
+                )
+                .with_field("version")
+                .with_value(&self.version),
+            );
+        }
+
+        for (key, entry) in &self.overrides {
+            if let Some(ref entry_key) = entry.key {
+                if entry_key != key {
+                    result = result.with_message(
+                        crate::error::ValidationMessage::error(
+                            "TERRAIN_OVERRIDE_KEY_MISMATCH",
+                            format!(
+                                "Override key '{}' does not match map key '{}'",
+                                entry_key, key
+                            ),
+                        )
+                        .with_field("overrides"),
+                    );
+                }
+            }
+        }
+
+        result
+    }
+
+    pub fn from_json(json: &str) -> SstdResult<Self> {
+        let parsed: TerrainOverridesFile =
+            serde_json::from_str(json).map_err(|e| StorageError::Parse(e.to_string()))?;
+
+        let validation = parsed.validate();
+        if validation.has_errors() {
+            return Err(StorageError::Validation(validation));
+        }
+
+        Ok(parsed)
+    }
+
+    pub fn to_json(&self) -> SstdResult<String> {
+        serde_json::to_string_pretty(self).map_err(|e| StorageError::Io(e.to_string()))
+    }
+
+    /// Merge all overrides onto a framework prototype list.
+    ///
+    /// For each override key that matches a prototype key, the override is
+    /// merged onto the prototype (partial patch semantics).  Prototypes
+    /// without a matching override are returned unchanged.  Returns the
+    /// merged list in the same order as the prototypes.
+    pub fn merge_all(&self, prototypes: &[TerrainTypeDef]) -> Vec<TerrainTypeDef> {
+        prototypes
+            .iter()
+            .map(|proto| {
+                if let Some(ov) = self.overrides.get(&proto.key) {
+                    ov.merge(proto)
+                } else {
+                    proto.clone()
+                }
+            })
+            .collect()
+    }
+}
+
+/// Entity overrides file: full `EntityDefEditor` entries keyed by entity key.
+/// When the key matches a framework prototype, unspecified fields inherit from
+/// the prototype.  When the key is new, all fields must be present.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EntityOverridesFile {
+    pub version: String,
+    #[serde(default)]
+    pub entities: Vec<EntityDefOverride>,
+}
+
+impl EntityOverridesFile {
+    pub fn validate(&self) -> ValidationResult {
+        let mut result = ValidationResult::valid();
+
+        if self.version != CURRENT_SCHEMA_VERSION {
+            result = result.with_message(
+                crate::error::ValidationMessage::warning(
+                    "VERSION_MISMATCH",
+                    format!(
+                        "Expected version {}, got {}",
+                        CURRENT_SCHEMA_VERSION, self.version
+                    ),
+                )
+                .with_field("version")
+                .with_value(&self.version),
+            );
+        }
+
+        let has_duplicates = {
+            let mut keys: Vec<&str> = self.entities.iter().map(|e| e.key.as_str()).collect();
+            keys.sort();
+            keys.windows(2).any(|w| w[0] == w[1])
+        };
+
+        if has_duplicates {
+            result = result.with_message(
+                crate::error::ValidationMessage::error(
+                    "ENTITY_OVERRIDE_DUPLICATE_KEY",
+                    "Duplicate entity override keys found",
+                )
+                .with_field("entities"),
+            );
+        }
+
+        result
+    }
+
+    pub fn from_json(json: &str) -> SstdResult<Self> {
+        let parsed: EntityOverridesFile =
+            serde_json::from_str(json).map_err(|e| StorageError::Parse(e.to_string()))?;
+
+        let validation = parsed.validate();
+        if validation.has_errors() {
+            return Err(StorageError::Validation(validation));
+        }
+
+        Ok(parsed)
+    }
+
+    pub fn to_json(&self) -> SstdResult<String> {
+        serde_json::to_string_pretty(self).map_err(|e| StorageError::Io(e.to_string()))
+    }
+
+    /// Merge all overrides onto a framework prototype list.
+    ///
+    /// For each override whose key matches a prototype, the override is
+    /// merged onto the prototype (partial patch).  For new keys (not in
+    /// prototypes), the override is promoted to a full `EntityDefEditor`
+    /// via `into_entity_def()`.  Returns `(merged_existing, new_entities)`.
+    pub fn merge_all(
+        &self,
+        prototypes: &[crate::entity::EntityDefEditor],
+    ) -> (
+        Vec<crate::entity::EntityDefEditor>,
+        Vec<crate::entity::EntityDefEditor>,
+    ) {
+        let mut merged: Vec<_> = prototypes.to_vec();
+        let mut new_entities: Vec<crate::entity::EntityDefEditor> = Vec::new();
+
+        for ov in &self.entities {
+            if let Some(proto) = prototypes.iter().find(|p| p.key == ov.key) {
+                let entry = merged.iter_mut().find(|e| e.key == ov.key).unwrap();
+                *entry = ov.merge(proto);
+            } else if let Some(full) = ov.clone().into_entity_def() {
+                new_entities.push(full);
+            }
+        }
+
+        (merged, new_entities)
     }
 }
 
@@ -854,5 +1032,311 @@ mod tests {
         });
         let parsed = ScreenFile::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
         assert_eq!(parsed.placed_entities[0].world_tile_x, -25);
+    }
+
+    // --- Terrain override tests ---
+
+    #[test]
+    fn test_terrain_override_partial_merge() {
+        use crate::terrain::TerrainTypeOverride;
+
+        let prototype = TerrainTypeDef {
+            key: "grass".into(),
+            display_name: "Grass".into(),
+            is_walkable: true,
+            is_buildable: true,
+            surface: SurfaceType::Normal,
+            hazard: HazardType::None,
+            elevation_tiles: 0,
+            color_hex: "#4a7c3f".into(),
+            sub_tile_mask: 0xF,
+            ..Default::default()
+        };
+
+        let override_entry = TerrainTypeOverride {
+            key: Some("grass".into()),
+            display_name: Some("Metal Plates".into()),
+            color_hex: Some("#8a8a8a".into()),
+            ..Default::default()
+        };
+
+        let merged = override_entry.merge(&prototype);
+        assert_eq!(merged.key, "grass");
+        assert_eq!(merged.display_name, "Metal Plates");
+        assert_eq!(merged.color_hex, "#8a8a8a");
+        assert!(
+            merged.is_walkable,
+            "unspecified fields keep prototype value"
+        );
+        assert_eq!(merged.surface, SurfaceType::Normal);
+    }
+
+    #[test]
+    fn test_terrain_overrides_file_roundtrip() {
+        use std::collections::HashMap;
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "grass".into(),
+            TerrainTypeOverride {
+                key: Some("grass".into()),
+                color_hex: Some("#8a8a8a".into()),
+                ..Default::default()
+            },
+        );
+
+        let file = TerrainOverridesFile {
+            version: CURRENT_SCHEMA_VERSION.to_string(),
+            overrides,
+        };
+
+        let json = file.to_json().unwrap();
+        let parsed = TerrainOverridesFile::from_json(&json).unwrap();
+        assert_eq!(file, parsed);
+    }
+
+    #[test]
+    fn test_terrain_overrides_reject_unknown_field() {
+        let json = serde_json::json!({
+            "version": CURRENT_SCHEMA_VERSION,
+            "overrides": {
+                "grass": { "key": "grass", "typo_field": true }
+            }
+        });
+        let parsed = TerrainOverridesFile::from_json(&serde_json::to_string(&json).unwrap());
+        assert!(parsed.is_err(), "unknown field in override must hard-fail");
+    }
+
+    #[test]
+    fn test_terrain_overrides_merge_all() {
+        use std::collections::HashMap;
+
+        let prototypes = vec![
+            TerrainTypeDef {
+                key: "grass".into(),
+                display_name: "Grass".into(),
+                color_hex: "#4a7c3f".into(),
+                is_walkable: true,
+                is_buildable: true,
+                surface: SurfaceType::Normal,
+                hazard: HazardType::None,
+                ..Default::default()
+            },
+            TerrainTypeDef {
+                key: "lava".into(),
+                display_name: "Lava".into(),
+                color_hex: "#ff4500".into(),
+                is_walkable: false,
+                is_buildable: false,
+                surface: SurfaceType::Normal,
+                hazard: HazardType::Lava,
+                ..Default::default()
+            },
+        ];
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "grass".into(),
+            TerrainTypeOverride {
+                key: Some("grass".into()),
+                display_name: Some("Metal Plates".into()),
+                color_hex: Some("#8a8a8a".into()),
+                surface: Some(SurfaceType::Ice),
+                ..Default::default()
+            },
+        );
+
+        let file = TerrainOverridesFile {
+            version: CURRENT_SCHEMA_VERSION.to_string(),
+            overrides,
+        };
+
+        let merged = file.merge_all(&prototypes);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].key, "grass");
+        assert_eq!(merged[0].display_name, "Metal Plates");
+        assert_eq!(merged[0].color_hex, "#8a8a8a");
+        assert_eq!(merged[0].surface, SurfaceType::Ice);
+        assert_eq!(merged[1].key, "lava");
+        assert_eq!(merged[1].display_name, "Lava");
+    }
+
+    #[test]
+    fn test_terrain_overrides_key_mismatch_detected() {
+        let json = serde_json::json!({
+            "version": CURRENT_SCHEMA_VERSION,
+            "overrides": {
+                "grass": { "key": "dirt", "color_hex": "#8a8a8a" }
+            }
+        });
+        let parsed = TerrainOverridesFile::from_json(&serde_json::to_string(&json).unwrap());
+        assert!(
+            parsed.is_err(),
+            "key mismatch between map key and entry key must fail"
+        );
+    }
+
+    // --- Entity override tests ---
+
+    #[test]
+    fn test_entity_override_partial_merge() {
+        use crate::entity::{Element, EntityClass, EntityDefOverride, StationarySubClass};
+
+        let prototype = crate::entity::EntityDefEditor {
+            key: "catapult".into(),
+            class: EntityClass::Stationary(StationarySubClass::Tower),
+            width_tiles: 2.0,
+            height_tiles: 2.0,
+            max_hp: 1200,
+            speed_pps: 0,
+            attack_range_tiles: 10,
+            attack_power: 400,
+            element: Element::Physical,
+            action_cooldown_ticks: 180,
+            projectile_type: "boulder".into(),
+            requires_ground: true,
+            requires_ceiling: false,
+            weight: 0.0,
+            max_weight: 0.0,
+        };
+
+        let override_entry = EntityDefOverride {
+            key: "catapult".into(),
+            width_tiles: Some(3.0),
+            height_tiles: Some(2.0),
+            ..Default::default()
+        };
+
+        let merged = override_entry.merge(&prototype);
+        assert_eq!(merged.key, "catapult");
+        assert_eq!(merged.width_tiles, 3.0);
+        assert_eq!(merged.height_tiles, 2.0);
+        assert_eq!(
+            merged.max_hp, 1200,
+            "unspecified fields keep prototype value"
+        );
+    }
+
+    #[test]
+    fn test_entity_overrides_file_roundtrip() {
+        use crate::entity::{Element, EntityClass, EntityDefOverride, StationarySubClass};
+
+        let file = EntityOverridesFile {
+            version: CURRENT_SCHEMA_VERSION.to_string(),
+            entities: vec![
+                EntityDefOverride {
+                    key: "catapult".into(),
+                    width_tiles: Some(3.0),
+                    ..Default::default()
+                },
+                EntityDefOverride {
+                    key: "steam_tank".into(),
+                    class: Some(EntityClass::Stationary(StationarySubClass::Tower)),
+                    width_tiles: Some(3.0),
+                    height_tiles: Some(2.0),
+                    max_hp: Some(1500),
+                    speed_pps: Some(0),
+                    attack_range_tiles: Some(8),
+                    attack_power: Some(350),
+                    element: Some(Element::Physical),
+                    action_cooldown_ticks: Some(150),
+                    projectile_type: Some("shell".into()),
+                    requires_ground: Some(true),
+                    requires_ceiling: Some(false),
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let json = file.to_json().unwrap();
+        let parsed = EntityOverridesFile::from_json(&json).unwrap();
+        assert_eq!(file, parsed);
+    }
+
+    #[test]
+    fn test_entity_overrides_merge_all() {
+        use crate::entity::{Element, EntityClass, EntityDefOverride, StationarySubClass};
+
+        let prototypes = vec![crate::entity::EntityDefEditor {
+            key: "catapult".into(),
+            class: EntityClass::Stationary(StationarySubClass::Tower),
+            width_tiles: 2.0,
+            height_tiles: 2.0,
+            max_hp: 1200,
+            speed_pps: 0,
+            attack_range_tiles: 10,
+            attack_power: 400,
+            element: Element::Physical,
+            action_cooldown_ticks: 180,
+            projectile_type: "boulder".into(),
+            requires_ground: true,
+            requires_ceiling: false,
+            weight: 0.0,
+            max_weight: 0.0,
+        }];
+
+        let file = EntityOverridesFile {
+            version: CURRENT_SCHEMA_VERSION.to_string(),
+            entities: vec![
+                EntityDefOverride {
+                    key: "catapult".into(),
+                    width_tiles: Some(3.0),
+                    ..Default::default()
+                },
+                EntityDefOverride {
+                    key: "steam_tank".into(),
+                    class: Some(EntityClass::Stationary(StationarySubClass::Tower)),
+                    width_tiles: Some(3.0),
+                    height_tiles: Some(2.0),
+                    max_hp: Some(1500),
+                    speed_pps: Some(0),
+                    attack_range_tiles: Some(8),
+                    attack_power: Some(350),
+                    element: Some(Element::Physical),
+                    action_cooldown_ticks: Some(150),
+                    projectile_type: Some("shell".into()),
+                    requires_ground: Some(true),
+                    requires_ceiling: Some(false),
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let (merged, new_entities) = file.merge_all(&prototypes);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].key, "catapult");
+        assert_eq!(merged[0].width_tiles, 3.0);
+        assert_eq!(merged[0].max_hp, 1200);
+        assert_eq!(new_entities.len(), 1);
+        assert_eq!(new_entities[0].key, "steam_tank");
+        assert_eq!(new_entities[0].width_tiles, 3.0);
+    }
+
+    #[test]
+    fn test_entity_override_unknown_class_rejected() {
+        let json = serde_json::json!({
+            "version": CURRENT_SCHEMA_VERSION,
+            "entities": [{
+                "key": "x", "class": "submarine"
+            }]
+        });
+        let parsed = EntityOverridesFile::from_json(&serde_json::to_string(&json).unwrap());
+        assert!(
+            parsed.is_err(),
+            "unknown entity class in override must hard-fail"
+        );
+    }
+
+    #[test]
+    fn test_entity_override_duplicate_key_detected() {
+        let json = serde_json::json!({
+            "version": CURRENT_SCHEMA_VERSION,
+            "entities": [
+                { "key": "catapult", "width_tiles": 3.0 },
+                { "key": "catapult", "width_tiles": 4.0 }
+            ]
+        });
+        let parsed = EntityOverridesFile::from_json(&serde_json::to_string(&json).unwrap());
+        assert!(parsed.is_err(), "duplicate entity override keys must fail");
     }
 }

@@ -200,6 +200,130 @@ pub struct EntityDefEditor {
     pub max_weight: f64,
 }
 
+/// Prototype-based entity override: every field except `key` is optional.
+/// A world zip may contain `entity_defs.json` with full `EntityDefEditor`
+/// entries.  When the key matches a framework prototype, unspecified fields
+/// inherit from the prototype.  When the key is new, all fields must be
+/// provided (enforced by validation, not serde — `Option` defaults to `None`).
+///
+/// Schema verification: `#[serde(deny_unknown_fields)]` rejects typos,
+/// `Option<T>` types enforce exact type matches, and `EntityClass`/`Element`
+/// enums reject unknown values at parse time.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EntityDefOverride {
+    pub key: String,
+    #[serde(default)]
+    #[serde(with = "opt_entity_class_serde")]
+    #[schemars(with = "Option<String>")]
+    pub class: Option<EntityClass>,
+    #[serde(default)]
+    pub width_tiles: Option<f64>,
+    #[serde(default)]
+    pub height_tiles: Option<f64>,
+    #[serde(default)]
+    pub max_hp: Option<i32>,
+    #[serde(default)]
+    pub speed_pps: Option<i32>,
+    #[serde(default)]
+    pub attack_range_tiles: Option<i32>,
+    #[serde(default)]
+    pub attack_power: Option<i32>,
+    #[serde(default)]
+    pub element: Option<Element>,
+    #[serde(default)]
+    pub action_cooldown_ticks: Option<i32>,
+    #[serde(default)]
+    pub projectile_type: Option<String>,
+    #[serde(default)]
+    pub requires_ground: Option<bool>,
+    #[serde(default)]
+    pub requires_ceiling: Option<bool>,
+    #[serde(default)]
+    pub weight: Option<f64>,
+    #[serde(default)]
+    pub max_weight: Option<f64>,
+}
+
+impl EntityDefOverride {
+    /// Merge this override onto a framework prototype, returning a new
+    /// `EntityDefEditor` where specified fields override the prototype and
+    /// unspecified fields keep their prototype values.
+    pub fn merge(&self, prototype: &EntityDefEditor) -> EntityDefEditor {
+        EntityDefEditor {
+            key: self.key.clone(),
+            class: self.class.unwrap_or(prototype.class),
+            width_tiles: self.width_tiles.unwrap_or(prototype.width_tiles),
+            height_tiles: self.height_tiles.unwrap_or(prototype.height_tiles),
+            max_hp: self.max_hp.unwrap_or(prototype.max_hp),
+            speed_pps: self.speed_pps.unwrap_or(prototype.speed_pps),
+            attack_range_tiles: self
+                .attack_range_tiles
+                .unwrap_or(prototype.attack_range_tiles),
+            attack_power: self.attack_power.unwrap_or(prototype.attack_power),
+            element: self.element.unwrap_or(prototype.element),
+            action_cooldown_ticks: self
+                .action_cooldown_ticks
+                .unwrap_or(prototype.action_cooldown_ticks),
+            projectile_type: self
+                .projectile_type
+                .clone()
+                .unwrap_or_else(|| prototype.projectile_type.clone()),
+            requires_ground: self.requires_ground.unwrap_or(prototype.requires_ground),
+            requires_ceiling: self.requires_ceiling.unwrap_or(prototype.requires_ceiling),
+            weight: self.weight.unwrap_or(prototype.weight),
+            max_weight: self.max_weight.unwrap_or(prototype.max_weight),
+        }
+    }
+
+    /// Promote a complete override (where all fields are `Some`) into a
+    /// full `EntityDefEditor`.  Returns `None` if any field is `None`.
+    pub fn into_entity_def(self) -> Option<EntityDefEditor> {
+        Some(EntityDefEditor {
+            key: self.key,
+            class: self.class?,
+            width_tiles: self.width_tiles?,
+            height_tiles: self.height_tiles?,
+            max_hp: self.max_hp?,
+            speed_pps: self.speed_pps?,
+            attack_range_tiles: self.attack_range_tiles?,
+            attack_power: self.attack_power?,
+            element: self.element?,
+            action_cooldown_ticks: self.action_cooldown_ticks?,
+            projectile_type: self.projectile_type?,
+            requires_ground: self.requires_ground?,
+            requires_ceiling: self.requires_ceiling?,
+            weight: self.weight.unwrap_or(0.0),
+            max_weight: self.max_weight.unwrap_or(0.0),
+        })
+    }
+}
+
+/// serde bridge for `Option<EntityClass>`: serializes/deserializes as an
+/// optional flat lowercase string (`"tower"`, `"vehicle"`, …).
+mod opt_entity_class_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::EntityClass;
+
+    pub fn serialize<S: Serializer>(class: &Option<EntityClass>, s: S) -> Result<S::Ok, S::Error> {
+        match class {
+            Some(c) => s.serialize_some(c.as_str()),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<EntityClass>, D::Error> {
+        let opt: Option<String> = Option::deserialize(d)?;
+        match opt {
+            Some(s) => EntityClass::from_str(&s)
+                .map(Some)
+                .ok_or_else(|| serde::de::Error::custom(format!("unknown entity class: \"{s}\""))),
+            None => Ok(None),
+        }
+    }
+}
+
 impl EntityDefEditor {
     pub fn resolve_class(&self) -> Option<EntityClass> {
         Some(self.class)
@@ -379,4 +503,113 @@ pub fn resolve_attribute(
             ModifierOperation::Replace => effective,
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tower_prototype() -> EntityDefEditor {
+        EntityDefEditor {
+            key: "arrow_tower".into(),
+            class: EntityClass::from_str("tower").unwrap(),
+            width_tiles: 1.0,
+            height_tiles: 2.5,
+            max_hp: 500,
+            speed_pps: 0,
+            attack_range_tiles: 5,
+            attack_power: 100,
+            element: Element::Physical,
+            action_cooldown_ticks: 60,
+            projectile_type: "arrow".into(),
+            requires_ground: true,
+            requires_ceiling: false,
+            weight: 0.0,
+            max_weight: 0.0,
+        }
+    }
+
+    #[test]
+    fn entity_override_merge_inherits_unspecified_fields() {
+        let proto = tower_prototype();
+        // Override only max_hp + attack_power; everything else must inherit.
+        let ov = EntityDefOverride {
+            key: "arrow_tower".into(),
+            width_tiles: None,
+            height_tiles: None,
+            class: None,
+            max_hp: Some(900),
+            speed_pps: None,
+            attack_range_tiles: None,
+            attack_power: Some(250),
+            element: None,
+            action_cooldown_ticks: None,
+            projectile_type: None,
+            requires_ground: None,
+            requires_ceiling: None,
+            weight: None,
+            max_weight: None,
+        };
+        let merged = ov.merge(&proto);
+        assert_eq!(merged.max_hp, 900);
+        assert_eq!(merged.attack_power, 250);
+        // Unspecified fields inherit from the prototype.
+        assert_eq!(merged.width_tiles, 1.0);
+        assert_eq!(merged.height_tiles, 2.5);
+        assert_eq!(merged.attack_range_tiles, 5);
+        assert_eq!(merged.projectile_type, "arrow");
+        assert_eq!(
+            merged.class,
+            EntityClass::Stationary(StationarySubClass::Tower)
+        );
+        assert!(merged.requires_ground);
+        assert!(!merged.requires_ceiling);
+    }
+
+    #[test]
+    fn entity_override_full_into_entity_def() {
+        let ov = EntityDefOverride {
+            key: "new_unit".into(),
+            class: Some(EntityClass::Stationary(StationarySubClass::Trap)),
+            width_tiles: Some(1.0),
+            height_tiles: Some(0.5),
+            max_hp: Some(200),
+            speed_pps: Some(0),
+            attack_range_tiles: Some(2),
+            attack_power: Some(150),
+            element: Some(Element::Fire),
+            action_cooldown_ticks: Some(30),
+            projectile_type: Some(String::new()),
+            requires_ground: Some(true),
+            requires_ceiling: Some(false),
+            weight: Some(1.0),
+            max_weight: Some(2.0),
+        };
+        let full = ov.into_entity_def().expect("complete override promotes");
+        assert_eq!(full.key, "new_unit");
+        assert_eq!(full.max_hp, 200);
+        assert_eq!(full.element, Element::Fire);
+    }
+
+    #[test]
+    fn entity_override_incomplete_into_entity_def_is_none() {
+        let ov = EntityDefOverride {
+            key: "partial".into(),
+            class: Some(EntityClass::from_str("tower").unwrap()),
+            width_tiles: None,
+            height_tiles: None,
+            max_hp: None,
+            speed_pps: None,
+            attack_range_tiles: None,
+            attack_power: None,
+            element: None,
+            action_cooldown_ticks: None,
+            projectile_type: None,
+            requires_ground: None,
+            requires_ceiling: None,
+            weight: None,
+            max_weight: None,
+        };
+        assert!(ov.into_entity_def().is_none());
+    }
 }

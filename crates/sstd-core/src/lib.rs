@@ -9,7 +9,7 @@ pub mod storage;
 pub mod terrain;
 
 pub use entity::{
-    resolve_attribute, AttributeDef, Element, EntityClass, EntityDef, EntityDefEditor,
+    resolve_attribute, AttributeDef, Element, EntityClass, EntityDefEditor, EntityDefOverride,
     EntityInstance, EntityLimits, EntityRuntimeState, InstanceModifier, InstanceStatus,
     MobileSubClass, ModifierDef, ModifierGroup, ModifierOperation, OrganicSubClass,
     StationarySubClass,
@@ -32,9 +32,12 @@ pub use resurrection::{
     DeclineReason, PlayerProfile, ReviveChoice, ReviveConfig, ReviveDialog, ReviveError,
     ReviveOption, ReviveOutcome,
 };
-pub use storage::{check_schema_version, CURRENT_SCHEMA_VERSION};
+pub use storage::{
+    check_schema_version, EntityOverridesFile, TerrainOverridesFile, CURRENT_SCHEMA_VERSION,
+};
 pub use terrain::{
     sub_tile_mask_flip_x, sub_tile_mask_flip_y, sub_tile_mask_is_set, BiomeType, EntityStateType,
     GridConfig, HazardType, OwnershipType, SurfaceType, TerrainTile, TerrainType, TerrainTypeDef,
-    TileSet, TileSetEntry, TimeConfig, ZoneType, SUB_BL, SUB_BR, SUB_TL, SUB_TR,
+    TerrainTypeOverride, TileSet, TileSetEntry, TimeConfig, ZoneType, SUB_BL, SUB_BR, SUB_TL,
+    SUB_TR,
 };

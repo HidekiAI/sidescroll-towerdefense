@@ -27,6 +27,10 @@ proceeds** so a fresh session can resume cold:
 
 Whenever a **new wiki page** is added (GDD or TDD), **update the wiki Home page** (`sidescroll-towerdefense.wiki/Home.md`) in the same commit — add a row in the relevant section (Game Design / Technical Design) linking the new page. Do the same in `TODO.md` (tracked-work session table). A newly shipped wiki page with no Home.md/TODO.md entry is an oversight. (Rule recorded 2026-08-09, see #40.)
 
+## TDD/GDD Documentation Location (permanent, user directive 2026-08-26)
+
+ALL TDD and GDD documents live in the **wiki repo** (`sidescroll-towerdefense.wiki/TechnicalDesign/`), NEVER in the main repo's `docs/` directory. The main repo's `docs/` is for session-local artifacts only (PLAN-*, SESSION-CHECKPOINT.md, temporary design docs). If a TDD or GDD file is found in `docs/`, migrate it to the wiki and delete it from the main repo. (Rule recorded 2026-08-26, after migrating 9 misplaced TDD files.)
+
 ## Ticket-First Rule (permanent)
 
 Do NOT wire up / implement anything (code changes, wiring, edits) until the

@@ -549,6 +549,67 @@ impl OwnershipType {
     }
 }
 
+/// Prototype-based terrain override: every field is optional.
+/// A world zip may contain `terrain_overrides.json` with partial patches keyed
+/// by terrain key.  The engine merges each override onto the matching
+/// framework prototype, keeping unspecified fields from the prototype.
+///
+/// Schema verification: `#[serde(deny_unknown_fields)]` rejects typos
+/// (`colour_hex`), `Option<T>` types enforce exact type matches, and
+/// enum types (`SurfaceType`, `HazardType`) reject unknown values at parse
+/// time.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TerrainTypeOverride {
+    pub key: Option<String>,
+    pub display_name: Option<String>,
+    pub is_walkable: Option<bool>,
+    pub is_buildable: Option<bool>,
+    pub surface: Option<SurfaceType>,
+    pub hazard: Option<HazardType>,
+    pub elevation_tiles: Option<i32>,
+    pub color_hex: Option<String>,
+    pub sub_tile_mask: Option<u8>,
+    pub hazard_damage_per_tick: Option<i32>,
+    pub is_destructible: Option<bool>,
+    pub destructible_hp: Option<i32>,
+    pub on_destroy_terrain_key: Option<String>,
+}
+
+impl TerrainTypeOverride {
+    /// Merge this override onto a framework prototype, returning a new
+    /// `TerrainTypeDef` where specified fields override the prototype and
+    /// unspecified fields keep their prototype values.
+    pub fn merge(&self, prototype: &TerrainTypeDef) -> TerrainTypeDef {
+        TerrainTypeDef {
+            key: self.key.clone().unwrap_or_else(|| prototype.key.clone()),
+            display_name: self
+                .display_name
+                .clone()
+                .unwrap_or_else(|| prototype.display_name.clone()),
+            is_walkable: self.is_walkable.unwrap_or(prototype.is_walkable),
+            is_buildable: self.is_buildable.unwrap_or(prototype.is_buildable),
+            surface: self.surface.unwrap_or(prototype.surface),
+            hazard: self.hazard.unwrap_or(prototype.hazard),
+            elevation_tiles: self.elevation_tiles.unwrap_or(prototype.elevation_tiles),
+            color_hex: self
+                .color_hex
+                .clone()
+                .unwrap_or_else(|| prototype.color_hex.clone()),
+            sub_tile_mask: self.sub_tile_mask.unwrap_or(prototype.sub_tile_mask),
+            hazard_damage_per_tick: self
+                .hazard_damage_per_tick
+                .unwrap_or(prototype.hazard_damage_per_tick),
+            is_destructible: self.is_destructible.unwrap_or(prototype.is_destructible),
+            destructible_hp: self.destructible_hp.unwrap_or(prototype.destructible_hp),
+            on_destroy_terrain_key: self
+                .on_destroy_terrain_key
+                .clone()
+                .unwrap_or_else(|| prototype.on_destroy_terrain_key.clone()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntityStateType {
     Active,
@@ -564,5 +625,85 @@ impl EntityStateType {
             "destroyed" => Some(EntityStateType::Destroyed),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grass_prototype() -> TerrainTypeDef {
+        TerrainTypeDef {
+            key: "grass".into(),
+            display_name: "Grass".into(),
+            is_walkable: true,
+            is_buildable: true,
+            surface: SurfaceType::Normal,
+            hazard: HazardType::None,
+            elevation_tiles: 0,
+            color_hex: "#4a7c3f".into(),
+            sub_tile_mask: 0xF,
+            hazard_damage_per_tick: 0,
+            is_destructible: false,
+            destructible_hp: 0,
+            on_destroy_terrain_key: String::new(),
+        }
+    }
+
+    #[test]
+    fn terrain_override_merge_inherits_unspecified_fields() {
+        let proto = grass_prototype();
+        // Override only color + walkability; everything else must inherit.
+        let ov = TerrainTypeOverride {
+            key: Some("grass".into()),
+            display_name: None,
+            is_walkable: None,
+            is_buildable: Some(false),
+            surface: None,
+            hazard: None,
+            elevation_tiles: None,
+            color_hex: Some("#8a8a8a".into()),
+            sub_tile_mask: None,
+            hazard_damage_per_tick: None,
+            is_destructible: None,
+            destructible_hp: None,
+            on_destroy_terrain_key: None,
+        };
+        let merged = ov.merge(&proto);
+        assert_eq!(merged.color_hex, "#8a8a8a");
+        assert!(!merged.is_buildable);
+        // Unspecified fields inherit from the prototype.
+        assert_eq!(merged.key, "grass");
+        assert_eq!(merged.display_name, "Grass");
+        assert!(merged.is_walkable);
+        assert_eq!(merged.surface, SurfaceType::Normal);
+        assert_eq!(merged.hazard, HazardType::None);
+        assert_eq!(merged.sub_tile_mask, 0xF);
+    }
+
+    #[test]
+    fn terrain_override_emerges_lava_hazard() {
+        let proto = grass_prototype();
+        let ov = TerrainTypeOverride {
+            key: None, // key comes from the prototype when unspecified
+            display_name: Some("Lava".into()),
+            is_walkable: None,
+            is_buildable: None,
+            surface: None,
+            hazard: Some(HazardType::Lava),
+            elevation_tiles: None,
+            color_hex: Some("#e34a1f".into()),
+            sub_tile_mask: None,
+            hazard_damage_per_tick: Some(15),
+            is_destructible: None,
+            destructible_hp: None,
+            on_destroy_terrain_key: None,
+        };
+        let merged = ov.merge(&proto);
+        assert_eq!(merged.hazard, HazardType::Lava);
+        assert_eq!(merged.hazard_damage_per_tick, 15);
+        assert_eq!(merged.color_hex, "#e34a1f");
+        // Key inherited from prototype when Some-less.
+        assert_eq!(merged.key, "grass");
     }
 }
