@@ -1,4 +1,4 @@
-# Session Checkpoint — Editor Packaging & Persistence (#54)
+# Session Checkpoint — Editor Core & Persistence (post-#67)
 
 > Purpose: resume cold after a session switch or an abandoned session (e.g.
 > model change -> brand-new session with zero prior context). Every section must
@@ -7,13 +7,12 @@
 > only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
 > (permanent)".
 
-Last updated: 2026-08-19. #54 M1 (relocate `res://` writes to `user://data`)
-committed `ae28994`; #59 native bulk canonical-coarse committed `b8c357e`
-(a3_discover 1.67s -> 0.87s); #60 dirty-save prompt committed `aa3bc6f`, then
-two GUI-smoke fixes: `3709210` (auto_accept_quit) and `3a76edc` (quit prompt
-actually quits + dialog filter preselect). #62 (dialog filter default) landed
-in `3a76edc`. Bug #61 (prune second-run crash) filed, unfixed. See "Active
-step" for the resume point.
+Last updated: 2026-08-27. #67 entity/terrain def overrides shipped `9d78881`.
+#61 prune second-run crash FIXED `6103ba4` (stale union-find vs shrunken
+catalog). #62 dialog filter default re-fixed `6103ba4` (original used
+non-existent FileDialog.current_filter — replaced with filter ordering). #66
+terrain paint palette shipped `98d8d8c`. Next planned: #64 gRPC screenshot +
+tab-switch (Phase 1 headless all-tab capture). See "Active step" for resume.
 
 ## Objective
 
@@ -109,59 +108,42 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
   wiki TDD_gRPC-Architecture.md "EditorRemote"; tracked as #58. NOT implemented.
 
 ## Active step
-1. **#59 native bulk canonical-coarse — DONE, committed `b8c357e`, comment on #59.**
-   - Bridge: `scan_canonical_coarse` (N*256) + `coarse_bytes_rgba_impl` /
-     `flip_coarse_impl` / `canonical_coarse_impl` (lexicographic-min flip, i64
-     integer block means — GDScript-exact). Cargo +2 tests (workspace 107 pass).
-   - map_editor.gd: `_canonical_flat` cached from the native scan;
-     `_a3_discover` slices per-rep canon when ready, GDScript fallback.
-   - Profile (3346-tile real catalog): a3_discover **1671 -> 873 ms**, native
-     canonical coarse 22 ms, dup_keys=1328 consistent across both profile
-     paths. Full `_build_prune_plan` 5030 ms. GDScript parity 0 mismatches.
-2. **#60 dirty-save prompt — DONE, committed `aa3bc6f`, comment on #60.**
-   - main.gd: `mark_dirty`/`clear_dirty`; `_confirm_save_dirty()` 3-way modal
-     (Save=2 / Discard=1 / Cancel=0, awaited; non-dirty skips -> 1);
-     `_confirm_dirty_or_save()` guard; quit (WM_CLOSE_REQUEST) prompts when
-     dirty; `new_project`/`open_project` gated (stubs remain).
-   - map_editor: `_paint_tile` -> `_mark_dirty`; `_save_world` -> `clear_dirty`;
-     import dialog -> `_on_import_file_guarded`. placement_editor: same on
-     place/remove/clear + guarded import.
-   - `_test_dirty_prompt`: clean skip, mark/clear, paint->dirty, save->clean.
-     Suite failures=0. NOTE: dialog itself needs a manual GUI smoke test
-     (headless never reaches the modal).
-   - **GUI-smoke fixes after the initial commit:**
-     - `3709210`: `get_tree().auto_accept_quit = false` — the engine was
-       quitting right after WM_CLOSE_REQUEST fired, before the dialog.
-     - `3a76edc`: **you cannot `await` inside `_notification()`** — Godot calls
-       the handler and discards the coroutine, so Discard never quit. Quit path
-       is now callback-driven (Save->save+quit, Discard->quit, Cancel->stay)
-       and hides open FileDialogs first (exclusive-child error).
-3. **#62 dialog filter preselect — DONE in `3a76edc`, comment on #62.**
-   - `_apply_world_default_filter(dialog)` in both editors, all four dialogs:
-     `.zip` when `world_package_path` is set (package mode), `.json` in legacy
-     manifest mode. Other format reachable via dropdown.
-   - World formats (docs): `.zip` = whole map (primary since #43). `.json` =
-     single legacy screen. `user://data/world.json` = boot pointer to the
-     active `.zip` — never picked in a dialog.
-4. **Bug #61 filed (no fix):** prune crash on second run in one session —
-   `Invalid access of index '2017'` in `_finalize_prune_plan` (union-find index
-   space no longer matches a shrunken `_stamp_catalog`). Reproduction log in
-   the issue. Not fixed.
+1. **#61 prune crash — DONE, committed `6103ba4`, issue closed.**
+   - Root cause: after first prune, `_drop_tiles()` shrinks `_stamp_catalog`
+     while cached `_prune_bytes`/`_canonical_flat` kept pre-prune sizes, and
+     `_stamp_fp_index` held stale indices one past the shrunken catalog. Second
+     scan's `_a3_discover` fed those stale indices to `_uf_union`/
+     `_finalize_prune_plan` -> `Invalid access of index 2017`.
+   - Fix: `_execute_prune` clears `_prune_bytes`+`_canonical_flat` after
+     `_drop_tiles`; `_a3_discover` skips `other >= _stamp_catalog.size()`;
+     `_finalize_prune_plan` emits journal log of catalog/uf_parent/cache sizes.
+2. **#62 dialog filter default — re-fixed `6103ba4`, reopened, needs re-close.**
+   - Original `_apply_world_default_filter` wrote `FileDialog.current_filter`
+     which DOES NOT EXIST in Godot 4.4 (both string and int throw "Invalid
+     assignment of property"). Replaced with filter-ORDERING: `.zip` first when
+     package mode, `.json` first in legacy mode. Helper removed; inlined into all
+     4 dialogs (map_editor _on_save/_on_import, placement_editor _on_save/_on_import_map).
+3. **#67 entity/terrain def overrides — DONE, committed `9d78881`.**
+   - Rust `EntityDefOverride`/`TerrainTypeOverride` prototype-based partial
+     patches (merge onto framework def, deny_unknown_fields, enum type checks),
+     `TerrainOverridesFile.merge_all`/`EntityOverridesFile`, exported in lib.rs.
+   - world_archive.gd writes `terrain_overrides.json`/`entity_defs.json`;
+     entity_editor.gd: `set_framework_entities`/`apply_world_entity_defs`/
+     `collect_world_entity_defs` (removed hardcoded `_add_defaults`).
+   - editor/default_package/: framework prototypes terrain_types.json (7 types)
+     + entity_defs.json (8 defs) + 7 tile PNGs.
+   - cargo workspace 122 pass. Issue #67 OPEN — close on next pass with final
+     GUI/world-roundtrip confirm.
 
 ## Next move (proposed order)
-1. Outstanding tracked work (no active branch):
-   - Simulator-gRPC: decide transport face (a) tonic client in
-     `sstd-editor-bridge` vs (b) JSON-over-unix-socket face on `sstd-headless`,
-     then create simulator crate + headless binary + protobuf contract; fill
-     TDD_Simulator-Service-Contract.md TBDs.
-   - #56 Playwright E2E: harness scaffolding can land anytime; full coverage
-     blocked on #40 (documented service contract) + simulator contract.
-   - #61 prune-crash bug: root-cause + fix (stale union-find vs shrunken catalog).
-   - #54 M2 packaging/CI (deferred); #57 CLI data-dir override (deferred);
-     #58 EditorRemote (deferred).
-2. GUI re-verify pending (from the last smoke test): the #60 Save/Discard/Cancel
-   dialog on quit (fixed `3a76edc`) and the #62 filter preselect — confirm Load
-   defaults to `.zip` and that Save/Discard/Cancel each close the app as expected.
+1. **#64 gRPC screenshot + tab-switch (next task).** Phase 1: headless all-tab
+   capture script following `capture_map_editor.gd` pattern. Phase 2: tonic
+   gRPC server + channel bridge + 5 new SstdBridge methods. TDD + wiki:
+   `TDD_GRPC-Editor-Control.md` already authored (4d13adb).
+2. Re-verify #62 filter preselect in GUI (Load defaults to `.zip` when world
+   package active) then close #62.
+3. Validate #67 against real world.zip (editor boot parses framework +
+   world overrides) and confirm the entity/terrain merge path, then close #67.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
