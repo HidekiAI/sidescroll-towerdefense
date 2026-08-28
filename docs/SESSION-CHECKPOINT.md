@@ -7,14 +7,12 @@
 > only at the end. See `.opencode/AGENTS.md` "Session Progress Checkpoint
 > (permanent)".
 
-Last updated: 2026-08-27. #64 Phase 2 gRPC editor control IMPLEMENTED (not yet
-committed): new `crates/sstd-grpc` (tonic+prost+vendored protoc server, 5
-bridge methods, main.gd wiring), cargo workspace 128 pass, headless smoke shows
-`start_grpc_server(50051) -> {"ok": true}`. #61 prune crash FIXED `6103ba4`
-(stale union-find vs shrunken catalog). #62 dialog filter re-fixed `6103ba4`
-(uses filter ordering, no FileDialog.current_filter). #67 entity/terrain def
-overrides shipped `9d78881`. #64 Phase 1 headless all-tab capture DONE. See
-"Active step" + "Next move" for exact resume state.
+Last updated: 2026-08-27. #64 gRPC editor control DONE + **CLOSED** (Phase 1
+`4e40cae`, Phase 2 `b6cbdaa`, wiki `59f17ab`, live all-tab wire verification
+passed on DISPLAY=:0). #67 entity/terrain def overrides shipped `9d78881` with
+regression test `e1d18af` (real world.zip merge, 11 assertions green) — still
+OPEN pending wiki TDD + close. #61 prune crash FIXED `6103ba4`. #62 dialog
+filter re-fixed `6103ba4`. See "Active step" + "Next move" for resume state.
 
 ## Objective
 
@@ -169,29 +167,29 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
      exit 0.
    - COMMITTED `b6cbdaa` (amended with `crates/sstd-grpc/examples/grpc_smoke.rs`,
      a live smoke client: `cargo run -p sstd-grpc --example grpc_smoke [port] [tab]`).
-   - VERIFICATION GAP (keeps #64 OPEN): live `CaptureScreenshot` over the real
-     gRPC path needs a real display session. DISPLAY=:0 was in screensaver/sleep
-     state (Godot: "X11 Display is not available" after xdpyinfo succeeded);
-     Xvfb crashes on this host (NVIDIA libdrm/EGL); headless cannot capture.
-     Full wire path IS proven by e2e tests (real tonic client over TCP against
-     the real server + simulated Godot drain); Godot-side capture reuses the
-     Phase 1-proven viewport->get_image->save_png pattern. Defer final close
-     until a live-display session returns. To close: start editor on DISPLAY=:0,
-     run the smoke example, confirm non-empty PNG; also add grpcurl CI command.
+   - LIVE VERIFICATION DONE + **#64 CLOSED** (2026-08-27). With DISPLAY=:0 woken,
+     editor launched, server confirmed listening on 127.0.0.1:50051. Drove all 5
+     tabs over the wire: each switch ok=true (idx 0-4), each capture a valid
+     non-empty PNG at 1152x648 (tile 46KB, entity 51KB, map 575KB, placement
+     762KB, simulator 11KB). Tabs visibly switched in the live editor. Verified
+     per wiki TDD_GRPC-Editor-Control. Close comment posted, issue #64 CLOSED.
+     NOTE: live verification needs a real display; from a locked/screensaver
+     session Godot reports "X11 Display is not available" — wake the desktop
+     first (Xvfb crashes on this host, headless/Dummy cannot capture).
 
 ## Next move (proposed order)
-1. **#64 Phase 2 — commit + GUI close-out.** Commit the Phase 2 work
-   (sstd-grpc crate, bridge methods, main.gd wiring, tests). Update wiki
-   `TDD_GRPC-Editor-Control.md` Phase 2 with shipped details incl. the vendored-
-   protoc build note and the `Base`/`upcast` godot-rust gotchas. Real-display
-   run: start editor on `DISPLAY=:0`, `grpcurl -plaintext -d '{"tab_name":"simulator"}'`
-   against :50051 -> expect ok + tab_index 4; `CaptureScreenshot` -> PNG bytes.
-   Then close #64.
-2. Re-verify #62 filter preselect in GUI (Load defaults to `.zip` when world
-   package active) then close #62.
-3. Validate #67 against real world.zip (editor boot parse of framework +
-   world overrides; observe "Loaded 2 terrain overrides, 8 world entity defs" in
-   boot log) + author wiki TDD page + Home/TODO, then close #67.
+1. **#67 — author wiki TDD + close.** #64 is DONE and CLOSED. #67 code shipped
+   `9d78881`, regression test `e1d18af` validated the real-world merge (terrain:
+   air sub_tile_mask 0->15, dirt->0, partial-patch semantics; entity: 8 defs by
+   key, no dups; 11 assertions green). Remaining: author/provide wiki TDD page
+   (e.g. TDD_Entity-and-Terrain-Overrides) + Home/TODO entry, post closing comment
+   citing the wiki, then close #67.
+2. **#62 — GUI preselect re-verify then close.** Re-verify functionally that Load
+   defaults to `.zip` when the world package is active (the `current_filter`
+   property DOES NOT EXIST in Godot 4.4; the fix uses filter-ORDERING instead).
+   Needs a real-display session to click through. Then close #62.
+3. (Optional) Add a grpcurl CI loop for the TabNames x CaptureScreenshot flow
+   referenced in the TDD; currently verified via the Rust smoke client instead.
 
 ## Key numbers / constants
 - `STAMP_CELL=32`, `TILE_BYTES=4096`, `STAMP_TOLERANCE=4.0`.
