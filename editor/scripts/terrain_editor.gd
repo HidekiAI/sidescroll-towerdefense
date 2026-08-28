@@ -794,10 +794,16 @@ func collect_terrain_overrides() -> Dictionary:
 		for prop in t:
 			if prop == "key":
 				continue
+			var value: Variant = t[prop]
+			if prop == "sub_tile_mask":
+				# Godot JSON.stringify writes float Variants as 15.0; the Rust
+				# contract declares u8. Coerce to int (see
+				# docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md).
+				value = int(value)
 			if fw.has(prop) and t[prop] != fw[prop]:
-				diffs[prop] = t[prop]
+				diffs[prop] = value
 			elif not fw.has(prop):
-				diffs[prop] = t[prop]
+				diffs[prop] = value
 		if not diffs.is_empty():
 			overrides[key] = diffs
 	return overrides

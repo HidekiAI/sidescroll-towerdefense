@@ -25,6 +25,7 @@ var _flip_h_active: bool = false
 var _flip_v_active: bool = false
 var _collision_paint_mode: String = ""  # "", "direct", "smart"
 var _smart_brush_radius: int = 2  # tiles from center, range [1, 5]
+var _brush_size: int = 1  # direct terrain brush edge length; values {1,2,4,8}
 
 var _store: ScreenStore
 var _screen_pos: Vector2i = Vector2i.ZERO
@@ -307,7 +308,11 @@ func terrain_color(key: String) -> Color:
 func _paint_tile(x: int, y: int) -> void:
     if x < 0 or x >= _grid_w or y < 0 or y >= _grid_h:
         return
-    if _paint_mode and not _selected_tile_set_key.is_empty():
+    if _brush_size > 1:
+        for cell in stamp_coords(x, y, _brush_size, _grid_w, _grid_h):
+            _tiles[_key(cell.x, cell.y)] = _selected_terrain
+            _tile_data.erase(_key(cell.x, cell.y))
+    elif _paint_mode and not _selected_tile_set_key.is_empty():
         _place_tile_set(x, y)
     elif _paint_mode:
         _tiles[_key(x, y)] = _selected_terrain
@@ -316,6 +321,21 @@ func _paint_tile(x: int, y: int) -> void:
         _tile_data.erase(_key(x, y))
     _mark_dirty()
     tile_grid.queue_redraw()
+
+# Returns the set of grid cells for an NxN uniform brush anchored with (ox, oy)
+# as the TOP-LEFT corner (matching _place_tile_set), clipped to the grid.
+static func stamp_coords(ox: int, oy: int, size: int, grid_w: int, grid_h: int) -> Array[Vector2i]:
+    var cells: Array[Vector2i] = []
+    if size < 1:
+        return cells
+    for dy in range(size):
+        for dx in range(size):
+            var cx := ox + dx
+            var cy := oy + dy
+            if cx < 0 or cx >= grid_w or cy < 0 or cy >= grid_h:
+                continue
+            cells.append(Vector2i(cx, cy))
+    return cells
 
 func _mark_dirty() -> void:
     if _main and _main.has_method("mark_dirty"):
@@ -634,6 +654,8 @@ func _update_info() -> void:
         var ts = _find_tile_set(_selected_tile_set_key)
         if ts:
             msg = "%s  %d×%d" % [ts.display_name, ts.width_tiles, ts.height_tiles]
+    if _brush_size > 1:
+        msg += "  Brush %d×%d (scroll to change)" % [_brush_size, _brush_size]
     if _flip_h_active:
         msg += "  [X-flip]"
     if _flip_v_active:
@@ -882,6 +904,11 @@ func _serialize() -> Dictionary:
                 var entry: Dictionary = {"x": x, "y": y, "terrain": key}
                 if not td.is_empty():
                     entry["tile_data"] = td
+                    if entry["tile_data"].has("sub_tile_mask"):
+                        # Godot JSON.stringify writes float Variants as 15.0;
+                        # the Rust contract declares u8. Coerce to int (see
+                        # docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md).
+                        entry["tile_data"]["sub_tile_mask"] = int(td["sub_tile_mask"])
                 tiles_out.append(entry)
     return {
         "version": "0.3.0",
@@ -2262,6 +2289,17 @@ func _input(event: InputEvent) -> void:
             _smart_brush_radius = maxi(_smart_brush_radius - 1, 1)
             tile_grid.smart_brush_radius = _smart_brush_radius
             info_label.text = "Collision Paint [Smart]: paint auto-detects masks [Brush radius: %d, Esc to exit]" % _smart_brush_radius
+            tile_grid.queue_redraw()
+            get_viewport().set_input_as_handled()
+    elif event is InputEventMouseButton and _collision_paint_mode.is_empty() and _paint_mode:
+        if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+            _brush_size = mini(_brush_size * 2, 8)
+            _update_info()
+            tile_grid.queue_redraw()
+            get_viewport().set_input_as_handled()
+        elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+            _brush_size = maxi(_brush_size / 2, 1)
+            _update_info()
             tile_grid.queue_redraw()
             get_viewport().set_input_as_handled()
 

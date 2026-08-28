@@ -133,9 +133,16 @@ func _draw() -> void:
         _draw_smart_brush_cursor(mouse, tile)
     else:
         if tile.x >= 0 and tile.x < grid_w and tile.y >= 0 and tile.y < grid_h:
-            var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size)
-            draw_rect(highlight, Color(1, 1, 1, 0.25), true)
-            draw_rect(highlight, Color.WHITE, false, 2)
+            var brush: int = int(map_editor.get("_brush_size")) if map_editor else 1
+            if brush > 1:
+                var w := brush * tile_size
+                var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, w, w)
+                draw_rect(highlight, Color(1, 1, 1, 0.25), true)
+                draw_rect(highlight, Color.WHITE, false, 2)
+            else:
+                var highlight := Rect2(tile.x * tile_size, tile.y * tile_size, tile_size, tile_size)
+                draw_rect(highlight, Color(1, 1, 1, 0.25), true)
+                draw_rect(highlight, Color.WHITE, false, 2)
 
     if map_editor and map_editor.get("_stamp_active"):
         _draw_stamp_preview(tile)

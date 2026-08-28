@@ -1,13 +1,24 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
-> IN-FLIGHT (2026-08-27, after #64 CLOSED): investigating direct terrain paint +
-> discovered a sub_tile_mask float bug. Plan: `docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md`
-> (created, NOT yet committed). Work is documented there; see its "Fix strategy"
-> and "Feature" sections. Blocked-for-now on: (a) wheel brush = powers-of-2 NxN
-> uniform stamp (user confirmed 1,2,4,8; top-left origin; ALL same terrain); (b)
-> sub_tile_mask float producer fix + serde reader tolerance + world re-save.
-> Do NOT re-derive: Godot JSON.stringify writes float Variants as `15.0`; the Rust
-> u8 deserializer rejects that -> `invalid type: floating point 15.0, expected u8`.
+> IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
+> bug. Plan: `docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md`.
+>
+> CODE DONE (not yet committed): (1) producer fix — `map_editor.gd:_serialize()`
+> + `terrain_editor.gd:collect_terrain_overrides()` coerce sub_tile_mask to int;
+> (2) serde reader tolerance — `sstd-core/src/terrain.rs` `deserialize_sub_tile_mask[ _option]`
+> deserialize_with on TerrainTypeDef/(TileSetEntry)/(TerrainTypeOverride) u8/option
+> fields, +4 unit tests (float 15.0 -> 15, int, reject 15.5, TypeDef); (3) brush
+> feature — `map_editor.gd` `_brush_size` {1,2,4,8}, `static stamp_coords(...)`,
+> wheel handler in normal paint mode, `_update_info` Brush NxN; (4) cursor —
+> `tile_grid_display.gd:_draw` draws NxN rect. Tests: `editor/tests/test_terrain_brush.gd`
+> 14 assertions PASS. `cargo test --workspace` = 132 pass (core 106, bridge 20,
+> grpc 4+2), 0 fail. Bridge rebuilt to `editor/rust/libsstd_editor_bridge.so`.
+>
+> REMAINING (next runnable): regenerate `editor/world.zip` with integer
+> sub_tile_mask (currently has 15.0/0.0 overrides + 209x 0.0 etc in screens/1.json;
+> backup at /tmp/world_backup.zip). Headless `--quit-after` boot did NOT re-save
+> the world — need the editor's real `_save_world` path. THEN commit all code +
+> update PLAN/checkpoint + close follow-up issue.
 
 
 > Purpose: resume cold after a session switch or an abandoned session (e.g.

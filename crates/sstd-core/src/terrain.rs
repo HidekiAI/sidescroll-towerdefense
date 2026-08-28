@@ -165,7 +165,10 @@ pub struct TerrainTypeDef {
     pub hazard: HazardType,
     pub elevation_tiles: i32,
     pub color_hex: String,
-    #[serde(default = "default_sub_tile_mask")]
+    #[serde(
+        default = "default_sub_tile_mask",
+        deserialize_with = "deserialize_sub_tile_mask"
+    )]
     pub sub_tile_mask: u8,
     #[serde(default)]
     pub hazard_damage_per_tick: i32,
@@ -179,6 +182,98 @@ pub struct TerrainTypeDef {
 
 fn default_sub_tile_mask() -> u8 {
     0xF
+}
+
+// Godot's JSON.stringify serializes float Variants as `15.0` (see
+// ~/Documents/opencode/godot-rust-json-float-serde-u8.md). Such integral
+// floats must not hard-fail a u8 field at load; accept an integral float
+// (fractional part == 0) and cast to u8. Non-integral or out-of-range values
+// remain hard errors and are surfaced by validation.
+fn deserialize_sub_tile_mask<'de, D>(de: D) -> Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct SubTileMaskVisitor;
+    impl<'de> serde::de::Visitor<'de> for SubTileMaskVisitor {
+        type Value = u8;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an integer 0x0..0xFF, or an integral float like 15.0")
+        }
+
+        fn visit_u8<E>(self, v: u8) -> Result<u8, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<u8, E>
+        where
+            E: serde::de::Error,
+        {
+            u8::try_from(v).map_err(|_| E::custom(format!("sub_tile_mask out of u8 range: {v}")))
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<u8, E>
+        where
+            E: serde::de::Error,
+        {
+            u8::try_from(v).map_err(|_| E::custom(format!("sub_tile_mask out of u8 range: {v}")))
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<u8, E>
+        where
+            E: serde::de::Error,
+        {
+            if v.fract() != 0.0 {
+                return Err(E::custom(format!(
+                    "sub_tile_mask float must be integral, got {v}"
+                )));
+            }
+            u8::try_from(v as i64)
+                .map_err(|_| E::custom(format!("sub_tile_mask out of u8 range: {v}")))
+        }
+    }
+    de.deserialize_any(SubTileMaskVisitor)
+}
+
+// Option variant of `deserialize_sub_tile_mask` (used by TerrainTypeOverride:
+// nothing, or an integer / integral float).
+fn deserialize_sub_tile_mask_option<'de, D>(de: D) -> Result<Option<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct OptVisitor;
+    impl<'de> serde::de::Visitor<'de> for OptVisitor {
+        type Value = Option<u8>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an optional integer 0x0..0xFF, or an integral float")
+        }
+
+        fn visit_none<E>(self) -> Result<Option<u8>, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Option<u8>, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D2>(self, de: D2) -> Result<Option<u8>, D2::Error>
+        where
+            D2: serde::Deserializer<'de>,
+        {
+            deserialize_sub_tile_mask(de).map(Some)
+        }
+    }
+    de.deserialize_option(OptVisitor)
 }
 
 impl TerrainTypeDef {
@@ -303,7 +398,10 @@ pub struct TileSetEntry {
     pub elevation_tiles: i32,
     #[serde(default)]
     pub z_depth: i32,
-    #[serde(default = "default_sub_tile_mask")]
+    #[serde(
+        default = "default_sub_tile_mask",
+        deserialize_with = "deserialize_sub_tile_mask"
+    )]
     pub sub_tile_mask: u8,
 }
 
@@ -569,6 +667,7 @@ pub struct TerrainTypeOverride {
     pub hazard: Option<HazardType>,
     pub elevation_tiles: Option<i32>,
     pub color_hex: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_sub_tile_mask_option")]
     pub sub_tile_mask: Option<u8>,
     pub hazard_damage_per_tick: Option<i32>,
     pub is_destructible: Option<bool>,
@@ -705,5 +804,36 @@ mod tests {
         assert_eq!(merged.color_hex, "#e34a1f");
         // Key inherited from prototype when Some-less.
         assert_eq!(merged.key, "grass");
+    }
+
+    // Godot's JSON.stringify writes float-typed Variants as `15.0`; the reader
+    // must accept an integral float for a u8 sub_tile_mask instead of failing
+    // (see docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md).
+    #[test]
+    fn override_deserializes_integral_float_sub_tile_mask() {
+        let json = r#"{"key":"air","sub_tile_mask":15.0}"#;
+        let ov: TerrainTypeOverride = serde_json::from_str(json).unwrap();
+        assert_eq!(ov.sub_tile_mask, Some(15));
+    }
+
+    #[test]
+    fn override_deserializes_integer_sub_tile_mask() {
+        let json = r#"{"key":"dirt","sub_tile_mask":0}"#;
+        let ov: TerrainTypeOverride = serde_json::from_str(json).unwrap();
+        assert_eq!(ov.sub_tile_mask, Some(0));
+    }
+
+    #[test]
+    fn override_rejects_non_integral_float_sub_tile_mask() {
+        let json = r#"{"sub_tile_mask":15.5}"#;
+        let err = serde_json::from_str::<TerrainTypeOverride>(json);
+        assert!(err.is_err(), "non-integral float must be rejected: {err:?}");
+    }
+
+    #[test]
+    fn type_def_deserializes_integral_float_sub_tile_mask() {
+        let json = "{\"key\":\"air\",\"display_name\":\"Air\",\"is_walkable\":true,\"is_buildable\":false,\"surface\":\"normal\",\"hazard\":\"none\",\"elevation_tiles\":0,\"color_hex\":\"#111111\",\"sub_tile_mask\":15.0}";
+        let def: TerrainTypeDef = serde_json::from_str(json).unwrap();
+        assert_eq!(def.sub_tile_mask, 15);
     }
 }
