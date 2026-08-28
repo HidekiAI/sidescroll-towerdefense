@@ -1,5 +1,15 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
+> IN-FLIGHT (2026-08-27, after #64 CLOSED): investigating direct terrain paint +
+> discovered a sub_tile_mask float bug. Plan: `docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md`
+> (created, NOT yet committed). Work is documented there; see its "Fix strategy"
+> and "Feature" sections. Blocked-for-now on: (a) wheel brush = powers-of-2 NxN
+> uniform stamp (user confirmed 1,2,4,8; top-left origin; ALL same terrain); (b)
+> sub_tile_mask float producer fix + serde reader tolerance + world re-save.
+> Do NOT re-derive: Godot JSON.stringify writes float Variants as `15.0`; the Rust
+> u8 deserializer rejects that -> `invalid type: floating point 15.0, expected u8`.
+
+
 > Purpose: resume cold after a session switch or an abandoned session (e.g.
 > model change -> brand-new session with zero prior context). Every section must
 > be self-contained for that reader: committed history, exact in-flight step,
