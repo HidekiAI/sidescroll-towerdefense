@@ -21,6 +21,21 @@ func _ready() -> void:
     icon_mode = ItemList.ICON_MODE_TOP
     allow_reselect = true
     item_selected.connect(_on_item_selected)
+    call_deferred("_log_layout_probe")
+
+
+# Journal log: proves whether the palette is actually on screen (the user
+# reported it "invisible"). Logs the ItemList's visibility, minimum size and
+# actual size after the first layout pass so we can tell a collapsed/zero-height
+# widget apart from a populated-and-waiting one. (AGENTS: log requirement.)
+func _log_layout_probe() -> void:
+    print("[editor/palette] layout probe: visible=%s size=%s min=%s combined_min=%s" % [
+        str(visible),
+        str(size),
+        str(custom_minimum_size),
+        str(get_combined_minimum_size()),
+    ])
+
 
 
 # Builds the grid from the editor's current data. `tiles` is the world-shared
@@ -61,6 +76,22 @@ func populate(
     for i in _entries.size():
         if _entries[i]["kind"] == prev_kind and _entries[i]["key"] == prev_key:
             select(i)
+    print("[editor/palette] populated %d entries: %d terrain, %d tile, %d group (visible=%s size=%s)" % [
+        _entries.size(),
+        _count_kind("terrain"),
+        _count_kind("tile"),
+        _count_kind("group"),
+        str(visible),
+        str(size),
+    ])
+
+
+func _count_kind(kind: String) -> int:
+    var n := 0
+    for e in _entries:
+        if e["kind"] == kind:
+            n += 1
+    return n
 
 
 # Selects whichever entry carries `key` (used by main.gd navigate_to_tileset).
