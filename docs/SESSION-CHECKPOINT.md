@@ -6,6 +6,7 @@
 > COMMITTED: `b020b86` = brush feature + sub_tile_mask producer/serde fix (cargo
 > workspace 132 pass; editor/tests/test_terrain_brush.gd 14 assert PASS).
 > `e63fbf6` = PALETTE INVISIBLE FIX + visibility logging.
+> `adb65aa` = checkpoint.
 >
 > PALETTE BUG (root cause, journal-proven): tile_palette populated 732 entries
 > (7 terrain/722 tile/3 group), visible=true, but rendered size=(0,0) — the
@@ -19,10 +20,20 @@
 > painting that XOR-toggles a tile's sub_tile_mask bitfield (0x0..0xF quadrants).
 > Exit with Esc. Not part of the terrain brush.
 >
-> REMAINING: (1) explain/confirm the collision-paint mode to user; (2) regenerate
-> world.zip clean (WIP editor/tests/regenerate_world.gd has a node-path issue:
-> MapEditor is not a direct child named 'MapEditor' in main.tscn); (3) live GUI
-> verify brush + no flicker when display returns.
+> CONFIRMED SAFE: deleting editor/world.zip is fine — editor boots fresh with a
+> default 1980-tile grid, logs "Last map no longer exists, skipping" (main.gd:262),
+> no crash.
+>
+> RESUME VIA: `.opencode/sessions/terrain-brush-subtile-palette-fix.md` (the current
+> session handoff with full task detail).
+
+T-1 [DOING] Regenerate world.zip with integer sub_tile_mask — float masks persist
+    because _serialize() coercion is not on the load->save path (details below).
+T-2 [TODO] Live GUI verify wheel brush + palette (needs awake DISPLAY=:0).
+T-3 [TODO] Reconcile PLAN doc to shipped state.
+T-4 [TODO] Optionally file issue for the float mask load->save data-integrity gap.
+
+Detailed task notes follow after the git-history section below.
 
 
 > Purpose: resume cold after a session switch or an abandoned session (e.g.
