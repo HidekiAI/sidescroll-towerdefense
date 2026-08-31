@@ -3,22 +3,26 @@
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 > bug. Plan: `docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md`.
 >
-> CODE DONE (not yet committed): (1) producer fix — `map_editor.gd:_serialize()`
-> + `terrain_editor.gd:collect_terrain_overrides()` coerce sub_tile_mask to int;
-> (2) serde reader tolerance — `sstd-core/src/terrain.rs` `deserialize_sub_tile_mask[ _option]`
-> deserialize_with on TerrainTypeDef/(TileSetEntry)/(TerrainTypeOverride) u8/option
-> fields, +4 unit tests (float 15.0 -> 15, int, reject 15.5, TypeDef); (3) brush
-> feature — `map_editor.gd` `_brush_size` {1,2,4,8}, `static stamp_coords(...)`,
-> wheel handler in normal paint mode, `_update_info` Brush NxN; (4) cursor —
-> `tile_grid_display.gd:_draw` draws NxN rect. Tests: `editor/tests/test_terrain_brush.gd`
-> 14 assertions PASS. `cargo test --workspace` = 132 pass (core 106, bridge 20,
-> grpc 4+2), 0 fail. Bridge rebuilt to `editor/rust/libsstd_editor_bridge.so`.
+> COMMITTED: `b020b86` = brush feature + sub_tile_mask producer/serde fix (cargo
+> workspace 132 pass; editor/tests/test_terrain_brush.gd 14 assert PASS).
+> `e63fbf6` = PALETTE INVISIBLE FIX + visibility logging.
 >
-> REMAINING (next runnable): regenerate `editor/world.zip` with integer
-> sub_tile_mask (currently has 15.0/0.0 overrides + 209x 0.0 etc in screens/1.json;
-> backup at /tmp/world_backup.zip). Headless `--quit-after` boot did NOT re-save
-> the world — need the editor's real `_save_world` path. THEN commit all code +
-> update PLAN/checkpoint + close follow-up issue.
+> PALETTE BUG (root cause, journal-proven): tile_palette populated 732 entries
+> (7 terrain/722 tile/3 group), visible=true, but rendered size=(0,0) — the
+> ItemList had no custom_minimum_size and collapsed to zero in the LeftPanel VBox.
+> Fix: map_editor.tscn TilePalette custom_minimum_size=(0,160). Verified via
+> direct scene probe: custom_min=(0,160), size=(565,160), visible=true.
+> tile_palette.gd now logs populate counts + a deferred layout probe.
+>
+> NOTE on the "4 tile flicker / quadrant toggle": that is the COLLISION-PAINT
+> mode ("Collision Map" button -> Paint Direct), a SEPARATE feature from terrain
+> painting that XOR-toggles a tile's sub_tile_mask bitfield (0x0..0xF quadrants).
+> Exit with Esc. Not part of the terrain brush.
+>
+> REMAINING: (1) explain/confirm the collision-paint mode to user; (2) regenerate
+> world.zip clean (WIP editor/tests/regenerate_world.gd has a node-path issue:
+> MapEditor is not a direct child named 'MapEditor' in main.tscn); (3) live GUI
+> verify brush + no flicker when display returns.
 
 
 > Purpose: resume cold after a session switch or an abandoned session (e.g.
