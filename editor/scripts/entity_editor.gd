@@ -192,6 +192,7 @@ func _on_import_png() -> void:
     dialog.title = "Import Sprite Image"
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
         var img: Image = Image.new()
         if img.load(path) != OK:
             push_error("Failed to load: ", path)
@@ -201,6 +202,8 @@ func _on_import_png() -> void:
         pixel_canvas.set_image(img)
         _sync_tiled_preview()
     )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_export_png() -> void:
@@ -229,6 +232,7 @@ func _on_import() -> void:
     dialog.title = "Import entity_defs.json"
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
         var f := FileAccess.open(path, FileAccess.READ)
         if not f:
             push_error("Cannot open: ", path)
@@ -246,6 +250,8 @@ func _on_import() -> void:
         _refresh_list()
         _clear_props()
     )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_export() -> void:
@@ -256,11 +262,14 @@ func _on_export() -> void:
     dialog.current_file = "entity_defs.json"
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
         var f := FileAccess.open(path, FileAccess.WRITE)
         if f:
             f.store_string(JSON.stringify({"version": "0.1.0", "entities": _entity_defs}, "\t"))
             f.close()
     )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func set_bridge(b: Node) -> void:

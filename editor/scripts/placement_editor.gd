@@ -370,7 +370,9 @@ func _on_delete_screen() -> void:
     confirm.dialog_text = "Delete screen %d at (%d, %d)? Its JSON file will be removed too." \
             % [_screen_id, _screen_pos.x, _screen_pos.y]
     confirm.ok_button_text = "Delete"
-    confirm.confirmed.connect(func():
+    var cleanup := func() -> void:
+        confirm.queue_free()
+    confirm.confirmed.connect(func() -> void:
         var path := _store.screen_path(_screen_pos.x, _screen_pos.y)
         if not path.is_empty() and FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
@@ -378,7 +380,10 @@ func _on_delete_screen() -> void:
         _save_world()
         _populate_terrain()
         _update_hud()
+        cleanup.call()
     )
+    confirm.canceled.connect(cleanup)
+    confirm.close_requested.connect(cleanup)
     add_child(confirm)
     confirm.popup_centered()
 
@@ -556,6 +561,7 @@ func _on_save() -> void:
             dialog.current_dir = dialog_dir
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
         var wrote := false
         if WorldArchive.is_world_path(path):
             var terrain_ov := {}
@@ -585,6 +591,8 @@ func _on_save() -> void:
         _update_hud()
         _log_import("world", "saved %s (%d screens, %d shared tiles)" % [path, world["screens"].size(), tiles.size()])
     )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func _collect_entity_overrides() -> Dictionary:
@@ -648,7 +656,12 @@ func _on_import_map() -> void:
         if dialog_dir != "":
             dialog.current_dir = dialog_dir
     add_child(dialog)
-    dialog.file_selected.connect(_on_import_file_guarded)
+    dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
+        _on_import_file_guarded(path)
+    )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 # Guard interactive load against dirty state (#60): Save/Discard/Cancel before

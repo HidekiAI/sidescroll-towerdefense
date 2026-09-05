@@ -24,6 +24,7 @@ func _run() -> void:
     _test_screen_store()
     await _test_map_editor()
     await _test_placement_editor()
+    await _test_dialog_lifecycle()
     _test_stamp_fingerprint()
     await _test_stamp_brush_dedupe()
     await _test_prune_duplicates()
@@ -204,6 +205,70 @@ func _test_placement_editor() -> void:
     check(ed.get_tile(3, 4) == "grass", "apply_screen tile")
     check(int(ed._tile_data["3,4"]["sub_tile_mask"]) == 15, "apply_screen flattened tile_data")
     check(ed._placements.size() == 1 and ed._placements[0]["entity_key"] == "bridge", "apply_screen placements")
+
+func _test_dialog_lifecycle() -> void:
+    print("--- dialog lifecycle (issue #45) ---")
+    var ed = (load("res://scenes/map_editor.tscn") as PackedScene).instantiate()
+    root.add_child(ed)
+    await process_frame
+    var store := ScreenStore.new()
+    store.set_dir("/tmp/user/1000/opencode")
+    ed.set_screen_store(store)
+    ed._on_add_screen_at(0, 0)
+
+    var delete_dlgs: Array[Window] = []
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    check(delete_dlgs.is_empty(), "no orphan dialogs at editor start")
+
+    ed._on_delete_screen()
+    delete_dlgs.clear()
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    check(delete_dlgs.size() == 1, "delete confirmation dialog opened")
+    var confirm: ConfirmationDialog = delete_dlgs[0]
+    confirm.confirmed.emit()
+    await process_frame
+    delete_dlgs.clear()
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    check(delete_dlgs.is_empty(), "confirm frees the delete dialog")
+
+    ed._on_add_screen_at(0, 0)
+    ed._on_delete_screen()
+    delete_dlgs.clear()
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    var dlg_cancel: ConfirmationDialog = delete_dlgs[0]
+    dlg_cancel.canceled.emit()
+    await process_frame
+    delete_dlgs.clear()
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    check(delete_dlgs.is_empty(), "cancel frees the delete dialog")
+
+    ed._on_add_screen_at(0, 0)
+    ed._on_delete_screen()
+    delete_dlgs.clear()
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    var dlg_close: ConfirmationDialog = delete_dlgs[0]
+    dlg_close.close_requested.emit()
+    await process_frame
+    delete_dlgs.clear()
+    for child in ed.get_children():
+        if child is Window:
+            delete_dlgs.append(child)
+    check(delete_dlgs.is_empty(), "close_requested frees the delete dialog")
+
+    ed.queue_free()
+    await process_frame
 
 func _make_gradient_cell() -> Image:
     var img := Image.create(STAMP_CELL, STAMP_CELL, false, Image.FORMAT_RGBA8)

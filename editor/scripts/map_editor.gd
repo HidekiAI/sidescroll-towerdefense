@@ -825,7 +825,7 @@ func _on_delete_screen() -> void:
     confirm.dialog_text = "Delete screen %d at (%d, %d)? Its JSON file will be removed too." \
             % [_screen_id, _screen_pos.x, _screen_pos.y]
     confirm.ok_button_text = "Delete"
-    confirm.confirmed.connect(func():
+    var on_delete := func() -> void:
         var path := _store.screen_path(_screen_pos.x, _screen_pos.y)
         if not path.is_empty() and FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
@@ -833,7 +833,14 @@ func _on_delete_screen() -> void:
         _save_world()
         _populate_grid()
         _update_hud()
+    var cleanup := func() -> void:
+        confirm.queue_free()
+    confirm.confirmed.connect(func() -> void:
+        on_delete.call()
+        cleanup.call()
     )
+    confirm.canceled.connect(cleanup)
+    confirm.close_requested.connect(cleanup)
     add_child(confirm)
     confirm.popup_centered()
 
@@ -984,6 +991,7 @@ func _on_save() -> void:
             dialog.current_dir = dialog_dir
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
         var wrote := false
         if WorldArchive.is_world_path(path):
             var terrain_ov := {}
@@ -1017,6 +1025,8 @@ func _on_save() -> void:
         _update_hud()
         _log_import("world", "saved %s (%d screens, %d shared tiles)" % [path, world["screens"].size(), tiles.size()])
     )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func _write_plain_json(path: String, data: Dictionary) -> bool:
@@ -1047,7 +1057,12 @@ func _on_import() -> void:
         if dialog_dir != "":
             dialog.current_dir = dialog_dir
     add_child(dialog)
-    dialog.file_selected.connect(_on_import_file_guarded)
+    dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
+        _on_import_file_guarded(path)
+    )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 # Guard interactive load against dirty state (#60): Save/Discard/Cancel before
@@ -1127,11 +1142,14 @@ func _on_export() -> void:
     dialog.current_file = "screen_%d.json" % _screen_id
     add_child(dialog)
     dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
         var f := FileAccess.open(path, FileAccess.WRITE)
         if f:
             f.store_string(JSON.stringify(_serialize(), "\t"))
             f.close()
     )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func _load_stamp_catalog() -> void:
@@ -1532,7 +1550,12 @@ func _on_prune_duplicates() -> void:
         dlg_warn.cancel_button_text = "Cancel"
         var est_sec: int = ceili(float(_stamp_catalog.size() * PRUNE_EST_MS_PER_TILE) / 1000.0)
         dlg_warn.dialog_text = "%d tiles will be scanned.\nEstimated time: ~%s.\n\nWhile it runs the editor shows a busy cursor and the UI pauses.\nContinue?" % [_stamp_catalog.size(), _fmt_duration(est_sec)]
-        dlg_warn.confirmed.connect(_run_prune_scan)
+        dlg_warn.confirmed.connect(func() -> void:
+            dlg_warn.queue_free()
+            _run_prune_scan()
+        )
+        dlg_warn.canceled.connect(func() -> void: dlg_warn.queue_free())
+        dlg_warn.close_requested.connect(func() -> void: dlg_warn.queue_free())
         add_child(dlg_warn)
         dlg_warn.popup_centered()
         return
@@ -1567,7 +1590,12 @@ func _on_prune_deep() -> void:
         dlg_gate.dialog_text = "Deep prune compares every tile pair exactly.\n\n"
         dlg_gate.dialog_text += "%d tiles may take a while and cannot be interrupted once started.\n" % _stamp_catalog.size()
         dlg_gate.dialog_text += "Continue?"
-        dlg_gate.confirmed.connect(_run_deep_scan)
+        dlg_gate.confirmed.connect(func() -> void:
+            dlg_gate.queue_free()
+            _run_deep_scan()
+        )
+        dlg_gate.canceled.connect(func() -> void: dlg_gate.queue_free())
+        dlg_gate.close_requested.connect(func() -> void: dlg_gate.queue_free())
         add_child(dlg_gate)
         dlg_gate.popup_centered()
         return
@@ -1586,6 +1614,8 @@ func _present_prune_plan(plan: Dictionary, title: String) -> void:
         var dlg := AcceptDialog.new()
         dlg.title = title
         dlg.dialog_text = "No duplicates found.\n%d tiles scanned, palette unchanged." % _stamp_catalog.size()
+        dlg.confirmed.connect(func() -> void: dlg.queue_free())
+        dlg.close_requested.connect(func() -> void: dlg.queue_free())
         add_child(dlg)
         dlg.popup_centered()
         return
@@ -1602,7 +1632,12 @@ func _present_prune_plan(plan: Dictionary, title: String) -> void:
     dlg_confirm.dialog_text += " • rewrite all map/screen/brush references\n"
     dlg_confirm.dialog_text += " • delete %d redundant disk PNGs (%d will remain)\n\n" % [plan["removed_pngs_est"], plan["bank_after"]]
     dlg_confirm.dialog_text += "This cannot be undone. Continue?"
-    dlg_confirm.confirmed.connect(_execute_prune.bind(dup_keys, merge_map))
+    dlg_confirm.confirmed.connect(func() -> void:
+        dlg_confirm.queue_free()
+        _execute_prune(dup_keys, merge_map)
+    )
+    dlg_confirm.canceled.connect(func() -> void: dlg_confirm.queue_free())
+    dlg_confirm.close_requested.connect(func() -> void: dlg_confirm.queue_free())
     add_child(dlg_confirm)
     dlg_confirm.popup_centered()
 
@@ -1843,6 +1878,8 @@ func _execute_prune(dup_keys: Array, merge_map: Dictionary) -> void:
     var dlg_ok := AcceptDialog.new()
     dlg_ok.title = "Prune Duplicates"
     dlg_ok.dialog_text = summary
+    dlg_ok.confirmed.connect(func() -> void: dlg_ok.queue_free())
+    dlg_ok.close_requested.connect(func() -> void: dlg_ok.queue_free())
     add_child(dlg_ok)
     dlg_ok.popup_centered()
 
@@ -1908,7 +1945,12 @@ func _on_stamp_import() -> void:
     dialog.add_filter("*.png", "PNG (stamp source)")
     dialog.title = "Import stamp image"
     add_child(dialog)
-    dialog.file_selected.connect(_on_stamp_import_file)
+    dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
+        _on_stamp_import_file(path)
+    )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
 
 func _on_stamp_import_file(path: String) -> void:

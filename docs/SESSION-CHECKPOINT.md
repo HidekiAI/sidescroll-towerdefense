@@ -1,5 +1,47 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
+## Bug-Squash Session (2026-09-05) — dialog lifecycle + HUD anchor + issue alignment
+
+> COMMITTED (this session): dialog `queue_free()` lifecycle fix for #45 plus #33
+> HUD anchoring restore in `main.tscn`. See "Bug-fix record" below. All editor
+> regression tests green (`failures=0`), headless boot clean, all 4 edited
+> scripts pass `--check-only`. Issues closed in the SAME pass: #45, #46, #33,
+> #66 (see per-issue closing comments for commit refs).
+>
+> **Bug-fix record**
+> - #45 (dashboard: "screen dialogs stay open and aren't dismissed"): root cause
+>   was missing `queue_free()` on EVERY code-created dialog. 17 dialog sites
+>   across `map_editor.gd`, `placement_editor.gd`, `terrain_editor.gd`,
+>   `entity_editor.gd` created `ConfirmationDialog`/`AcceptDialog`/`FileDialog`
+>   via `.new()` + `add_child()` + `popup_centered()` and never freed them on
+>   ANY exit path (confirmed/canceled/close_requested/file_selected) — the
+>   Window nodes accumulated in the scene tree and lingered. Fixed by wiring
+>   `queue_free()` into each `file_selected`/`confirmed` handler and connecting
+>   `canceled` + `close_requested`. The minimap picker dialog
+>   (`screen_minimap_dialog.tscn`, exclusive=true) already freed itself via
+>   `position_picked`/Cancel — untouched.
+> - Regression test `_test_dialog_lifecycle` (issue #45) added to
+>   `editor/tests/test_screen_store.gd`: asserts no orphan Windows at editor
+>   start, delete confirm opens exactly one, and confirm/cancel/close_requested
+>   each free it. Green.
+> - #33 (HUD overlap half): the `@onready` node-path half and ScrollContainer
+>   single-child half were already fixed in `904467f`; the REMAINING defect was
+>   `main.tscn` HUD Labels for MapEditor + PlacementEditor carrying only
+>   `top_level=true` + `layout_mode=2` with NO bottom-right anchors/offsets (the
+>   standalone `map_editor.tscn`/`placement_editor.tscn` HUDs have
+>   `anchors_preset=3`, anchors 1.0, offsets (-430,-120,-12,-12),
+>   `mouse_filter=2`). When toggled visible, the inline main.tscn HUDs rendered
+>   at top-left overlapping the toolbars. Restored the full anchor/offset/mouse-
+>   filter set into both main.tscn HUDs (commit 904467f claimed this but the diff
+>   replaced anchors with bare top_level).
+> - #46 was already fixed in `33338ba` (dedupe stamp brushes by key +
+>   `_find_tile_set`) with regression test `_test_stamp_brush_dedupe` — issue had
+>   simply not been closed. Closed with commit ref.
+> - #66 (terrain paint palette) was already shipped + committed `98d8d8c` — issue
+>   had not been closed. Closed with commit ref.
+>
+> NEXT (cold resume): none pending in this pass — all 4 issues closed.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 > bug. Plan: `docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md`.
 >

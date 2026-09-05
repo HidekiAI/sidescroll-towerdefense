@@ -404,6 +404,7 @@ func _on_import_png() -> void:
 	dialog.title = "Import Tile Image"
 	add_child(dialog)
 	dialog.file_selected.connect(func(path: String):
+		dialog.queue_free()
 		var img: Image = Image.new()
 		if img.load(path) != OK:
 			push_error("Failed to load: ", path)
@@ -413,6 +414,8 @@ func _on_import_png() -> void:
 		pixel_canvas.set_image(img)
 		_sync_tiled_preview()
 	)
+	dialog.canceled.connect(func(): dialog.queue_free())
+	dialog.close_requested.connect(func(): dialog.queue_free())
 	dialog.popup_centered(Vector2i(600, 400))
 
 func _on_export_png() -> void:
@@ -451,6 +454,7 @@ func _on_import() -> void:
 	dialog.title = "Import terrain_types.json"
 	add_child(dialog)
 	dialog.file_selected.connect(func(path: String):
+		dialog.queue_free()
 		var f := FileAccess.open(path, FileAccess.READ)
 		if not f:
 			push_error("Cannot open file: ", path)
@@ -470,6 +474,8 @@ func _on_import() -> void:
 		_refresh_on_destroy_options()
 		_clear_props()
 	)
+	dialog.canceled.connect(func(): dialog.queue_free())
+	dialog.close_requested.connect(func(): dialog.queue_free())
 	dialog.popup_centered(Vector2i(600, 400))
 
 func _ensure_defaults(t: Dictionary) -> void:
@@ -487,6 +493,7 @@ func _on_export() -> void:
 	dialog.current_file = "terrain_types.json"
 	add_child(dialog)
 	dialog.file_selected.connect(func(path: String):
+		dialog.queue_free()
 		var data: Dictionary = {
 			"version": "0.1.0",
 			"tiles": _terrain_types,
@@ -498,6 +505,8 @@ func _on_export() -> void:
 		f.store_string(JSON.stringify(data, "\t"))
 		f.close()
 	)
+	dialog.canceled.connect(func(): dialog.queue_free())
+	dialog.close_requested.connect(func(): dialog.queue_free())
 	dialog.popup_centered(Vector2i(600, 400))
 
 func _on_import_sprite() -> void:
@@ -511,6 +520,8 @@ func _on_import_sprite() -> void:
 		dialog.queue_free()
 		_on_sprite_selected(path)
 	, CONNECT_ONE_SHOT)
+	dialog.canceled.connect(func(): dialog.queue_free())
+	dialog.close_requested.connect(func(): dialog.queue_free())
 	dialog.popup_centered(Vector2i(800, 500))
 
 func _on_sprite_selected(path: String) -> void:
@@ -584,6 +595,7 @@ func _prompt_grid_config(sprite_path: String) -> void:
 	)
 
 	popup.confirmed.connect(func():
+		popup.queue_free()
 		_run_import_tool(
 			sprite_path,
 			int(cols_spin.value),
@@ -593,6 +605,7 @@ func _prompt_grid_config(sprite_path: String) -> void:
 			int(margin_spin.value),
 		)
 	, CONNECT_ONE_SHOT)
+	popup.close_requested.connect(func(): popup.queue_free(), CONNECT_ONE_SHOT)
 	popup.popup_centered(Vector2i(520, 520))
 
 func _make_label(text: String) -> Label:

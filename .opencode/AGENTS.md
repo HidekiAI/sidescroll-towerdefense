@@ -40,6 +40,18 @@ document the plan in it, then implement — and reference the issue number in th
 commit that implements it. (User directive 2026-08-17, enforced twice on the
 #55 config-defaults work.)
 
+## Always-Update-All-Documents Rule (permanent, user directive 2026-09-05)
+
+Upon completing ANY small task (commit, fix, feature, refactor), you MUST
+immediately update ALL relevant documents in the same pass — GitHub issues
+(close/comment), wiki TODO tables, AGENTS.md, SESSION-CHECKPOINT, and any
+other tracking docs. Do NOT defer document updates to "later" — deferred
+updates are forgotten, causing stale issue states (e.g. bugs marked open
+that are already closed), duplicate work, and broken traceability. The
+document update IS part of the task, not a follow-up. (User directive
+2026-09-05, after discovering bug #61 was closed but TODO.md still listed
+it as tracked.)
+
 ## Issue-State Hygiene (permanent, user directive 2026-08-19)
 
 GitHub issue states are part of the persisted status progression and MUST be
