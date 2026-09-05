@@ -6,7 +6,7 @@
 > HUD anchoring restore in `main.tscn`. See "Bug-fix record" below. All editor
 > regression tests green (`failures=0`), headless boot clean, all 4 edited
 > scripts pass `--check-only`. Issues closed in the SAME pass: #45, #46, #33,
-> #66 (see per-issue closing comments for commit refs).
+> #66, #43 (see per-issue closing comments for commit refs).
 >
 > **Bug-fix record**
 > - #45 (dashboard: "screen dialogs stay open and aren't dismissed"): root cause
@@ -39,8 +39,11 @@
 >   simply not been closed. Closed with commit ref.
 > - #66 (terrain paint palette) was already shipped + committed `98d8d8c` — issue
 >   had not been closed. Closed with commit ref.
+> - #43 (saved screens self-contained) was already shipped via World Archive
+>   commits `d03023e`/`f3e93b8` (documented on wiki TDD_Saved-World) — issue had
+>   not been closed. Closed with commit ref.
 >
-> NEXT (cold resume): none pending in this pass — all 4 issues closed.
+> NEXT (cold resume): none pending in this pass — all 5 issues closed.
 
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 > bug. Plan: `docs/PLAN-2026-08-27-terrain-brush-and-subtile-float.md`.
