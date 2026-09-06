@@ -27,4 +27,4 @@ The runner is a `SceneTree` script (it does **not** call `quit()` on load), so t
 ## Related
 
 - Screen registry design: `scripts/screen_store.gd`
-- File schema it validates against: [TDD_Saved-World](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Saved-World)
+- File schema it validates against: [TDD_Saved-World](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TDD_Saved-World)

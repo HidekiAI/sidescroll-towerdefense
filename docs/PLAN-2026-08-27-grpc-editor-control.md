@@ -1,7 +1,7 @@
 # PLAN — #64 Phase 2: gRPC Editor Control (tonic server + bridge wiring)
 
 > Tracker: [#64](https://github.com/HidekiAI/sidescroll-towerdefense/issues/64)
-> Wiki design truth: [TDD_GRPC-Editor-Control](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_GRPC-Editor-Control) (authoritative)
+> Wiki design truth: [TDD_GRPC-Editor-Control](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TDD_GRPC-Editor-Control) (authoritative)
 > Status: preplan (documented BEFORE coding, per AGENTS.md documentation-first workflow).
 
 ## Objective

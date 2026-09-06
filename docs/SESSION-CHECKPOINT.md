@@ -1,5 +1,41 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
+## Wiki Link-Rot Session (2026-09-06) — #8 wiki cross-reference flattening fix
+
+> COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
+> flat-slug form. Root cause (empirically verified on the live wiki before touching
+> anything): GitHub wiki **flattens** subdirectory pages — a page stored at
+> `TechnicalDesign/TDD_Map-World.md` renders at `/wiki/TDD_Map-World` (confirmed
+> 200), NOT at `/wiki/TechnicalDesign/TDD_Map-World` (confirmed 404), and any link
+> written with a directory prefix (`TechnicalDesign/...`, `GameDesign/...`,
+> `../TechnicalDesign/...`, `./Foo.md`) or a `.md` extension is left verbatim by
+> GitHub's renderer and 404s / redirects to Home. The ONLY working link form is a
+> bare flat slug like `](TDD_Map-World)`. Image/puml refs to nested repo paths only
+> render via absolute `https://raw.githubusercontent.com/wiki/HidekiAI/...` URLs.
+>
+> **What changed (222 rewrites across 35 wiki pages):**
+> - Stripped `TechnicalDesign/`/`GameDesign/`/`../`/`./` prefixes and `.md`
+>   extensions from all page links -> flat slug. Post-fix audit: ZERO remaining
+>   prefixed/.md link forms, and every flat link target resolves to an existing
+>   wiki page.
+> - Nested image/puml refs (`TechnicalDesign/images/*.png|.puml`,
+>   `images/tdd-*`, `GameDesign/assets/*`) -> absolute `raw.githubusercontent.com/wiki`
+>   URLs (files stay where they are; raw URLs verified working for nested paths).
+> - Cross-repo links fixed: `../../editor/scripts/{terrain_editor,tile_grid_display}.gd`
+>   -> `https://github.com/HidekiAI/sidescroll-towerdefense/blob/trunk/...`;
+>   `../docs/TDD_Tile-Art-Pipeline.md` -> `TDD_Tile-Art-Pipeline` (the real wiki page);
+>   dead `Tower Defense Side-Scroller - Design Doc.md` -> `GDD_Executive-Summary`.
+> - Main repo also contained the broken pattern: `docs/PLAN-2026-08-27-grpc-editor-control.md`
+>   (wiki URL with `/TechnicalDesign/` prefix), `editor/README.md`,
+>   `editor/tests/README.md` (2 wiki URLs with `/TechnicalDesign/` prefix) — fixed.
+>
+> NEXT (cold resume): issue #8 CLOSING comment cites the wiki-path audit on
+> `sidescroll-towerdefense.wiki` and the fix commit; #8 closed this pass. After
+> that, #7 (element rarity FK references — verify `rarity_id` integrity vs enum
+> tables) and #24/#25 (stale-code enum mismatches, see issues) are the remaining
+> labeled bug/fix issues, then the parallax BG feature request recorded in
+> `.opencode/AGENTS.md` (layered/depth-based parallax, not scanline).
+
 ## Bug-Squash Session (2026-09-05) — dialog lifecycle + HUD anchor + issue alignment
 
 > COMMITTED (this session): dialog `queue_free()` lifecycle fix for #45 plus #33

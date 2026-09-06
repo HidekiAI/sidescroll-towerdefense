@@ -2,7 +2,7 @@
 
 The standalone level-authoring tool for SSTD. Built in **Godot 4.4** with a Rust GDExtension bridge (`sstd-editor-bridge`). Provides five tabs: terrain tile definitions, entity definitions, map painting, entity placement, and (planned) simulation.
 
-See the wiki for full specs: [TDD_World-Editor](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_World-Editor) and [TDD_Saved-World](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Saved-World).
+See the wiki for full specs: [TDD_World-Editor](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TDD_World-Editor) and [TDD_Saved-World](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TDD_Saved-World).
 
 ## Run
 

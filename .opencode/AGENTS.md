@@ -1,5 +1,21 @@
 # Project: SSTD (Sidescroll Tower Defense)
 
+## PENDING FEATURE REQUEST — Parallax Background Scroll (user directive 2026-09-06)
+
+FEATURE REQUEST (not yet planned/ticketed — interrupted the #8 wiki link-rot task):
+
+- **Parallaxing on 2D background scroll, BOTH axes (vertical + horizontal).**
+- User's requirement reasoning: use **depth-based (layered) parallaxing** (multiple
+  layers per depth/parallax factor), NOT the old **scanline-based** technique —
+  scanline cannot handle "holes" in the BG. If a BG "hole" is needed, current-gen
+  layered parallax is preferred; the scanline-era workaround (adding sprites on
+  either side of a scanline to fake a hole) is explicitly the OLD technique and
+  not the target. Even non-consumer GPUs handle depth-layered parallax fine today.
+- Status: **RECORDED ONLY.** Not designed, no GitHub issue, no TDD/GDD page yet.
+  Next step when taken up: create ticket per Ticket-First Rule + TDD/GDD page before
+  any logic. This entry is a non-stop lever: do not silently branch into it mid-task.
+  (Rule recorded 2026-09-06.)
+
 ## Session Progress Checkpoint (permanent)
 
 The user may switch sessions mid-task at any time, and may also **abandon a
