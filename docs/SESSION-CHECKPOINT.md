@@ -1,6 +1,68 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
-## Wiki Link-Rot Session (2026-09-06) — #8 wiki cross-reference flattening fix
+## SHIPPED (2026-09-06) — #7 rarity FK seed + doc integrity (impl from PLAN below)
+
+> Implemented per the PLAN block below and landed this pass.
+> - `crates/sstd-core/src/config.rs`: population `005` creates + seeds
+>   `gacha_rarities` (R=1/SR=2/SSR=3/UR=4, display names per GDD_Progression-Gacha)
+>   and `guild_revive_cooldowns(rarity_id INTEGER PRIMARY KEY REFERENCES
+>   gacha_rarities(id), cooldown_scenarios)` (R=5/SR=3/SSR=1/UR=0); new public
+>   structs `GachaRarity` + `GuildReviveCooldown`, accessors `gacha_rarities()` /
+>   `guild_revive_cooldowns()`; schema_version now `0.0.5`. Re-exported in lib.rs.
+> - Tests added: `test_gacha_rarities_seeded`, `test_guild_revive_cooldowns_seeded`,
+>   `test_rarity_fk_integrity` (PRAGMA foreign_key_check -> 0 violations),
+>   `test_gacha_seed_idempotent` (re-run keeps 4/4). Updated
+>   `test_schema_version_after_population`/`test_population_applied`. cargo: 110 core,
+>   full workspace 136 pass.
+> - Wiki: TDD_Training-Center Revive Mechanics now FK lookup via
+>   `guild_revive_cooldowns`; the 4 loose `training_guildReviveCooldown{R,SR,SSR,UR}`
+>   config keys deleted from the GM-config table; TDD_GM-Config Gacha Rarity Enum gains
+>   consumer note; TDD_Enum-Tables gains `gacha_rarities` section + cross-ref matrix row.
+> - Bridge: no change (no GDScript consumer of gacha tables yet — deferred).
+
+## PLAN (pre-implementation, 2026-09-06) — #7 rarity FK seed + doc integrity
+
+> Grounding (read before planning): `crates/sstd-core/src/config.rs` (Population
+> mechanism `Population{id,description,func:`}, `POPULATIONS` array, `pop_id_to_version`
+> id->version, `run_populations` gate, `INSERT OR IGNORE` seeding, `all_config`/loaders/
+> tests at lines 555-730), `crates/sstd-editor-bridge/src/lib.rs` init_config_db,
+> wiki `TDD_GM-Config.md` ("Gacha Rarity Enum" `gacha_rarities` table, line 75),
+> `TDD_Training-Center.md` (Revive Mechanics + GM config rows 98-111),
+> `TDD_Enum-Tables.md` (enum inventory + cross-reference matrix, lines 351-364).
+>
+> **Defect (issue #7):** rarity is referenced as loose TEXT config keys
+> (`training_guildReviveCooldown{R,SR,SSR,UR}`) and an inline comment, NOT FK-encoded;
+> the `gacha_rarities` enum table is absent from TDD_Enum-Tables inventory, and has no
+> SQLite presence. Design decisions D6/D7 require INTEGER FK references for every enum.
+>
+> **Design (module ownership: `crates/sstd-core/src/config.rs` owns schema + accessors;**
+> **bridge exposure deferred — no GDScript consumer exists yet):**
+> 1. Add `Population { id: "005", description: "Gacha rarity enum + guild revive cooldowns", func: populate_005 }`.
+>    `pop_id_to_version("005")=5` -> `schema_version` becomes `0.0.5`. Idempotent on
+>    existing DBs (CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE), matching populations 001-004.
+> 2. `populate_005` (execute_batch):
+>    - `gacha_rarities(id INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL, sort_order INTEGER NOT NULL)`
+>      seeded R/SR/SSR/UR x Rare/Super Rare/Specially Super Rare/Ultra Rare, sort 0-3
+>      (names per GDD_Progression-Gacha; schema per TDD_GM-Config Gacha Rarity Enum).
+>    - `guild_revive_cooldowns(rarity_id INTEGER PRIMARY KEY REFERENCES gacha_rarities(id), cooldown_scenarios INTEGER NOT NULL)`
+>      seeded R=5/SR=3/SSR=1/UR=0 (per TDD_Training-Center Revive Mechanics). Replaces the
+>      4 loose config keys. Revive-fee formula key `training_guildReviveBaseFee` stays a config key.
+> 3. New public structs `GachaRarity` + `GuildReviveCooldown` and accessors
+>    `gacha_rarities() -> SstdResult<Vec<GachaRarity>>`,
+>    `guild_revive_cooldowns() -> SstdResult<Vec<GuildReviveCooldown>>` following the
+>    existing loader pattern (grid_config/revive_config); re-export in lib.rs.
+> 4. Tests (config.rs `mod tests`): rarity rows=4; cooldown rows=4 with exact mapping;
+>    `PRAGMA foreign_key_check` empty (referential integrity, works even without the FK
+>    pragma enabled via connection); idempotent re-run (no dupes); update
+>    `test_schema_version_after_population` -> "0.0.5" and `test_population_applied` + "005".
+> 5. Wiki, same pass: TDD_GM-Config Gacha Rarity Enum gains consumer note
+>    (`guild_revive_cooldowns.rarity_id`); TDD_Enum-Tables gains "Gacha Rarities" section
+>    (canonical pointer to GM-Config) + cross-reference matrix row; TDD_Training-Center
+>    Revive Mechanics rewritten to FK lookup + GM-config table rows replaced.
+> 6. No Rust enum change for `RarityTier`/`DEFAULT_RARITIES` (luckbot.rs) — that is a
+>    separate loot-weighting vocabulary (common/uncommon/rare/epic/legendary), untouched.
+
+> IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
 > flat-slug form. Root cause (empirically verified on the live wiki before touching

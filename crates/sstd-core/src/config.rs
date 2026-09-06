@@ -44,9 +44,30 @@ const POPULATIONS: &[Population] = &[
         description: "Luck gear (Ring of Luck): drop-luck bonus and crit-deflect tuning",
         func: populate_004,
     },
+    Population {
+        id: "005",
+        description: "Gacha rarity enum + guild revive cooldowns (issue #7 FK integrity)",
+        func: populate_005,
+    },
 ];
 
 const POST_POPULATIONS: &[Population] = &[];
+
+/// One row from the `gacha_rarities` table (canonical enum: R/SR/SSR/UR).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GachaRarity {
+    pub id: i64,
+    pub key: String,
+    pub display_name: String,
+    pub sort_order: i64,
+}
+
+/// One row from the `guild_revive_cooldowns` table — per-rarity scenario cooldown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuildReviveCooldown {
+    pub rarity_id: i64,
+    pub cooldown_scenarios: i64,
+}
 
 // ---------------------------------------------------------------------------
 // Population: populate_001 — seed the 12 core config keys
@@ -139,6 +160,41 @@ fn populate_004(conn: &Connection) -> SstdResult<()> {
         )
         .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Population: populate_005 — seed gacha rarity enum + guild revive cooldowns
+// Issue #7: replace loose TEXT config keys with FK-referential schema.
+// ---------------------------------------------------------------------------
+fn populate_005(conn: &Connection) -> SstdResult<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS gacha_rarities (
+            id           INTEGER PRIMARY KEY,
+            key          TEXT    NOT NULL UNIQUE,
+            display_name TEXT    NOT NULL,
+            sort_order   INTEGER NOT NULL
+        );
+
+        INSERT OR IGNORE INTO gacha_rarities (id, key, display_name, sort_order) VALUES
+            (1, 'R',   'Rare',                 0),
+            (2, 'SR',  'Super Rare',           1),
+            (3, 'SSR', 'Specially Super Rare',  2),
+            (4, 'UR',  'Ultra Rare',           3);
+
+        CREATE TABLE IF NOT EXISTS guild_revive_cooldowns (
+            rarity_id          INTEGER PRIMARY KEY REFERENCES gacha_rarities(id),
+            cooldown_scenarios INTEGER NOT NULL
+        );
+
+        INSERT OR IGNORE INTO guild_revive_cooldowns (rarity_id, cooldown_scenarios) VALUES
+            (1, 5),   -- R:   5 scenarios before revive
+            (2, 3),   -- SR:  3 scenarios
+            (3, 1),   -- SSR: 1 scenario
+            (4, 0);   -- UR:  immediate revive
+        ",
+    )
+    .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
     Ok(())
 }
 
@@ -430,6 +486,55 @@ impl ConfigStore {
         })
     }
 
+    /// Returns all gacha rarity tiers ordered by `sort_order`.
+    pub fn gacha_rarities(&self) -> SstdResult<Vec<GachaRarity>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, key, display_name, sort_order FROM gacha_rarities ORDER BY sort_order",
+            )
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(GachaRarity {
+                    id: row.get(0)?,
+                    key: row.get(1)?,
+                    display_name: row.get(2)?,
+                    sort_order: row.get(3)?,
+                })
+            })
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| crate::error::StorageError::Io(e.to_string()))?);
+        }
+        Ok(result)
+    }
+
+    /// Returns per-rarity guild revive cooldowns, ordered by rarity id.
+    pub fn guild_revive_cooldowns(&self) -> SstdResult<Vec<GuildReviveCooldown>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT g.rarity_id, g.cooldown_scenarios FROM guild_revive_cooldowns g ORDER BY g.rarity_id",
+        ).map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(GuildReviveCooldown {
+                    rarity_id: row.get(0)?,
+                    cooldown_scenarios: row.get(1)?,
+                })
+            })
+            .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| crate::error::StorageError::Io(e.to_string()))?);
+        }
+        Ok(result)
+    }
+
     pub fn set_config(&self, key: &str, value: &str) -> SstdResult<()> {
         self.conn
             .execute(
@@ -611,6 +716,7 @@ mod tests {
         assert!(pops.iter().any(|(id, _)| id == "002"));
         assert!(pops.iter().any(|(id, _)| id == "003"));
         assert!(pops.iter().any(|(id, _)| id == "004"));
+        assert!(pops.iter().any(|(id, _)| id == "005"));
     }
 
     #[test]
@@ -696,10 +802,113 @@ mod tests {
     }
 
     #[test]
+    fn test_gacha_rarities_seeded() {
+        let store = ConfigStore::in_memory().unwrap();
+        let rarities = store.gacha_rarities().unwrap();
+        assert_eq!(rarities.len(), 4);
+        assert_eq!(
+            rarities[0],
+            GachaRarity {
+                id: 1,
+                key: "R".into(),
+                display_name: "Rare".into(),
+                sort_order: 0
+            }
+        );
+        assert_eq!(
+            rarities[1],
+            GachaRarity {
+                id: 2,
+                key: "SR".into(),
+                display_name: "Super Rare".into(),
+                sort_order: 1
+            }
+        );
+        assert_eq!(
+            rarities[2],
+            GachaRarity {
+                id: 3,
+                key: "SSR".into(),
+                display_name: "Specially Super Rare".into(),
+                sort_order: 2
+            }
+        );
+        assert_eq!(
+            rarities[3],
+            GachaRarity {
+                id: 4,
+                key: "UR".into(),
+                display_name: "Ultra Rare".into(),
+                sort_order: 3
+            }
+        );
+    }
+
+    #[test]
+    fn test_guild_revive_cooldowns_seeded() {
+        let store = ConfigStore::in_memory().unwrap();
+        let cooldowns = store.guild_revive_cooldowns().unwrap();
+        assert_eq!(cooldowns.len(), 4);
+        assert_eq!(
+            cooldowns,
+            vec![
+                GuildReviveCooldown {
+                    rarity_id: 1,
+                    cooldown_scenarios: 5
+                },
+                GuildReviveCooldown {
+                    rarity_id: 2,
+                    cooldown_scenarios: 3
+                },
+                GuildReviveCooldown {
+                    rarity_id: 3,
+                    cooldown_scenarios: 1
+                },
+                GuildReviveCooldown {
+                    rarity_id: 4,
+                    cooldown_scenarios: 0
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_rarity_fk_integrity() {
+        let store = ConfigStore::in_memory().unwrap();
+        // foreign_key_check works regardless of the PRAGMA foreign_keys toggle.
+        let mut stmt = store
+            .conn
+            .prepare("PRAGMA foreign_key_check")
+            .expect("prepare foreign_key_check");
+        let violations = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })
+            .expect("query foreign_key_check");
+        let mut count = 0;
+        for v in violations {
+            let (table, rowid) = v.expect("row");
+            count += 1;
+            panic!("FK violation in {table} row {rowid}");
+        }
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_gacha_seed_idempotent() {
+        let store = ConfigStore::in_memory().unwrap();
+        // Re-run the populate cycle; population 005 is already recorded, so rows must not duplicate.
+        store.initial().unwrap();
+        store.run_populations().unwrap();
+        assert_eq!(store.gacha_rarities().unwrap().len(), 4);
+        assert_eq!(store.guild_revive_cooldowns().unwrap().len(), 4);
+    }
+
+    #[test]
     fn test_schema_version_after_population() {
         let store = ConfigStore::in_memory().unwrap();
         let ver = store.get_meta("schema_version").unwrap();
-        assert_eq!(ver, "0.0.4");
+        assert_eq!(ver, "0.0.5");
     }
 
     #[test]
