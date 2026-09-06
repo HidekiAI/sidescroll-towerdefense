@@ -62,6 +62,22 @@
 > 6. No Rust enum change for `RarityTier`/`DEFAULT_RARITIES` (luckbot.rs) — that is a
 >    separate loot-weighting vocabulary (common/uncommon/rare/epic/legendary), untouched.
 
+## SHIPPED (2026-09-06) — A19/A20 stale-code reconciliations (issues #24/#25, doc-only)
+
+> Chosen resolutions (user): (a) #24 biome — keep code `BiomeType` (gameplay terrain
+> enum == TDD_Enum-Tables `biome_types`, no Rust change) and the GDD_Art-Direction
+> palette as a SEPARATE visual taxonomy with an explicit palette->biome mapping table;
+> (b) #25 surface — `SurfaceType` (terrain movement modifiers) and transport road
+> tiers (hauler speed/fuel bonuses) are separate concerns; road tiers will be a
+> transport-system enum when implemented, NOT `SurfaceType` variants.
+> Edits (wiki, commit ref on issues): GDD_Art-Direction Biome Palette gained the
+> mapping column + reconciliation note; TDD_Enum-Tables biome_types + surface_types
+> gained separation notes; TDD_Transport-Infrastructure Road Tiers gained the
+> forward-design note. Also fixed a pre-existing unclosed code fence at the end of
+> TDD_Enum-Tables (biome_types INSERT block; odd fence count). TODO.md A19/A20 -> done.
+> No Rust/GDScript changes. Confirmed code `BiomeType` is `Crystal` (not Frozen) and
+> matches `from_str` keys exactly.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
