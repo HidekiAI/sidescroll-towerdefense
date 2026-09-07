@@ -124,6 +124,24 @@
 > import_screen; TDD_Agent-Action-Architecture 8-service model + MCP-tools analogy;
 > TDD_Saved-World WorldArchive; GDD_Art-Direction palette; OpenRouter image docs.
 
+## SHIPPED (2026-09-07) — #70 gRPC/protobuf service index TDD
+
+> Audit + index produced. CODE TRUTH (verified by grep, no inference): exactly 1
+> proto file `crates/sstd-grpc/proto/editor.proto` (package sstd.editor), 1
+> service `EditorService`, 2 RPCs (SwitchTab, CaptureScreenshot), 4 messages;
+> tonic server on a background tokio thread inside the Rust GDExtension bridge
+> (SstdBridge drains EditorCommand via mpsc; spawn_server pattern; e2e test via
+> tonic Channel). DESIGNED surface (wiki TDDs): 12 services, ~113 RPC pairs
+> (~109 net unique after overlap) = Agent-Action 8 services/62 + Service-Contract
+> 13 + Map-World spatial/coordinate 26 + SimService ~4 (proto TBD) + GameAgent 1
+> (Play stream) + AuthoringService 7 (#69). Implemented share ~1.8% (2/113).
+> New wiki `TDD_gRPC-Service-Index` = authoritative inventory: per-service table,
+> consolidated proto plan (sstd.common/editor/actions/spatial/sim/authoring/
+> multiplayer), phased rollout gated on consumers (0 editor->1 spatial->2 sim->
+> 3 action->4 authoring->5 multiplayer), per-service test parity (conversion +
+> mpsc round-trip + e2e + action_log). AGENTS.md gained the maintainability rule:
+> any new proto/gRPC work MUST update the index page in the same commit.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's

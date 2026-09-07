@@ -146,6 +146,8 @@ Rule of thumb for where commit hashes vs. wiki belong:
 
 ## gRPC Integration
 
+**Surface inventory (2026-09-07):** implemented = 1 proto file (`crates/sstd-grpc/proto/editor.proto`), 1 service (`EditorService`: SwitchTab + CaptureScreenshot), 4 messages; designed = 12 services / ~113 RPC pairs across the wiki TDDs (~109 net unique). **Any new proto/gRPC work MUST update `TDD_gRPC-Service-Index` (wiki) in the same commit** — it is the authoritative inventory. Services are built only when a consumer needs them (gRPC is an AI accommodation cost), not the full designed surface. (Maintainability rule recorded 2026-09-07.)
+
 Three gRPC service contexts, each on a separate port (localhost-only by default, no auth):
 
 ### 1. Editor gRPC (port *TBD*, e.g. 50051)
