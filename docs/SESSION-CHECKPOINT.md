@@ -93,6 +93,37 @@
 > corridor model; issue #24 biome-vs-palette taxonomy separation. Will absorb the
 > v2 screen-override hook and `parallax.*` config keys at implementation time.
 
+## SHIPPED (2026-09-07) — #69 OpenRouter gateway: TICKET + DESIGN (documentation-first)
+
+> New feature request recorded and driven to a tracked ticket. Issue #69 created
+> (`feat(f7): OpenRouter gateway — agent-driven content generation (tilesets then
+> maps) via gRPC`). Scope resolved via question flow (2026-09-07):
+> - Transport = **strictly gRPC**. Investigation finding: Godot 4 GDScript has NO
+>   native MCP support, so an MCP server would only ever ride the same Rust
+>   GDExtension bridge as the tonic gRPC server (an adapter, not a new integration).
+>   User-verified priority: all analysis CPU-side in Rust, token-thrifty.
+> - Mixed key model: SSTD-side `sstd-openrouter` HTTP client for image generation
+>   (agents cannot unvalidated-blast the tile bank); agents keep their OWN text/
+>   instruction channel; key is a secret (env / `user://data/secrets/openrouter.key`,
+>   0600, never config store / wiki / world zip).
+> - Slice A = tilesets (text-to-image -> decode -> nearest-resize 32x32 ->
+>   palette_conformance + alpha check -> stage -> HUMAN APPROVAL gate -> bank via
+>   existing bridge path). Slice B = maps (structured screen JSONC ->
+>   schema/dimension/terrain-ref/stitch validation -> WorldArchive world .zip).
+> - Design authored BEFORE code (per #68 precedent): wiki `TDD_OpenRouter-Gateway.md`
+>   (AuthoringService = agent-action service #9 on `sstd-grpc`; protobuf surface;
+>   bridge-command pattern mirroring `EditorCommand`; OpenRouter facts: Image API
+>   `POST /v1/images` with `data[].b64_json`+`media_type`, capability discovery is
+>   truth, routing/failover OK; `openrouter.*` config domain = population 006 ->
+>   schema_version 0.0.6; `generation_log` journal-grade table; budgets as credit
+>   STRINGS not floats; token-thrift validation contracts; testing plan) +
+>   `GDD_AI-Content-Workflows.md` (authoring workflow + editorial guardrails).
+> No code written. Issue #69 stays OPEN until an implementation commit exists.
+> Grounding: config.rs POPULATIONS 001-005 + ConfigStore; sstd-grpc
+> EditorCommand/spawn_server + editor.proto; sstd-editor-bridge import_terrain_types/
+> import_screen; TDD_Agent-Action-Architecture 8-service model + MCP-tools analogy;
+> TDD_Saved-World WorldArchive; GDD_Art-Direction palette; OpenRouter image docs.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's

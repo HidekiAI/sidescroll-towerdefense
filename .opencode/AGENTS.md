@@ -1,6 +1,31 @@
 # Project: SSTD (Sidescroll Tower Defense)
 
-## FEATURE REQUEST — Parallax Background Scroll (user directive 2026-09-06)
+## FEATURE REQUEST — OpenRouter Integration: text-to-image + instruction models for agent-driven content generation (user directive 2026-09-07)
+
+FEATURE REQUEST (recorded immediately; now ticketed + designed):
+
+- **Integrate OpenRouter** so that TEXT can instruct the game's **LLM agents** to use
+  text-to-image and other relevant OpenRouter models.
+- Intended uses: agents generate **maps**, generate **new tilesets**, etc.
+- Integration surface: user chose via the question flow (2026-09-07): gRPC is the
+  single authoritative surface (**strictly gRPC**). Investigation resolved that MCP
+  cannot attach *directly* to Godot 4 GDScript (no native MCP support; an MCP server
+  would ride the same Rust GDExtension bridge as tonic anyway = adapter, not a new
+  integration). User also directed: data analysis/geometry/validation must happen in
+  pure Rust on CPU ("almost all the work done in CPU without LLM host") to be
+  **token-thrifty** — the LLM never computes, it only instructs/proposes. Key model:
+  **mixed** — SSTD-side HTTP client for image generation, agents keep their own text
+  channel. Artifacts: **tilesets first, then maps**.
+- Status: **TICKETED + DESIGNED (2026-09-07).** GitHub issue #69
+  (`feat(f7): OpenRouter gateway — agent-driven content generation (tilesets then
+  maps) via gRPC`), OPEN — implementation pending. Design authored BEFORE any code:
+  wiki `TDD_OpenRouter-Gateway.md` (AuthoringService gRPC service on the 8-service
+  agent-action model; `sstd-openrouter` HTTP client for `POST /v1/images`; pure-Rust
+  validation contracts for the tile pipeline + screen/world pipeline; `openrouter.*`
+  config domain population 006; `generation_log` journal; human approval gate;
+  budgets as credit-strings; testing plan) + `GDD_AI-Content-Workflows.md`
+  (Slice A/B designer workflows, editorial guardrails). This entry stays as the
+  durable handoff lever for that implementation.
 
 FEATURE REQUEST (recorded while interrupted the #8 wiki link-rot task; now ticketed + designed):
 
