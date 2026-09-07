@@ -1,8 +1,8 @@
 # Project: SSTD (Sidescroll Tower Defense)
 
-## PENDING FEATURE REQUEST — Parallax Background Scroll (user directive 2026-09-06)
+## FEATURE REQUEST — Parallax Background Scroll (user directive 2026-09-06)
 
-FEATURE REQUEST (not yet planned/ticketed — interrupted the #8 wiki link-rot task):
+FEATURE REQUEST (recorded while interrupted the #8 wiki link-rot task; now ticketed + designed):
 
 - **Parallaxing on 2D background scroll, BOTH axes (vertical + horizontal).**
 - User's requirement reasoning: use **depth-based (layered) parallaxing** (multiple
@@ -11,10 +11,15 @@ FEATURE REQUEST (not yet planned/ticketed — interrupted the #8 wiki link-rot t
   layered parallax is preferred; the scanline-era workaround (adding sprites on
   either side of a scanline to fake a hole) is explicitly the OLD technique and
   not the target. Even non-consumer GPUs handle depth-layered parallax fine today.
-- Status: **RECORDED ONLY.** Not designed, no GitHub issue, no TDD/GDD page yet.
-  Next step when taken up: create ticket per Ticket-First Rule + TDD/GDD page before
-  any logic. This entry is a non-stop lever: do not silently branch into it mid-task.
-  (Rule recorded 2026-09-06.)
+- Status: **TICKETED + DESIGNED (2026-09-06).** GitHub issue #68
+  (`feat(f6): depth-layered parallax background`), OPEN — implementation pending.
+  Design authored BEFORE any code: wiki `TDD_Parallax-Background.md` (layer model
+  L0/L1/L2 per-axis factors, `Parallax2D` + Camera2D compositing, corridor-biome
+  `biome_backdrop_layers` schema, holes = alpha cutouts, scanline/fake-hole sprites
+  prohibited, <=7 layers, validation checklist) + `GDD_Art-Direction` Parallax
+  Background section (per-palette L0/L1/L2 stacks). Runtime rendering (Camera2D/
+  Parallax2D) does NOT exist yet — implementing #68 requires that runtime first.
+  This entry stays as the durable handoff lever for that implementation.
 
 ## Session Progress Checkpoint (permanent)
 

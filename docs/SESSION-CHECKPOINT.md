@@ -78,6 +78,21 @@
 > No Rust/GDScript changes. Confirmed code `BiomeType` is `Crystal` (not Frozen) and
 > matches `from_str` keys exactly.
 
+## SHIPPED (2026-09-06) — #68 parallax background: TICKET + DESIGN (documentation-first)
+
+> Recorded feature request promoted to a tracked ticket. Issue #68 created
+> (`feat(f6): depth-layered parallax background — both-axis 2D backdrop scroll, no
+> scanline`). Design authored BEFORE any code: wiki `TDD_Parallax-Background.md`
+> (depth-layered layer model L0/L1/L2 with per-axis factors, Godot `Parallax2D`
+> compositing under a Camera2D, `biome_backdrop_layers` data model keyed on corridor
+> biome, holes = alpha cutouts, scanline + fake-hole sprites explicitly prohibited,
+> <= 7 layers, validation checklist) and a `GDD_Art-Direction` "Parallax Background"
+> section (per-palette L0/L1/L2 stacks + combat-readability rule). No code written.
+> Issue #68 stays OPEN until the engine runtime renders it (runtime rendering is not
+> implemented yet — camera/Parallax2D absent). Grounding: TDD_Map-Hierarchy screen/
+> corridor model; issue #24 biome-vs-palette taxonomy separation. Will absorb the
+> v2 screen-override hook and `parallax.*` config keys at implementation time.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
