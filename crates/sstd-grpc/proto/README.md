@@ -20,6 +20,14 @@
 
 ## Conventions
 
+- **Single schema source + single generated lib (enforced).** `proto/` is the ONLY
+  schema directory in the repo; `sstd-grpc/build.rs` compiles every `*.proto` here
+  via a glob (add a file -> it is built automatically, no Cargo.toml/protoc wiring,
+  `cargo:rerun-if-changed` covers new/edited files). Consumers that need protobuf or
+  gRPC types MUST depend on the `sstd-grpc` crate. NEVER hand-roll wire structs and
+  NEVER re-generate `.rs` from `.proto` outside this crate. The GDExtension `#[func]`
+  bridge + `EditorCommand` mpsc are a separate non-protobuf contract (JSON) and do
+  not re-define the schema.
 - **Packages** are dotted and lowercase: `sstd.<domain>` (matches existing `sstd.editor`).
 - **Changes are additive only.** Never rename/renumber existing fields in a published
   proto; new fields use fresh field numbers; deprecated fields retire via `reserved`

@@ -155,6 +155,19 @@
 > inventory table. Lifecycle rule (AGENTS.md + index banner): ANY proto/gRPC
 > change ships IDL + proto README row + index purpose text in the SAME commit.
 
+## SHIPPED (2026-09-07) — #72 single proto source of truth (glob + one-lib)
+
+> build.rs compiled one hardcoded proto; a 2nd protocol file would silently never
+> build. Now compiles every *.proto under crates/sstd-grpc/proto/ via
+> std::fs::read_dir glob (sorted, empty -> hard error), keeps PROTOC from
+> protobuf-src, and emits cargo:rerun-if-changed per file + for the dir. Verified:
+> cargo check -p sstd-grpc clean, cargo test -p sstd-grpc 6 tests green
+> (include_proto!("sstd.editor") still resolves). Governance: proto/ = ONLY schema
+> dir; consumers depend on sstd-grpc (never hand-roll/re-generate wire types; the
+> JSON #[func] bridge is a separate non-protobuf contract); every new proto ships
+> .proto + include_proto + README row + index purpose in ONE commit. Recorded in
+> proto/README.md, TDD_gRPC-Service-Index (wiki), AGENTS.md.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
