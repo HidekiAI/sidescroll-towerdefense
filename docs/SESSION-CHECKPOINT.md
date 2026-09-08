@@ -142,6 +142,19 @@
 > mpsc round-trip + e2e + action_log). AGENTS.md gained the maintainability rule:
 > any new proto/gRPC work MUST update the index page in the same commit.
 
+## SHIPPED (2026-09-07) — #71 living protobuf/gRPC registry
+
+> User directive: "we NEED some kind of LIVING document that explains what each
+> protobuff and gRPC does." Delivered: `crates/sstd-grpc/proto/README.md` (main
+> repo, beside the IDL) = living registry, one row per proto (package, service,
+> RPCs, status, WHAT IT DOES) + conventions (additive-only, reserved, codegen,
+> CCMV); index gained a "3-layer model" section (L1 Service Contract = deepest,
+> transport-agnostic, already served by non-protobuf GDExtension #[func] +
+> EditorCommand mpsc; L2 gRPC surface; L3 protobuf messages, reusable beyond
+> gRPC — hence gRPC != protobuf) and a per-service PURPOSE column in the
+> inventory table. Lifecycle rule (AGENTS.md + index banner): ANY proto/gRPC
+> change ships IDL + proto README row + index purpose text in the SAME commit.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's

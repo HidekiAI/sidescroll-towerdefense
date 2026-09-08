@@ -146,7 +146,7 @@ Rule of thumb for where commit hashes vs. wiki belong:
 
 ## gRPC Integration
 
-**Surface inventory (2026-09-07):** implemented = 1 proto file (`crates/sstd-grpc/proto/editor.proto`), 1 service (`EditorService`: SwitchTab + CaptureScreenshot), 4 messages; designed = 12 services / ~113 RPC pairs across the wiki TDDs (~109 net unique). **Any new proto/gRPC work MUST update `TDD_gRPC-Service-Index` (wiki) in the same commit** — it is the authoritative inventory. Services are built only when a consumer needs them (gRPC is an AI accommodation cost), not the full designed surface. (Maintainability rule recorded 2026-09-07.)
+**Surface inventory (2026-09-07):** implemented = 1 proto file (`crates/sstd-grpc/proto/editor.proto`), 1 service (`EditorService`: SwitchTab + CaptureScreenshot), 4 messages; designed = 12 services / ~113 RPC pairs across the wiki TDDs (~109 net unique). **Any new proto/gRPC work MUST update `TDD_gRPC-Service-Index` (wiki) AND `crates/sstd-grpc/proto/README.md` (living registry: row + purpose) in the same commit** — together they are the living "what each proto/gRPC does" doc (index purpose text + proto README row + IDL all ship in one commit; user directive 2026-09-07). gRPC != protobuf: the Service Contract is the deepest layer and already runs over a non-protobuf transport (GDExtension `#[func]` bridge + `EditorCommand` mpsc). Services are built only when a consumer needs them (gRPC is an AI accommodation cost), not the full designed surface. (Maintainability rule recorded 2026-09-07.)
 
 Three gRPC service contexts, each on a separate port (localhost-only by default, no auth):
 
