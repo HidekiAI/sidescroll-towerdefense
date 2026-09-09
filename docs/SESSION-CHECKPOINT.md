@@ -168,6 +168,19 @@
 > .proto + include_proto + README row + index purpose in ONE commit. Recorded in
 > proto/README.md, TDD_gRPC-Service-Index (wiki), AGENTS.md.
 
+## INTERRUPTED (2026-09-07, pre-reboot) — #67/#65 docs task, user chose "Close #67 + #65 docs"
+
+> Active work (see `.opencode/sessions/2026-09-07-grpc-def-overrides-session.md` for
+> the fully self-contained resume):
+> DONE: #67 wiki page `TDD_Def-Overrides` authored + committed (wiki 13d74b5) — #67
+> code was already shipped (main 9d78881), cargo test -p sstd-core 110 pass.
+> REMAINING after reboot in runnable order: (1) author wiki
+> `TechnicalDesign/TDD_Terrain-Type-Hierarchy.md` as DESIGN-ONLY (#65 has NO code,
+> cannot be closed per Issue-State Hygiene; keep OPEN, comment designed), (2) Home.md
+> rows + TODO rows + this file's SHIPPED block, (3) commit wiki citing #65 (and #67),
+> (4) gh issue close 67 --comment "<wiki + 9d78881>", (5) comment on #65 stays open.
+> Main repo is otherwise CLEAN at c3af481 (#72); wiki at 13d74b5.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
