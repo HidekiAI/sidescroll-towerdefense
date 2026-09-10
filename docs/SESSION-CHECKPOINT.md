@@ -168,7 +168,30 @@
 > .proto + include_proto + README row + index purpose in ONE commit. Recorded in
 > proto/README.md, TDD_gRPC-Service-Index (wiki), AGENTS.md.
 
+## SHIPPED (2026-09-10) — #67/#65 docs completion (resumed from the pre-reboot interrupt)
+
+> Resumed the 2026-09-07 in-flight task ("Close #67 + #65 docs"). The #67 wiki page
+> `TechnicalDesign/TDD_Def-Overrides.md` had already landed pre-reboot (wiki commit
+> `13d74b5`). Remaining work completed this pass:
+> - **#65 design authored (design-only, no code):** wiki `TechnicalDesign/TDD_Terrain-Type-Hierarchy.md`
+>   — air/ground root base types (immutable, un-deletable), `parent_type` field (empty
+>   string = root), parent-chain merge root->child, composition order documented as
+>   framework prototype -> hierarchy merge -> world override (per TDD_Def-Overrides),
+>   validation (known parent, no self-parent, acyclic, roots required, no re-parent in
+>   world overrides), inheritance-aware editor UI (grey inherited fields, lock roots,
+>   dependent-delete guard), schema self-FK `parent_id` on `terrain_types` (enum-table
+>   surface), proposed default hierarchy for the 7 framework types, reconciliation note
+>   that the runtime `TerrainType` enum is untouched by the hierarchy.
+> - **Rows added:** wiki Home.md (Technical Design: `TDD_Def-Overrides`, `TDD_Terrain-Type-Hierarchy`),
+>   wiki TODO.md (new "This Session 2026-09-07" block, TS57/#67 done, TS58/#65 designed,
+>   footer date).
+> - **Issue states:** #67 CLOSED (closing comment cites wiki page + code commit
+>   `9d78881`); #65 stays OPEN with "designed, no code" comment (Issue-State Hygiene).
+> - Branches: main repo `trunk` at `c84b901` (clean), wiki `master` updated this pass.
+>   NEXT (cold resume): none — no in-flight work remains.
+
 ## INTERRUPTED (2026-09-07, pre-reboot) — #67/#65 docs task, user chose "Close #67 + #65 docs"
+> **SUPERSEDED by the SHIPPED (2026-09-10) block above — all remaining steps below are now done.**
 
 > Active work (see `.opencode/sessions/2026-09-07-grpc-def-overrides-session.md` for
 > the fully self-contained resume):
