@@ -204,6 +204,15 @@
 > (4) gh issue close 67 --comment "<wiki + 9d78881>", (5) comment on #65 stays open.
 > Main repo is otherwise CLEAN at c3af481 (#72); wiki at 13d74b5.
 
+## SHIPPED (2026-09-10) — #73 over-engineering audit ledger
+
+> Whole-repo punk-audit done + persisted to wiki `TechnicalDesign/Engineering-Audit.md`
+> (ranked: unwired LuckBot/Revive/items engine ~1,345 lines / schemars-yagni /
+> grpc_smoke dup / gen-icons shrink; net -~1,800 lines -1 dep possible).
+> Nothing deleted — cuts are PROPOSED, tracked on issue #73. Page carries the
+> 4 delta-check greps; AGENTS.md now mandates delta-append, never full re-audit.
+> Wiki row + TODO TS59 + footer updated; main clean otherwise.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's

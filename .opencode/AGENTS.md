@@ -148,6 +148,15 @@ Rule of thumb for where commit hashes vs. wiki belong:
 
 **Surface inventory (2026-09-07):** implemented = 1 proto file (`crates/sstd-grpc/proto/editor.proto`), 1 service (`EditorService`: SwitchTab + CaptureScreenshot), 4 messages; designed = 12 services / ~113 RPC pairs across the wiki TDDs (~109 net unique). **Single schema source + single generated lib (enforced, #72):** `crates/sstd-grpc/proto/` is the ONLY schema dir; `sstd-grpc/build.rs` compiles every `*.proto` there via glob (new proto auto-builds, `rerun-if-changed` covers edits); every new proto ships 4 pieces in ONE commit — the `.proto`, its `include_proto!` in `sstd-grpc/src/lib.rs`, a row in `proto/README.md`, and the `TDD_gRPC-Service-Index` purpose text. Consumers MUST depend on `sstd-grpc` for proto/gRPC types — never hand-roll wire structs or re-generate `.rs` elsewhere (the JSON GDExtension `#[func]` bridge is a separate non-protobuf contract, not a second schema). gRPC != protobuf: the Service Contract is the deepest layer and already runs over a non-protobuf transport (`#[func]` bridge + `EditorCommand` mpsc). Services are built only when a consumer needs them (gRPC is an AI accommodation cost), not the full designed surface.
 
+## Over-Engineering Audit Rule (2026-09-10)
+
+The whole-repo over-engineering audit lives in the wiki
+`TechnicalDesign/Engineering-Audit.md` (issue #73). It is a **ledger, not a
+one-shot**: future sessions must run the page's 4 Delta-check greps and append a
+delta row instead of re-auditing the whole tree. Baseline findings are ranked
+there (biggest cut first); nothing was deleted. Any accepted/rejected cut is
+recorded inline on that page.
+
 Three gRPC service contexts, each on a separate port (localhost-only by default, no auth):
 
 ### 1. Editor gRPC (port *TBD*, e.g. 50051)
