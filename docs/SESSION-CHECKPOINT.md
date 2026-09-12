@@ -213,6 +213,15 @@
 > 4 delta-check greps; AGENTS.md now mandates delta-append, never full re-audit.
 > Wiki row + TODO TS59 + footer updated; main clean otherwise.
 
+## SHIPPED (2026-09-10) — #73 pruning gate applied (F3+F4 pruned, F1+F2 kept)
+
+> User gate for irreversible cuts: (1) git recovery documented, (2) NOT on any
+> TDD/GDD — documented design stays. Applied: grpc_smoke.rs example + gen-icons
+> tool deleted (-656 lines); recovery at pre-prune HEAD 96b2f45 (commands on wiki
+> Engineering-Audit). Kept: LuckBot/Revive/items engine (~1,345 lines) + schemars
+> = TDD-documented (TDD_LuckBot/TDD_Luck-Gear/TDD_Death-Revive-System /
+> TDD_Saved-World). cargo check -p sstd-grpc green; ledger + TODO updated.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
