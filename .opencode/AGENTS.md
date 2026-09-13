@@ -298,6 +298,7 @@ All tunable gameplay constants must live in `sstd_config.sqlite3` via the popula
 - **Hybrid workflow**: PNGs can be created in external tools (Godot IDE, Aseprite, Photoshop) and imported via the "Import PNG" button. The two-way PNG roundtrip means no lock-in.
 - PNG resolution matches the config tile size (default 32×32). External images are resampled with nearest-neighbor on import.
 - **Parallax backdrop layers** (issue #68): `tools/slice-layers` (workspace member, issue #74) recovers L0/L1/L2 RGBA layer PNGs from a rendered parallax video by measuring horizontal displacement between two frames ("flow, not ML" — depth models rejected as an extra dependency). Outputs land in `assets/backdrop_layers/`; seeded factors are emitted in the tool log (see checkpoint; L1 0.53 slightly above its TDD upper bound 0.5, accepted).
+- **Preview MP4s are local-only** (user directive 2026-09-13): source renders `assets/samples/preview-with-parallax*.mp4` and the 1 fps frame dir are `git rm --cached`'d + gitignored — they will NOT go to the repo even with LFS. The derived `assets/backdrop_layers/*.png` are the committed artifact; regeneration needs the local files (replay command on TDD_Parallax-Background §4.1).
 
 ## Editor Tooling & Validation Commands
 

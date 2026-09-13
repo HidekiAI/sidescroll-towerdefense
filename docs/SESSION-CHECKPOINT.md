@@ -238,6 +238,13 @@
 > Committed `assets/backdrop_layers/{layer_0,1,2,displacement}.png`; alpha coverage
 > 32% / 27% / 41% (holes non-trivial). TDD_Parallax-Background grew §4.1 "Source-art
 > recovery". Issue #74 closed with commit.
+>
+> **Repo policy (2026-09-13):** the source MP4s (both preview renders) are
+> local-only — `git rm --cached`'d + gitignored (`assets/samples/*.mp4` and the
+> 1fps frame dir `assets/samples/preview-with-parallax-extended/`); not going to
+> repo/LFS. Committed `assets/backdrop_layers/*.png` are the derived artifact of
+> record; regeneration requires the local MP4s (command documented on
+> TDD_Parallax-Background §4.1).
 
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 

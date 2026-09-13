@@ -47,3 +47,7 @@ editor/captures/
 
 # World archive package written by the editor on save (runtime-generated data)
 editor/world.zip
+
+# Large preview artifacts: MP4s stay local-only (no repo/LFS)
+assets/samples/*.mp4
+assets/samples/preview-with-parallax-extended/
