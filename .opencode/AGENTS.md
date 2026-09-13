@@ -98,6 +98,16 @@ document update IS part of the task, not a follow-up. (User directive
 2026-09-05, after discovering bug #61 was closed but TODO.md still listed
 it as tracked.)
 
+## Idle-time Checkpointing (permanent, user directive 2026-09-13)
+
+Always checkpoint and update documents — and the IDEAL time to do it is
+when idling (no task in flight, waiting on the user, or between tasks).
+Any pause is an opportunity to persist state: write/refresh the
+SESSION-CHECKPOINT current-state block, mark wiki TODO rows, inline
+findings, and push any pending doc commits. Do not sit idle when docs are
+dirty or the checkpoint lags the true state — that is precisely the moment
+the next crash/interrupt would erase progress.
+
 ## Issue-State Hygiene (permanent, user directive 2026-08-19)
 
 GitHub issue states are part of the persisted status progression and MUST be
