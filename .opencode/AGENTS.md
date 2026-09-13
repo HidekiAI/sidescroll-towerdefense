@@ -287,6 +287,7 @@ All tunable gameplay constants must live in `sstd_config.sqlite3` via the popula
 - The native editor includes a built-in **PixelCanvas** for quick paint/touch-up and a **3×3 tiled preview** for seam checking.
 - **Hybrid workflow**: PNGs can be created in external tools (Godot IDE, Aseprite, Photoshop) and imported via the "Import PNG" button. The two-way PNG roundtrip means no lock-in.
 - PNG resolution matches the config tile size (default 32×32). External images are resampled with nearest-neighbor on import.
+- **Parallax backdrop layers** (issue #68): `tools/slice-layers` (workspace member, issue #74) recovers L0/L1/L2 RGBA layer PNGs from a rendered parallax video by measuring horizontal displacement between two frames ("flow, not ML" — depth models rejected as an extra dependency). Outputs land in `assets/backdrop_layers/`; seeded factors are emitted in the tool log (see checkpoint; L1 0.53 slightly above its TDD upper bound 0.5, accepted).
 
 ## Editor Tooling & Validation Commands
 

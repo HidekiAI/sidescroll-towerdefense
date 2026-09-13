@@ -222,6 +222,23 @@
 > = TDD-documented (TDD_LuckBot/TDD_Luck-Gear/TDD_Death-Revive-System /
 > TDD_Saved-World). cargo check -p sstd-grpc green; ledger + TODO updated.
 
+## SHIPPED (2026-09-13) — #74 slice-layers: parallax layers recovered from the MP4
+
+> Asset-production tool `tools/slice-layers` (Rust, workspace member, `image` 0.25
+> only). Depth proxy = measured horizontal displacement between two frames ~1s apart
+> ("flow, not ML") — the only surviving parallax artifact was the rendered MP4
+> (`assets/samples/preview-with-parallax-extended.mp4`, 1280x720@24fps, 20s); no
+> per-layer source art existed. Pipeline: 8x8 SAD block match at scale 2, reliability
+> median-fill, border smear (unvisited ring = spurious k-means cluster), k-means
+> best-of-3-inits (single init trapped {4,10,20}->{6.8,19.2,24.6}), robust p5..p95
+> single-plane reject, per-band RGBA compose with feathered alpha. Tests 4/4 green
+> (synthetic 3-pane pair, non-periodic content; periodic content aliases in SAD).
+> Ran on frame_0010/0011: bands 39.4 / 141.0 / 240.4 px/s -> factor_seed
+> [0.15, 0.53, 0.90] (within TDD L0/L1/L2 ranges; L1 0.53 ~ upper bound 0.5).
+> Committed `assets/backdrop_layers/{layer_0,1,2,displacement}.png`; alpha coverage
+> 32% / 27% / 41% (holes non-trivial). TDD_Parallax-Background grew §4.1 "Source-art
+> recovery". Issue #74 closed with commit.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's

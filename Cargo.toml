@@ -6,4 +6,5 @@ members = [
     "crates/sstd-editor-bridge",
     "crates/sstd-grpc",
     "tools/import-tiles",
+    "tools/slice-layers",
 ]

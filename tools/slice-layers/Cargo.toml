@@ -1,0 +1,9 @@
+[package]
+name = "slice-layers"
+version = "0.1.0"
+edition = "2021"
+description = "Recover parallax depth layers from a rendered pan video (flow-not-ML). Issue #74."
+license = "MIT"
+
+[dependencies]
+image = "0.25"
