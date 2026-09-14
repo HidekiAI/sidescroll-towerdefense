@@ -16,6 +16,16 @@ const _BACKDROP_PATHS: Array[String] = [
     "res://assets/backdrop_layers/layer_2.png",
 ]
 var _backdrop_layers: Array[Texture2D] = []
+# Parallax layer stack. z_order < 0: behind the tile grid; z_order >= 0: in front.
+# Layer 0 is the front-most foreground (transparent placeholder until foreground
+# art exists); layers 1-3 are the existing sliced background bands remapped
+# (near = layer_2.png, mid = layer_1.png, far = layer_0.png).
+var _layers: Array[Dictionary] = [
+    {"name": "Foreground", "z_order": 10, "visible": true, "path": "", "texture": null},
+    {"name": "Near", "z_order": -3, "visible": true, "path": "res://assets/backdrop_layers/layer_2.png", "texture": null},
+    {"name": "Mid", "z_order": -2, "visible": true, "path": "res://assets/backdrop_layers/layer_1.png", "texture": null},
+    {"name": "Far", "z_order": -1, "visible": true, "path": "res://assets/backdrop_layers/layer_0.png", "texture": null},
+]
 
 func set_grid_config(cfg: Dictionary) -> void:
     tile_size = cfg.get("tile_width_in_pixels", 32)
@@ -48,12 +58,25 @@ func _tile_texture(key: String) -> Texture2D:
     return null
 
 func _load_backdrop() -> void:
-    if _backdrop_layers.size() == _BACKDROP_PATHS.size():
-        return
-    _backdrop_layers.clear()
-    for path in _BACKDROP_PATHS:
-        var tex: Texture2D = load(path)
-        _backdrop_layers.append(tex)
+    for layer in _layers:
+        var path: String = layer["path"]
+        if layer["texture"] == null and not path.is_empty():
+            layer["texture"] = load(path)
+
+func set_layer_visible(index: int, visible: bool) -> void:
+    if index >= 0 and index < _layers.size():
+        _layers[index]["visible"] = visible
+        queue_redraw()
+
+func _sorted_layer_indices(back: bool) -> Array:
+    var indices: Array = []
+    for i in _layers.size():
+        var z: int = int(_layers[i]["z_order"])
+        var is_back := z < 0
+        if is_back == back and bool(_layers[i]["visible"]):
+            indices.append({"z": z, "i": i})
+    indices.sort_custom(func(a, b): return a["z"] < b["z"])
+    return indices.map(func(e): return e["i"])
 
 func _sprite_sheet_texture(path: String) -> Texture2D:
     var cache_key := "sheet_" + path
@@ -91,9 +114,11 @@ func _draw() -> void:
 
     _load_backdrop()
     var canvas := Rect2(0, 0, grid_w * tile_size, grid_h * tile_size)
-    for layer_tex in _backdrop_layers:
-        if layer_tex:
-            draw_texture_rect(layer_tex, canvas, false)
+    var back_indices := _sorted_layer_indices(true)
+    for idx in back_indices:
+        var tex: Texture2D = _layers[idx]["texture"]
+        if tex:
+            draw_texture_rect(tex, canvas, false)
 
     for y in grid_h:
         for x in grid_w:
@@ -141,6 +166,12 @@ func _draw() -> void:
                 if not drawn:
                     draw_rect(rect, map_editor.terrain_color(key))
             draw_rect(rect, Color(0.2, 0.2, 0.2, 0.3), false, 1)
+
+    var front_indices := _sorted_layer_indices(false)
+    for idx in front_indices:
+        var tex: Texture2D = _layers[idx]["texture"]
+        if tex:
+            draw_texture_rect(tex, canvas, false)
 
     if show_collision:
         _draw_collision_overlay()

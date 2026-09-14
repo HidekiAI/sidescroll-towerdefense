@@ -83,6 +83,12 @@ var _ready_done := false  # set when _ready finishes (async catalog load) — us
 @onready var delete_btn: Button = $LeftPanel/BottomBar/DeleteBtn
 @onready var move_btn: Button = $LeftPanel/BottomBar/MoveBtn
 @onready var clone_btn: Button = $LeftPanel/BottomBar/CloneBtn
+@onready var layer_btns: Array[CheckButton] = [
+    $LeftPanel/LayerBox/Layer0Btn,
+    $LeftPanel/LayerBox/Layer1Btn,
+    $LeftPanel/LayerBox/Layer2Btn,
+    $LeftPanel/LayerBox/Layer3Btn,
+]
 
 func _set_busy(busy: bool) -> void:
     if DisplayServer.get_name() == "headless":
@@ -122,6 +128,11 @@ func _ready() -> void:
     move_btn.pressed.connect(_on_move_screen)
     clone_btn.pressed.connect(_on_clone_screen)
     tile_grid.map_editor = self
+
+    for i in layer_btns.size():
+        layer_btns[i].toggled.connect(func(on: bool, lidx: int = i) -> void:
+            tile_grid.set_layer_visible(lidx, on)
+        )
 
     paint_btn.button_pressed = true
 

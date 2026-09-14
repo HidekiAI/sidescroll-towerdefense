@@ -273,6 +273,35 @@
 > shows through. Applies to the whole grid uniformly (single guard in the shared
 > draw loop, not per-caller).
 
+## SHIPPED (2026-09-14) — Parallax layer stack: 4 layers with visibility toggles
+
+> **BACKGROUND (user design, this session):** the parallax backdrop is cosmetic
+> only (NOT an editable tile layer); the main tile grid stays map+collision.
+> Layer count will eventually be dynamic (user adds/removes), but Phase 1 here is
+> a hardcoded 4-layer stack with per-layer visibility toggles in the Map Editor.
+> Layer 0 is the FRONT-MOST foreground (transparent placeholder until foreground
+> art exists — e.g. pillars/cacti rushing past); layers 1-3 are the existing
+> sliced background bands remapped (Near = layer_2.png, Mid = layer_1.png, Far =
+> layer_0.png), all BEHIND the tile grid.
+>
+> **Draw order (back to front):**
+> - Back layers (z_order < 0, sorted ascending): Far -> Mid -> Near
+> - Tile grid (gameplay + collision)
+> - Front layers (z_order >= 0, sorted ascending): Foreground
+>
+> **Change set (all local READ, not yet pushed):**
+> - `editor/scripts/tile_grid_display.gd`: replaced flat `_backdrop_layers`
+>   with `_layers: Array[Dictionary]` (name/z_order/visible/path/texture).
+>   `_load_backdrop()` now lazy-loads each layer texture; `_sorted_layer_indices(back)`
+>   returns sorted visible indices per phase; `_draw()` splits into back / tile /
+>   front. `set_layer_visible(index, visible)` added for UI toggles.
+> - `editor/scenes/map_editor.tscn` + `editor/scripts/map_editor.gd`: layer
+>   visibility CheckButtons (Layer0Btn..Layer3Btn) wired to
+>   `tile_grid.set_layer_visible(index, visible)`.
+>
+> **Known gaps (Phase 2, future):** dynamic add/remove layers, drag-to-reorder,
+> per-layer opacity sliders, layer config persisted in world.json.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's
