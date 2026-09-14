@@ -51,3 +51,6 @@ editor/world.zip
 # Large preview artifacts: MP4s stay local-only (no repo/LFS)
 assets/samples/*.mp4
 assets/samples/preview-with-parallax-extended/
+
+# View-on-black / stacked previews derived from backdrop layers (local inspection only)
+assets/backdrop_layers/view/

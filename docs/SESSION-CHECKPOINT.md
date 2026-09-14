@@ -246,6 +246,25 @@
 > record; regeneration requires the local MP4s (command documented on
 > TDD_Parallax-Background §4.1).
 
+## SHIPPED (2026-09-14) — #68-backed preview scene + Map Editor backdrop
+
+> Three related pieces:
+> 1. **Preview scene** `editor/scenes/backdrop_preview.tscn` committed (commit
+>    `fa6a059`, pushed `trunk` on 2026-09-14): 3 `Parallax2D` nodes (L0 far,
+>    L1 mid, L2 near) with `scroll_scale` from factor seed `[0.15, 0.53, 0.90]`
+>    (x) / `[0.13, 0.45, 0.76]` (y ≈ 0.85x). Sprites reference the layer PNGs
+>    from `editor/assets/backdrop_layers/` (copied from the derived asset dir
+>    for Godot import). Scene is the runtime-parallax verification view.
+> 2. **Map Editor backdrop** (`editor/scripts/tile_grid_display.gd`): draws the
+>    same 3 layer PNGs at the start of `_draw()` — a parallax-agnostic static
+>    backdrop behind the 60x33 tile grid, scaled 1280x720 -> 1920x1056 (~1.5x,
+>    painted-art acceptable). Cosmetic only; the main tile grid remains
+>    map+collision. Design decision from user: NO multi-layer tile editor — the
+>    3 parallax layers are purely eye-candy, NOT editable tile layers.
+> 3. **View artifacts** `assets/backdrop_layers/view/` (gitignored): per-layer
+>    flatten-on-black previews + `backdrop_stacked.png` (far->near composite)
+>    so layers can be inspected independently of viewer checkerboard.
+
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
 > COMMITTED (this session): rewrote every broken wiki cross-reference to GitHub's

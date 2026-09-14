@@ -10,6 +10,12 @@ var smart_brush_radius: int = 0
 var selected_terrain_type: String = "grass"
 var terrain_types: Array[Dictionary] = []
 var _texture_cache: Dictionary = {}
+const _BACKDROP_PATHS: Array[String] = [
+    "res://assets/backdrop_layers/layer_0.png",
+    "res://assets/backdrop_layers/layer_1.png",
+    "res://assets/backdrop_layers/layer_2.png",
+]
+var _backdrop_layers: Array[Texture2D] = []
 
 func set_grid_config(cfg: Dictionary) -> void:
     tile_size = cfg.get("tile_width_in_pixels", 32)
@@ -40,6 +46,14 @@ func _tile_texture(key: String) -> Texture2D:
             return tex
     _texture_cache[key] = null
     return null
+
+func _load_backdrop() -> void:
+    if _backdrop_layers.size() == _BACKDROP_PATHS.size():
+        return
+    _backdrop_layers.clear()
+    for path in _BACKDROP_PATHS:
+        var tex: Texture2D = load(path)
+        _backdrop_layers.append(tex)
 
 func _sprite_sheet_texture(path: String) -> Texture2D:
     var cache_key := "sheet_" + path
@@ -74,6 +88,12 @@ func pixel_to_tile(pos: Vector2) -> Vector2i:
 func _draw() -> void:
     if not map_editor:
         return
+
+    _load_backdrop()
+    var canvas := Rect2(0, 0, grid_w * tile_size, grid_h * tile_size)
+    for layer_tex in _backdrop_layers:
+        if layer_tex:
+            draw_texture_rect(layer_tex, canvas, false)
 
     for y in grid_h:
         for x in grid_w:
