@@ -301,6 +301,16 @@
 >
 > **Known gaps (Phase 2, future):** dynamic add/remove layers, drag-to-reorder,
 > per-layer opacity sliders, layer config persisted in world.json.
+>
+> **SPIKE (2026-09-14, confusion resolved):** the MapEditor node tree EXISTS TWICE —
+> `editor/scenes/map_editor.tscn` is a standalone dev/test scene, but the app
+> embeds its OWN inline copy of the MapEditor tree inside `editor/scenes/main.tscn`
+> (node path `TabContainer/MapEditor`, NOT an instance). Edits to `map_editor.tscn`
+> therefore never surface in the running app; runtime logs showed
+> `Node not found: "LeftPanel/LayerBox/Layer0Btn" (relative to .../MapEditor)`.
+> The LayerBox + CheckButtons had to be added to `main.tscn` as well. Rule of
+> thumb: for any MapEditor UI change, mirror it in BOTH scenes or the app (main.tscn)
+> and the headless/standalone regression (map_editor.tscn) drift apart.
 
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
