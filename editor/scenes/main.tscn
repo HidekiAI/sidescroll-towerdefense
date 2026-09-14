@@ -547,6 +547,38 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Collision Map"
 
+[node name="LayersLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 22)
+text = "— Layers —"
+
+[node name="LayerBox" type="HBoxContainer" parent="TabContainer/MapEditor/LeftPanel"]
+layout_mode = 2
+
+[node name="Layer0Btn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/LayerBox"]
+layout_mode = 2
+text = "FG"
+button_pressed = true
+tooltip_text = "Layer 0: foreground (in front of the tile grid)"
+
+[node name="Layer1Btn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/LayerBox"]
+layout_mode = 2
+text = "Near"
+button_pressed = true
+tooltip_text = "Layer 1: near background"
+
+[node name="Layer2Btn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/LayerBox"]
+layout_mode = 2
+text = "Mid"
+button_pressed = true
+tooltip_text = "Layer 2: mid background"
+
+[node name="Layer3Btn" type="CheckButton" parent="TabContainer/MapEditor/LeftPanel/LayerBox"]
+layout_mode = 2
+text = "Far"
+button_pressed = true
+tooltip_text = "Layer 3: far background"
+
 [node name="PaletteLabel" type="Label" parent="TabContainer/MapEditor/LeftPanel"]
 layout_mode = 2
 custom_minimum_size = Vector2(0, 22)
