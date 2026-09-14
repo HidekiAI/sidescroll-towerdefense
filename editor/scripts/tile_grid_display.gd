@@ -99,7 +99,8 @@ func _draw() -> void:
         for x in grid_w:
             var key: String = map_editor.get_tile(x, y)
             var rect := Rect2(x * tile_size, y * tile_size, tile_size, tile_size)
-            if not key.is_empty():
+            # Air cells are transparent: the parallax backdrop shows through.
+            if not key.is_empty() and key != "air":
                 var td: Dictionary = map_editor.get_tile_data(x, y)
                 var flip_h := bool(td.get("flip_h", false))
                 var flip_v := bool(td.get("flip_v", false))

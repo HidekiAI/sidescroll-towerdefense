@@ -264,6 +264,14 @@
 > 3. **View artifacts** `assets/backdrop_layers/view/` (gitignored): per-layer
 >    flatten-on-black previews + `backdrop_stacked.png` (far->near composite)
 >    so layers can be inspected independently of viewer checkerboard.
+>
+> **FIX (same session):** backdrop was invisible behind the default grid — every
+> air cell painted an opaque sky-blue `draw_rect` (`terrain_color("air")`,
+> `#87ceeb`). Root cause: only "air" cells were opaque fills; all grid cells are
+> air by default. Fixed in `tile_grid_display.gd` `_draw()`: skip cells whose
+> key is "air" entirely (`key != "air"`), so air = transparent and the backdrop
+> shows through. Applies to the whole grid uniformly (single guard in the shared
+> draw loop, not per-caller).
 
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 
