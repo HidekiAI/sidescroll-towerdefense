@@ -54,3 +54,6 @@ assets/samples/preview-with-parallax-extended/
 
 # View-on-black / stacked previews derived from backdrop layers (local inspection only)
 assets/backdrop_layers/view/
+
+# Godot-generated import metadata (auto-regenerated on editor open)
+*.import

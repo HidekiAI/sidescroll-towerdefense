@@ -15,16 +15,15 @@ const _BACKDROP_PATHS: Array[String] = [
     "res://assets/backdrop_layers/layer_1.png",
     "res://assets/backdrop_layers/layer_2.png",
 ]
-var _backdrop_layers: Array[Texture2D] = []
 # Parallax layer stack. z_order < 0: behind the tile grid; z_order >= 0: in front.
 # Layer 0 is the front-most foreground (transparent placeholder until foreground
 # art exists); layers 1-3 are the existing sliced background bands remapped
 # (near = layer_2.png, mid = layer_1.png, far = layer_0.png).
 var _layers: Array[Dictionary] = [
-    {"name": "Foreground", "z_order": 10, "visible": true, "path": "", "texture": null},
-    {"name": "Near", "z_order": -3, "visible": true, "path": "res://assets/backdrop_layers/layer_2.png", "texture": null},
-    {"name": "Mid", "z_order": -2, "visible": true, "path": "res://assets/backdrop_layers/layer_1.png", "texture": null},
-    {"name": "Far", "z_order": -1, "visible": true, "path": "res://assets/backdrop_layers/layer_0.png", "texture": null},
+    {"name": "Foreground", "z_order": 10, "visible": true, "path": "", "texture": null, "opacity": 1.0},
+    {"name": "Near", "z_order": -3, "visible": true, "path": "res://assets/backdrop_layers/layer_2.png", "texture": null, "opacity": 1.0},
+    {"name": "Mid", "z_order": -2, "visible": true, "path": "res://assets/backdrop_layers/layer_1.png", "texture": null, "opacity": 1.0},
+    {"name": "Far", "z_order": -1, "visible": true, "path": "res://assets/backdrop_layers/layer_0.png", "texture": null, "opacity": 1.0},
 ]
 
 func set_grid_config(cfg: Dictionary) -> void:
@@ -67,6 +66,58 @@ func set_layer_visible(index: int, visible: bool) -> void:
     if index >= 0 and index < _layers.size():
         _layers[index]["visible"] = visible
         queue_redraw()
+
+func set_layer_opacity(index: int, opacity: float) -> void:
+    if index >= 0 and index < _layers.size():
+        _layers[index]["opacity"] = clampf(opacity, 0.0, 1.0)
+        queue_redraw()
+
+func set_layer_name(index: int, name: String) -> void:
+    if index >= 0 and index < _layers.size():
+        _layers[index]["name"] = name
+        queue_redraw()
+
+func add_layer(back: bool) -> int:
+    var z: int = 0
+    for layer in _layers:
+        var lz: int = int(layer["z_order"])
+        if back and lz < 0 and lz < z:
+            z = lz
+        elif not back and lz >= 0 and lz > z:
+            z = lz
+    z = z - 10 if back else z + 10
+    _layers.append({
+        "name": "New Layer", "z_order": z, "visible": true,
+        "path": "", "texture": null, "opacity": 1.0,
+    })
+    queue_redraw()
+    return _layers.size() - 1
+
+func remove_layer(index: int) -> void:
+    if index >= 0 and index < _layers.size():
+        _layers.remove_at(index)
+        queue_redraw()
+
+func swap_layer_z(a: int, b: int) -> void:
+    if a < 0 or a >= _layers.size() or b < 0 or b >= _layers.size():
+        return
+    if a == b:
+        return
+    var tmp_z: int = int(_layers[a]["z_order"])
+    _layers[a]["z_order"] = int(_layers[b]["z_order"])
+    _layers[b]["z_order"] = tmp_z
+    queue_redraw()
+
+func get_layers() -> Array[Dictionary]:
+    return _layers.duplicate(true)
+
+func set_layers(layers: Array[Dictionary]) -> void:
+    if layers.is_empty():
+        return
+    for layer in layers:
+        layer["texture"] = null
+    _layers = layers
+    queue_redraw()
 
 func _sorted_layer_indices(back: bool) -> Array:
     var indices: Array = []
@@ -118,7 +169,7 @@ func _draw() -> void:
     for idx in back_indices:
         var tex: Texture2D = _layers[idx]["texture"]
         if tex:
-            draw_texture_rect(tex, canvas, false)
+            draw_texture_rect(tex, canvas, false, Color(1, 1, 1, float(_layers[idx]["opacity"])))
 
     for y in grid_h:
         for x in grid_w:
@@ -171,7 +222,7 @@ func _draw() -> void:
     for idx in front_indices:
         var tex: Texture2D = _layers[idx]["texture"]
         if tex:
-            draw_texture_rect(tex, canvas, false)
+            draw_texture_rect(tex, canvas, false, Color(1, 1, 1, float(_layers[idx]["opacity"])))
 
     if show_collision:
         _draw_collision_overlay()

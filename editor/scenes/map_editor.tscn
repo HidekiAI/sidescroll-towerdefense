@@ -52,27 +52,43 @@ size_flags_horizontal = 3
 text = "— Layers —"
 custom_minimum_size = Vector2(0, 22)
 
-[node name="LayerBox" type="HBoxContainer" parent="LeftPanel"]
+[node name="LayerBox" type="VBoxContainer" parent="LeftPanel"]
+custom_minimum_size = Vector2(0, 0)
 
-[node name="Layer0Btn" type="CheckButton" parent="LeftPanel/LayerBox"]
-text = "FG"
-button_pressed = true
-tooltip_text = "Layer 0: foreground (in front of the tile grid)"
+[node name="LayerList" type="ItemList" parent="LeftPanel/LayerBox"]
+custom_minimum_size = Vector2(0, 90)
+size_flags_horizontal = 3
+size_flags_vertical = 3
 
-[node name="Layer1Btn" type="CheckButton" parent="LeftPanel/LayerBox"]
-text = "Near"
+[node name="LayerVisible" type="CheckButton" parent="LeftPanel/LayerBox"]
+text = "Visible"
 button_pressed = true
-tooltip_text = "Layer 1: near background"
 
-[node name="Layer2Btn" type="CheckButton" parent="LeftPanel/LayerBox"]
-text = "Mid"
-button_pressed = true
-tooltip_text = "Layer 2: mid background"
+[node name="LayerOpacity" type="HSlider" parent="LeftPanel/LayerBox"]
+min_value = 0.0
+max_value = 100.0
+step = 1.0
+value = 100.0
 
-[node name="Layer3Btn" type="CheckButton" parent="LeftPanel/LayerBox"]
-text = "Far"
-button_pressed = true
-tooltip_text = "Layer 3: far background"
+[node name="LayerName" type="LineEdit" parent="LeftPanel/LayerBox"]
+placeholder_text = "Layer name"
+
+[node name="LayerBtnRow" type="HBoxContainer" parent="LeftPanel/LayerBox"]
+
+[node name="AddLayerBtn" type="Button" parent="LeftPanel/LayerBox/LayerBtnRow"]
+text = "+"
+
+[node name="DelLayerBtn" type="Button" parent="LeftPanel/LayerBox/LayerBtnRow"]
+text = "-"
+disabled = true
+
+[node name="UpLayerBtn" type="Button" parent="LeftPanel/LayerBox/LayerBtnRow"]
+text = "^"
+disabled = true
+
+[node name="DownLayerBtn" type="Button" parent="LeftPanel/LayerBox/LayerBtnRow"]
+text = "v"
+disabled = true
 
 [node name="PaletteLabel" type="Label" parent="LeftPanel"]
 text = "— Tile Palette —"

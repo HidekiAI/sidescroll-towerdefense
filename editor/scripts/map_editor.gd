@@ -83,12 +83,14 @@ var _ready_done := false  # set when _ready finishes (async catalog load) — us
 @onready var delete_btn: Button = $LeftPanel/BottomBar/DeleteBtn
 @onready var move_btn: Button = $LeftPanel/BottomBar/MoveBtn
 @onready var clone_btn: Button = $LeftPanel/BottomBar/CloneBtn
-@onready var layer_btns: Array[CheckButton] = [
-    $LeftPanel/LayerBox/Layer0Btn,
-    $LeftPanel/LayerBox/Layer1Btn,
-    $LeftPanel/LayerBox/Layer2Btn,
-    $LeftPanel/LayerBox/Layer3Btn,
-]
+@onready var layer_list: ItemList = $LeftPanel/LayerBox/LayerList
+@onready var layer_visible: CheckButton = $LeftPanel/LayerBox/LayerVisible
+@onready var layer_opacity: HSlider = $LeftPanel/LayerBox/LayerOpacity
+@onready var layer_name: LineEdit = $LeftPanel/LayerBox/LayerName
+@onready var add_layer_btn: Button = $LeftPanel/LayerBox/LayerBtnRow/AddLayerBtn
+@onready var del_layer_btn: Button = $LeftPanel/LayerBox/LayerBtnRow/DelLayerBtn
+@onready var up_layer_btn: Button = $LeftPanel/LayerBox/LayerBtnRow/UpLayerBtn
+@onready var down_layer_btn: Button = $LeftPanel/LayerBox/LayerBtnRow/DownLayerBtn
 
 func _set_busy(busy: bool) -> void:
     if DisplayServer.get_name() == "headless":
@@ -129,14 +131,121 @@ func _ready() -> void:
     clone_btn.pressed.connect(_on_clone_screen)
     tile_grid.map_editor = self
 
-    for i in layer_btns.size():
-        layer_btns[i].toggled.connect(func(on: bool, lidx: int = i) -> void:
-            tile_grid.set_layer_visible(lidx, on)
-        )
+    layer_list.item_selected.connect(_on_layer_selected)
+    layer_visible.toggled.connect(_on_layer_visible_toggled)
+    layer_opacity.value_changed.connect(_on_layer_opacity_changed)
+    layer_name.text_submitted.connect(_on_layer_name_entered)
+    add_layer_btn.pressed.connect(_on_add_layer)
+    del_layer_btn.pressed.connect(_on_del_layer)
+    up_layer_btn.pressed.connect(_on_up_layer)
+    down_layer_btn.pressed.connect(_on_down_layer)
+    _rebuild_layer_list()
 
     paint_btn.button_pressed = true
 
     _ready_done = true
+
+var _selected_layer: int = -1
+
+var _selected_layer: int = -1
+var _sorted_indices: Array[int] = []
+
+func _rebuild_layer_list() -> void:
+    layer_list.clear()
+    var layers: Array[Dictionary] = tile_grid.get_layers()
+    _sorted_indices = []
+    for i in layers.size():
+        _sorted_indices.append(i)
+    _sorted_indices.sort_custom(func(a: int, b: int) -> bool:
+        return float(layers[a]["z_order"]) > float(layers[b]["z_order"]))
+    for idx in _sorted_indices:
+        var layer: Dictionary = layers[idx]
+        layer_list.add_item(str(layer.get("name", "Layer " + str(idx))))
+        layer_list.set_item_custom_fg_color(layer_list.item_count - 1, Color(0.85, 0.85, 0.85) if bool(layer.get("visible", true)) else Color(0.45, 0.45, 0.45))
+    if layers.size() > 0:
+        if _selected_layer < 0 or _selected_layer >= layers.size():
+            _selected_layer = 0
+        layer_list.select(_sorted_indices.find(_selected_layer))
+    _sync_layer_panel()
+
+func _sync_layer_panel() -> void:
+    var layers: Array[Dictionary] = tile_grid.get_layers()
+    var idx: int = _selected_layer
+    if idx < 0 or idx >= layers.size():
+        layer_visible.disabled = true
+        layer_opacity.disabled = true
+        layer_name.editable = false
+        del_layer_btn.disabled = true
+        up_layer_btn.disabled = true
+        down_layer_btn.disabled = true
+        return
+    var layer: Dictionary = layers[idx]
+    var sorted_indices: Array[int] = []
+    for i in layers.size():
+        sorted_indices.append(i)
+    sorted_indices.sort_custom(func(a: int, b: int) -> bool:
+        return float(layers[a]["z_order"]) > float(layers[b]["z_order"]))
+    var sorted_pos: int = sorted_indices.find(idx)
+    layer_visible.disabled = false
+    layer_opacity.disabled = false
+    layer_name.editable = true
+    del_layer_btn.disabled = false
+    up_layer_btn.disabled = sorted_pos == 0
+    down_layer_btn.disabled = sorted_pos == sorted_indices.size() - 1
+    layer_visible.set_pressed_no_signal(bool(layer.get("visible", true)))
+    layer_opacity.set_value_no_signal(float(layer.get("opacity", 1.0)) * 100.0)
+    layer_name.text = str(layer.get("name", ""))
+
+func _on_layer_selected(idx: int) -> void:
+    if idx >= 0 and idx < layer_list.item_count and idx < _sorted_indices.size():
+        _selected_layer = _sorted_indices[idx]
+    _sync_layer_panel()
+
+func _on_layer_visible_toggled(on: bool) -> void:
+    tile_grid.set_layer_visible(_selected_layer, on)
+    _rebuild_layer_list()
+
+func _on_layer_opacity_changed(value: float) -> void:
+    tile_grid.set_layer_opacity(_selected_layer, value / 100.0)
+
+func _on_layer_name_entered(text: String) -> void:
+    var t: String = text.strip_edges()
+    if t.is_empty():
+        t = "Layer"
+    tile_grid.set_layer_name(_selected_layer, t)
+    _rebuild_layer_list()
+
+func _on_add_layer() -> void:
+    var idx: int = tile_grid.add_layer(false)
+    _selected_layer = idx
+    _rebuild_layer_list()
+
+func _on_del_layer() -> void:
+    tile_grid.remove_layer(_selected_layer)
+    _selected_layer = -1
+    _rebuild_layer_list()
+
+func _on_up_layer() -> void:
+    var pos: int = _sorted_indices.find(_selected_layer)
+    if pos > 0:
+        tile_grid.swap_layer_z(_sorted_indices[pos], _sorted_indices[pos - 1])
+        _rebuild_layer_list()
+
+func _on_down_layer() -> void:
+    var pos: int = _sorted_indices.find(_selected_layer)
+    if pos >= 0 and pos < _sorted_indices.size() - 1:
+        tile_grid.swap_layer_z(_sorted_indices[pos], _sorted_indices[pos + 1])
+        _rebuild_layer_list()
+
+func _serializable_layers() -> Array[Dictionary]:
+    var out: Array[Dictionary] = []
+    for layer in tile_grid.get_layers():
+        var entry: Dictionary = {}
+        for key in layer:
+            if key != "texture":
+                entry[key] = layer[key]
+        out.append(entry)
+    return out
 
 func _load_defaults() -> void:
     _terrain_types = [
@@ -1012,7 +1121,7 @@ func _on_save() -> void:
                     terrain_ov = _main.get_terrain_overrides_for_save()
                 if _main.has_method("get_world_entity_defs_for_save"):
                     world_ents = _main.get_world_entity_defs_for_save()
-            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles, {}, terrain_ov, world_ents)
+            wrote = WorldArchive.save_world(path, world["manifest"], world["screens"], tiles, {}, terrain_ov, world_ents, _serializable_layers())
         else:
             var f := FileAccess.open(path, FileAccess.WRITE)
             if f:
@@ -1128,6 +1237,20 @@ func _load_world_package(path: String) -> void:
         _main.on_world_loaded(data)
     _restore_tile_bank(data["tile_images"])
     _refresh_tile_palette()
+    if data.has("layers") and not (data["layers"] as Array).is_empty():
+        var restored: Array[Dictionary] = []
+        for layer in data["layers"]:
+            var entry: Dictionary = {}
+
+            entry["name"] = str(layer.get("name", "Layer"))
+            entry["z_order"] = int(layer.get("z_order", 0))
+            entry["visible"] = bool(layer.get("visible", true))
+            entry["opacity"] = float(layer.get("opacity", 1.0))
+            entry["path"] = str(layer.get("path", ""))
+            entry["texture"] = null
+            restored.append(entry)
+        tile_grid.set_layers(restored)
+    _rebuild_layer_list()
     var current_id: int = _screen_id
     if not data["screens"].has(current_id):
         var first_id: Array = data["screens"].keys()

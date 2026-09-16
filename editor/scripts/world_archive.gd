@@ -18,6 +18,7 @@ const TILE_DIR := "tiles"
 const ENTITY_OVERRIDE_DIR := "entity_overrides"
 const TERRAIN_OVERRIDES_PATH := "terrain_overrides.json"
 const WORLD_ENTITY_DEFS_PATH := "entity_defs.json"
+const LAYERS_PATH := "layers.json"
 
 static func is_world_path(path: String) -> bool:
     return path.ends_with(WORLD_EXT)
@@ -85,6 +86,7 @@ static func save_world(
     entity_overrides: Dictionary = {},
     terrain_overrides: Dictionary = {},
     world_entity_defs: Array = [],
+    layers: Array = [],
 ) -> bool:
     if FileAccess.file_exists(path):
         DirAccess.remove_absolute(path)
@@ -126,6 +128,13 @@ static func save_world(
             "entities": world_entity_defs,
         }, "\t").to_utf8_buffer())
         p.close_file()
+    if not layers.is_empty():
+        p.start_file(LAYERS_PATH)
+        p.write_file(JSON.stringify({
+            "version": WORLD_VERSION,
+            "layers": layers,
+        }, "\t").to_utf8_buffer())
+        p.close_file()
     p.close()
     return true
 
@@ -152,6 +161,7 @@ static func load_world(path: String) -> Dictionary:
     var entity_overrides: Dictionary = {}
     var terrain_overrides: Dictionary = {}
     var world_entity_defs: Array = []
+    var layers: Array = []
     for f in r.get_files():
         if f.begins_with(SCREEN_DIR + "/") and f.ends_with(".json"):
             var id_str: String = f.trim_prefix(SCREEN_DIR + "/").trim_suffix(".json")
@@ -176,6 +186,10 @@ static func load_world(path: String) -> Dictionary:
             var file_json = JSON.parse_string(r.read_file(f).get_string_from_utf8())
             if typeof(file_json) == TYPE_DICTIONARY and file_json.has("entities"):
                 world_entity_defs = file_json["entities"]
+        elif f == LAYERS_PATH:
+            var file_json = JSON.parse_string(r.read_file(f).get_string_from_utf8())
+            if typeof(file_json) == TYPE_DICTIONARY and file_json.has("layers"):
+                layers = file_json["layers"]
     r.close()
     # Validate per-doc rule: a world may only reference canonical terrain types or
     # stamp_* decorative art. Introducing a new gameplay type (e.g. "hotspring")
@@ -196,4 +210,5 @@ static func load_world(path: String) -> Dictionary:
         "entity_overrides": entity_overrides,
         "terrain_overrides": terrain_overrides,
         "world_entity_defs": world_entity_defs,
+        "layers": layers,
     }
