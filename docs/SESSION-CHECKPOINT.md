@@ -299,28 +299,20 @@
 >   visibility CheckButtons (Layer0Btn..Layer3Btn) wired to
 >   `tile_grid.set_layer_visible(index, visible)`.
 >
-> **Known gaps (Phase 2, future):** dynamic add/remove layers, drag-to-reorder,
-> per-layer opacity sliders, layer config persisted in world.json.
->
-> **PLAN (2026-09-14, Phase 2 — full layer management, in-flight on #68):**
-> Extend the 4-layer stack into a fully managed dynamic layer list. Grounded in
-> the existing `_layers: Array[Dictionary]` (tile_grid_display.gd) where each
-> entry currently carries `{name, z_order, visible, path, texture}`. Changes:
->   1. **Model** (tile_grid_display.gd): add `opacity: float` to each layer dict;
->      provide `add_layer(back: bool)`, `remove_layer(index)`,
->      `move_layer(index, dir)`, `set_layer_opacity(index, v)`; draw honors
->      opacity via `draw_texture_rect(..., Color(1,1,1,opacity))`. z_order sign
->      keeps the behind/grid/front sandwich (back < 0, front >= 0).
->   2. **UI** (map_editor.gd + both map_editor.tscn AND main.tscn — see #75 by
->      the same commit): replace the static 4-CheckButton LayerBox with a dynamic
->      panel: `LayerList` (ItemList, one row per layer, shows order front->back),
->      `VisibleCheck`, `OpacitySlider`, `NameEdit`, and `Add/Delete/Up/Down`
->      buttons. All edits hit the underlying _layers array + queue_redraw.
->   3. **Persistence** (map_editor.gd): `_serialize()` emits a `layers` key;
->      `_apply_screen()` restores it. Old world.json without `layers` falls back
->      to the current default 4-layer stack (backward compatible).
->   Kept under #68 (open, in-flight) per the WIP addendum — no new bug/feature
->   issue until the layer system is part of the stable baseline.
+> **SHIPPED (2026-09-14, Phase 2 — full layer management, ref #68, commit `fff4c7c`):**
+> Dynamic layer stack fully implemented. `tile_grid_display.gd`: `opacity` field per
+> layer, `set_layer_opacity`, `set_layer_name`, `add_layer(back)`, `remove_layer(index)`,
+> `swap_layer_z(a,b)`, `get_layers()`, `set_layers()`; `_draw()` uses `Color(1,1,1,opacity)`
+> for both back and front layers. `map_editor.gd`: static 4-CheckButton layer box replaced
+> with dynamic panel (`LayerList` ItemList, `LayerVisible` CheckButton, `LayerOpacity`
+> HSlider, `LayerName` LineEdit, `AddLayerBtn`/`DelLayerBtn`/`UpLayerBtn`/`DownLayerBtn`);
+> `_sorted_indices` maps ItemList position → `_layers` array index; `_serializable_layers`
+> strips `texture` key for JSON; `_load_world_package` restores layers from world data.
+> `world_archive.gd`: `LAYERS_PATH = "layers.json"`, `save_world` accepts `layers` array,
+> `load_world` parses it back. Both `map_editor.tscn` AND `main.tscn` updated (mirrored
+> per issue #75). Up/Down swaps `z_order` values (not array order), matching the draw loop's
+> `_sorted_layer_indices(back)` sort-by-z design. World packages without `layers.json` fall
+> back to the hardcoded 4-layer default (backward compatible).
 >
 > **SPIKE (2026-09-14, confusion resolved):** the MapEditor node tree EXISTS TWICE —
 > `editor/scenes/map_editor.tscn` is a standalone dev/test scene, but the app
