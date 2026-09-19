@@ -74,6 +74,7 @@ var _ready_done := false  # set when _ready finishes (async catalog load) — us
 @onready var prune_btn: Button = $LeftPanel/BottomBar/PruneBtn
 @onready var deep_prune_btn: Button = $LeftPanel/BottomBar/DeepPruneBtn
 @onready var stamp_btn: Button = $LeftPanel/BottomBar/StampBtn
+@onready var img_map_btn: Button = $LeftPanel/BottomBar/ImgMapBtn
 @onready var collision_btn: CheckButton = $LeftPanel/TopBar/CollisionBtn
 @onready var collision_map_btn: Button = $LeftPanel/TopBar/CollisionMapBtn
 @onready var cursor_label: Label = $LeftPanel/BottomBar/CursorLabel
@@ -121,6 +122,7 @@ func _ready() -> void:
     prune_btn.pressed.connect(_on_prune_duplicates)
     deep_prune_btn.pressed.connect(_on_prune_deep)
     stamp_btn.pressed.connect(_on_stamp_import)
+    img_map_btn.pressed.connect(_on_img_map_import)
     screen_spin.value_changed.connect(_on_screen_changed)
     tile_palette.tile_picked.connect(_on_tile_picked)
     collision_btn.toggled.connect(_on_toggle_collision)
@@ -144,8 +146,6 @@ func _ready() -> void:
     paint_btn.button_pressed = true
 
     _ready_done = true
-
-var _selected_layer: int = -1
 
 var _selected_layer: int = -1
 var _sorted_indices: Array[int] = []
@@ -173,7 +173,7 @@ func _sync_layer_panel() -> void:
     var idx: int = _selected_layer
     if idx < 0 or idx >= layers.size():
         layer_visible.disabled = true
-        layer_opacity.disabled = true
+        layer_opacity.editable = false
         layer_name.editable = false
         del_layer_btn.disabled = true
         up_layer_btn.disabled = true
@@ -187,7 +187,7 @@ func _sync_layer_panel() -> void:
         return float(layers[a]["z_order"]) > float(layers[b]["z_order"]))
     var sorted_pos: int = sorted_indices.find(idx)
     layer_visible.disabled = false
-    layer_opacity.disabled = false
+    layer_opacity.editable = true
     layer_name.editable = true
     del_layer_btn.disabled = false
     up_layer_btn.disabled = sorted_pos == 0
@@ -2086,6 +2086,77 @@ func _on_stamp_import() -> void:
     dialog.canceled.connect(func() -> void: dialog.queue_free())
     dialog.close_requested.connect(func() -> void: dialog.queue_free())
     dialog.popup_centered(Vector2i(600, 400))
+
+func _on_img_map_import() -> void:
+    var dialog := FileDialog.new()
+    dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+    dialog.add_filter("*.png", "PNG (terrain source)")
+    dialog.title = "Import image as terrain map"
+    add_child(dialog)
+    dialog.file_selected.connect(func(path: String):
+        dialog.queue_free()
+        _import_image_to_tiles(path)
+    )
+    dialog.canceled.connect(func() -> void: dialog.queue_free())
+    dialog.close_requested.connect(func() -> void: dialog.queue_free())
+    dialog.popup_centered(Vector2i(600, 400))
+
+func _import_image_to_tiles(path: String) -> void:
+    _log_import("map", "image->terrain import start: " + path)
+    var img := Image.new()
+    if img.load(path) != OK:
+        push_error("Failed to load terrain source image: ", path)
+        _log_import("map", "FAIL cannot load image: " + path)
+        return
+    img.convert(Image.FORMAT_RGBA8)
+    _set_busy(true)
+    var target_w: int = _grid_w * STAMP_CELL
+    var target_h: int = _grid_h * STAMP_CELL
+    img.resize(target_w, target_h, Image.INTERPOLATE_CUBIC)
+    var placed := 0
+    for gy in _grid_h:
+        for gx in _grid_w:
+            var avg := Color(0, 0, 0, 0)
+            var samples := 0
+            var x0: int = gx * STAMP_CELL
+            var y0: int = gy * STAMP_CELL
+            for sy in range(y0, min(y0 + STAMP_CELL, target_h)):
+                for sx in range(x0, min(x0 + STAMP_CELL, target_w)):
+                    var c: Color = img.get_pixel(sx, sy)
+                    if c.a < 0.5:
+                        continue
+                    avg += c
+                    samples += 1
+            if samples == 0:
+                continue
+            avg = avg / samples
+            var key := _nearest_terrain_key(avg)
+            if key.is_empty():
+                continue
+            _tiles[_key(gx, gy)] = key
+            _tile_data.erase(_key(gx, gy))
+            placed += 1
+    _set_busy(false)
+    _mark_dirty()
+    tile_grid.queue_redraw()
+    info_label.text = "Imported %d terrain cells from %s" % [placed, path.get_file()]
+    _log_import("map", "image->terrain done: %s (%d cells)" % [path, placed])
+
+func _nearest_terrain_key(c: Color) -> String:
+    var best_key := ""
+    var best_d: float = INF
+    for t in _terrain_types:
+        var p: Color = Color(str(t["color_hex"]))
+        var dr: float = c.r - p.r
+        var dg: float = c.g - p.g
+        var db: float = c.b - p.b
+        var d := dr * dr + dg * dg + db * db
+        if d < best_d:
+            best_d = d
+            best_key = str(t["key"])
+    if best_key == "air" or best_d > 0.25:
+        return ""
+    return best_key
 
 func _on_stamp_import_file(path: String) -> void:
     var img := Image.new()

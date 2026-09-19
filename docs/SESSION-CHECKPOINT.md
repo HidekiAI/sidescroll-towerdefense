@@ -323,6 +323,19 @@
 > The LayerBox + CheckButtons had to be added to `main.tscn` as well. Rule of
 > thumb: for any MapEditor UI change, mirror it in BOTH scenes or the app (main.tscn)
 > and the headless/standalone regression (map_editor.tscn) drift apart.
+>
+> **SHIPPED (2026-09-19, Import image -> editable terrain tiles, ref #76):**
+> Reached on the map: layer_2.png imported -> 1621 cells painted (1507 wall, 136
+> dirt, 41 grass, 11 stone, 285 air). `map_editor.gd`: `ImgMapBtn` in BottomBar
+> (mirrored in both scenes), `_on_img_map_import` FileDialog, `_import_image_to_tiles`
+> (load -> scale to grid px -> per-cell RGBA average -> `_nearest_terrain_key` by
+> squared-RGB distance, air wins -> "" empty, threshold 0.25), writes `_tiles`
+> directly + `_mark_dirty` + redraw (serialized by normal flow). Test
+> `test_image_to_map.gd` (9 assertions) + boot regression green. ALSO FIXED in the
+> same pass, filed as bugs: #77 duplicate `var _selected_layer` (parse error, broke
+> every scene/test) and #78 `HSlider.disabled` -> `editable` (Range prop) in
+> `_sync_layer_panel`. Both pre-existing from commit fff4c7c (ref #68) — the earlier
+> "headless boot clean" verification never exercised the layer panel sync path.
 
 > IN-FLIGHT (2026-08-27, after #64 CLOSED): terrain brush + sub_tile_mask float
 

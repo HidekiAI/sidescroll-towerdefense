@@ -660,6 +660,10 @@ text = "Prune (deep)"
 layout_mode = 2
 text = "Stamp Image..."
 
+[node name="ImgMapBtn" type="Button" parent="TabContainer/MapEditor/LeftPanel/BottomBar"]
+layout_mode = 2
+text = "Image -> Terrain..."
+
 [node name="RightPanel" type="VBoxContainer" parent="TabContainer/MapEditor"]
 layout_mode = 2
 size_flags_horizontal = 3
