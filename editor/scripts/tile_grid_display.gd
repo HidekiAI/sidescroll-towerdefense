@@ -21,7 +21,7 @@ const _BACKDROP_PATHS: Array[String] = [
 # (near = layer_2.png, mid = layer_1.png, far = layer_0.png).
 var _layers: Array[Dictionary] = [
     {"name": "Foreground", "z_order": 10, "visible": true, "path": "", "texture": null, "opacity": 1.0},
-    {"name": "Near", "z_order": -3, "visible": true, "path": "res://assets/backdrop_layers/layer_2.png", "texture": null, "opacity": 1.0},
+    {"name": "Near", "z_order": -3, "visible": true, "path": "res://assets/backdrop_layers/layer_2_strip_x5.png", "texture": null, "opacity": 1.0},
     {"name": "Mid", "z_order": -2, "visible": true, "path": "res://assets/backdrop_layers/layer_1.png", "texture": null, "opacity": 1.0},
     {"name": "Far", "z_order": -1, "visible": true, "path": "res://assets/backdrop_layers/layer_0.png", "texture": null, "opacity": 1.0},
 ]

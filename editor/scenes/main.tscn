@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3 uid="uid://dtn6qocve6qai"]
+[gd_scene load_steps=15 format=3 uid="uid://dtn6qocve6qai"]
 
 [ext_resource type="Script" uid="uid://c40osmgee5nae" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://ba4grmonufm7r" path="res://scripts/terrain_editor.gd" id="2"]
@@ -11,6 +11,7 @@
 [ext_resource type="Script" uid="uid://dfxn7xagyabxr" path="res://scripts/placement_grid_display.gd" id="9"]
 [ext_resource type="Script" uid="uid://cic7l3yynx57q" path="res://scripts/simulator.gd" id="10"]
 [ext_resource type="Script" path="res://scripts/tile_palette.gd" id="11"]
+[ext_resource type="PackedScene" path="res://editor/scenes/backdrop_preview.tscn" id="12"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg_map"]
 content_margin_left = 8.0
@@ -802,6 +803,8 @@ Brush: —
 Under: —"
 
 [node name="Simulator" type="Control" parent="TabContainer"]
+
+[node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator"]
 visible = false
 layout_mode = 2
 script = ExtResource("10")
