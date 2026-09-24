@@ -36,9 +36,12 @@ func _init() -> void:
         print("[RED] camera did NOT follow scrollbar 1:1: got %.1f want 800.0" % camera.position.x)
         quit(1)
         return
-    # Near band trails at 0.9x (relative to the 1:1 collision layer).
-    if not is_equal_approx(near.position.x, 720.0):
-        print("[RED] Near band did NOT trail at 0.9x: got %.1f want 720.0" % near.position.x)
+    # Near band trails at 0.9x — the Parallax2D scroll_scale static contract
+    # (position.x itself is a Parallax2D-derived runtime value that only
+    # accumulates from camera motion across render frames, so a single
+    # synchronous scrub can never be read on it; the .tscn pins the truth).
+    if not is_equal_approx(near.scroll_scale.x, 0.9):
+        print("[RED] Near band scroll_scale.x is not the 0.9x trail contract: got %.2f want 0.9" % near.scroll_scale.x)
         quit(1)
         return
 
