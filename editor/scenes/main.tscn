@@ -11,7 +11,7 @@
 [ext_resource type="Script" uid="uid://dfxn7xagyabxr" path="res://scripts/placement_grid_display.gd" id="9"]
 [ext_resource type="Script" uid="uid://cic7l3yynx57q" path="res://scripts/simulator.gd" id="10"]
 [ext_resource type="Script" path="res://scripts/tile_palette.gd" id="11"]
-[ext_resource type="PackedScene" path="res://editor/scenes/backdrop_preview.tscn" id="12"]
+[ext_resource type="PackedScene" path="res://scenes/backdrop_preview.tscn" id="12"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg_map"]
 content_margin_left = 8.0
@@ -803,9 +803,13 @@ Brush: —
 Under: —"
 
 [node name="Simulator" type="Control" parent="TabContainer"]
+script = ExtResource("10")
 
 [node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator"]
 visible = false
 layout_mode = 2
-script = ExtResource("10")
 metadata/_tab_index = 4
+
+[node name="BackdropScroll" type="HScrollBar" parent="TabContainer/Simulator"]
+unique_name_in_owner = true
+layout_mode = 1

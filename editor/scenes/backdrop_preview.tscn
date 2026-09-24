@@ -1,8 +1,8 @@
 [gd_scene load_steps=4 format=3]
 
-[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_0.png" id="1"]
-[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_1.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_2.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_0_strip_x5.png" id="1"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_1_strip_x5.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_2_strip_x5.png" id="3"]
 
 [node name="BackdropPreview" type="Node2D"]
 
