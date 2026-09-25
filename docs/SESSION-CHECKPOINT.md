@@ -1,5 +1,119 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
+## SHIPPED (2026-09-25) — stale-issue sweep: #38 #49 #51 #63 closed; #76 re-cited; #79 filed
+
+> Bookkeeping pass, no code changed. Four issues were OPEN but had shipped weeks
+> ago; each was verified against the code before closing. Also filed a real bug
+> found while gating (see #79 below).
+
+**Closed, with evidence comments.** Each closing comment names the wiki page as
+the design of record, the shipping commits, the acceptance criteria point by
+point, and the test that guards it. Commit hashes live on the issues, never on
+the wiki.
+
+| Issue | Feature | Wiki page (design of record) | Guard |
+|---|---|---|---|
+| #38 | image-stamp importer | `TDD_Tile-Reuse-and-Stamp-Groups` §2 | `test_screen_file_json_roundtrip` (carries a `stamp_maps` entry) |
+| #49 | visual tile palette | `TDD_Tile-Reuse-and-Stamp-Groups` §10 | `_test_tile_palette` |
+| #51 | Prune Duplicates | `TDD_Tile-Deduplication` + §11 | 6 prune tests (`_test_prune_duplicates` … `_test_bridge_exact_scan`) |
+| #63 | Collision Map button | `TDD_Collision-Map-Tooling` | **none — §9 is manual-only** (see caveat) |
+
+**#63 verification caveat, recorded deliberately:** there is no headless
+regression test for the Collision Map button, so the suite's `failures=0` does
+*not* cover it. The only evidence of a live run is the user report at
+`docs/SESSION-CHECKPOINT.md` line ~472 ("4 tile flicker / quadrant toggle"),
+which confirms direct quadrant-paint ran on a real display. Treat
+`TDD_Collision-Map-Tooling` §9 as the spec if it regresses.
+
+**#44 stays open.** #49 shipped the palette that #44's region-select grouping
+needs as its picker, but the region-select tool itself is still unbuilt
+(`TDD_Tile-Reuse-and-Stamp-Groups` §4, "the gap").
+
+**Wiki commit (local, wiki repo `master`):** `TDD_Tile-Reuse-and-Stamp-Groups`
+header now cites #38/#46/#49/#51, each pointing at the section documenting it,
+plus the guard test per feature — previously the header cited only #46, so the
+importer's design linked to no issue and the traceability record was broken at
+the join. `TDD_Parallax-Background` §4.2 gained the missing #76 art-to-tiles
+import step (`ImgMapBtn` -> `_on_img_map_import` -> `_import_image_to_tiles` ->
+`_nearest_terrain_key`), including the point that `air` is never returned so sky
+becomes *no cell* rather than an air tile — that is what feeds the §2 hole model.
+`TODO.md` TS41 -> `done`, TS62/63/64 record the closes, TS65 the sweep itself.
+No commit hashes were added to the wiki (the two pre-existing ones in TS47/TS49
+violate the rule and were left alone as out of scope).
+
+**#76 doc hygiene: DONE.** Its closing comment cited this checkpoint instead of a
+wiki page, breaking the Documentation Reference Architecture rule. There was no
+wiki page to cite, so the §4.2 addition above was written first, then the comment
+was re-cited in place with `gh issue comment 76 --edit-last` (verified: 1 comment
+on the issue, replaced not appended). This resolves the "Outstanding doc hygiene
+(not yet done)" note in the 2026-09-24 block below.
+
+**#62 deliberately LEFT OPEN.** Code-fixed via filter-ORDERING, not a property:
+`FileDialog.current_filter` does not exist in Godot 4.4, so instead the filter
+list is ordered by world format — package-backed world puts `*.zip` first
+(`map_editor.gd:1098-1104` save, `:1167-1173` load), legacy manifest puts
+`*.json` first. Unverified because it needs a real display. A display *is*
+available on this host (`DISPLAY=:0.0`, `/tmp/.X11-unix/X0`, seat0 session), so
+this is closeable on request: open a package-backed world, confirm the filter
+dropdown defaults to "SSTD World Package", then a legacy world and confirm
+"Screen JSON (legacy)".
+
+**#79 FILED — real data loss, cause not yet pinned.** Gating ran all four GDScript
+suites (the previous session's gate list omitted three of them) and
+`test_override_merge` came back **red, 3 of 12**. All three trace to one cause:
+`terrain_overrides.json` is absent from `editor/world.zip`. Proof by archive diff
+against the parked pre-#76 backup:
+
+| | pre-#76 backup (2026-09-14) | current `editor/world.zip` (2026-09-19 13:22) |
+|---|---|---|
+| `terrain_overrides.json` | `{"air":{"sub_tile_mask":15},"dirt":{"sub_tile_mask":0}}` | **absent** |
+| archive size | 1,259,491 B | 3,873 B |
+| `screens/1.json` | 230,849 B | 6,764 B |
+| tile bank | ~90 `stamp_N` tiles | `dirt.png`, `grass.png` |
+
+Not a legitimate "nothing diverged" state: `editor/default_package/terrain_types.json`
+carries `air=0`/`dirt=15`, the inverse, so the world genuinely diverged and the
+divergence is gone. Mechanism verified: `world_archive.gd:117` writes the file
+only `if not terrain_overrides.is_empty()`, so an empty dict yields no file and
+no journal line. **Why the dict was empty at save time is NOT established** — the
+load ordering (`main.gd:199-202`) and the delta logic
+(`terrain_editor.gd:793`) both check out, so it is either a terrain-editor state
+reset before that save or an unfound save call site. Do not treat either as fact.
+
+Also unproven, flagged in #79: `map_editor.gd:1124` passes literal `{}` for
+`entity_overrides` while `placement_editor.gd:574` correctly passes
+`_collect_entity_overrides()`. `entity_defs.json` still saves, so no loss shown.
+
+Second, separate defect in #79: `editor/world.zip` is **gitignored**
+(`.gitignore:49`) and untracked, yet `test_override_merge.gd:49` reads the
+override payload from it. The guard is therefore not reproducible on a fresh
+clone — it asserts local machine state, not tracked code behaviour. The fixture
+should move into the repo.
+
+Neither `editor/world.zip` nor the backup was touched this session — restoring
+needs a human call on whether the 2026-09-19 reset was deliberate for the #76
+backdrop work. Backup still parked at
+`/tmp/user/1000/opencode/sstd-world-pre-image-2026-09-19.zip`; `/tmp` does not
+survive a reboot, so copy it somewhere durable if that test still matters.
+
+**Legacy single-screen `.json` layer round-trip stays parked in #68.** It is
+in-flight #68 work, not a repo regression, so no bug was filed. `_on_import_file`
+-> `_load_screen_file` -> `_apply_screen` goes through `_serialize()`, which has
+no layer payload; only the `.zip` path round-trips (`_serializable_layers` ->
+`WorldArchive.save_world` -> `_load_world_package`). Recorded as a known gap in
+`TDD_Parallax-Background` §4.2.
+
+**Active step (next move): pick one, in order.**
+1. #79 — pin the save-time cause, then fix. Requires reading the
+   `map_editor.gd:1124` / `placement_editor.gd:574` call sites against the
+   `on_world_loaded` path, and deciding the fixture question for the gitignored
+   `world.zip`.
+2. #62 — needs only a display click-through; see above.
+3. #68 — the runtime `biome_backdrop_layers` DB binding is the one real open
+   feature on the editor side. `grep biome_backdrop_layers` hits only docs, zero
+   code or DB, so nothing populates those rows yet. `TDD_Parallax-Background` §2
+   is the runtime model, §4.2 the editor tooling already shipped.
+
 ## SHIPPED (2026-09-24) — #68 parallax scroll probe GREEN; #74 and #76 closed
 
 > Catch-up block. The previous newest entry was 2026-09-14, so the 2026-09-19 to
