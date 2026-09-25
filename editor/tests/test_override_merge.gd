@@ -240,4 +240,4 @@ func _run() -> void:
         check(_completed.has(g), "guard '%s' ran to completion" % g)
 
     print("=== override merge done, failures=%d === " % _failures)
-    quit(1 if _failures > 0 else 0)
+    quit(0 if _failures == 0 else 1)

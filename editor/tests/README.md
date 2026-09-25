@@ -10,7 +10,26 @@ Requires the Godot 4 binary (4.4.x stable).
 godot4 --headless --path .. --script res://tests/test_screen_store.gd
 ```
 
-The runner is a `SceneTree` script (it does **not** call `quit()` on load), so the process exits itself when the suite finishes. A `failures=0` summary line means all checks passed.
+The runner is a `SceneTree` script (it does **not** call `quit()` on load), so the process exits itself when the suite finishes.
+
+### Exit codes
+
+**The exit code is authoritative.** A suite runner calls `quit()` on its final line with
+`0` on success and non-zero on failure, in this exact form:
+
+```gdscript
+quit(0 if _failures == 0 else 1)
+```
+
+Gate on the exit code, not on the printed `failures=0` line — the line is a
+human-readable summary and a suite can print it while its exit code says otherwise.
+`test_image_to_map.gd` and `test_terrain_brush.gd` shipped an inverted ternary
+(`quit(1 if failures == 0 else 2)`) that made a *passing* run exit non-zero; it went
+unnoticed because a failing run also exits non-zero, which satisfies an exit-code check
+for the wrong reason. See [#80](https://github.com/HidekiAI/sidescroll-towerdefense/issues/80).
+
+Probe and capture scripts under this directory are not suites and use their own
+conventions (`quit(0)` when the capture succeeded, `quit(1)` on a hard abort).
 
 ## Coverage
 

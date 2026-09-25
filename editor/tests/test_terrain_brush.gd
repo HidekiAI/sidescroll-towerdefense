@@ -67,4 +67,4 @@ func _run() -> void:
         "PASS (failures=0)" if failures == 0 else "FAIL (failures=%d)" % failures,
         _oks + failures,
     ])
-    quit(1 if failures == 0 else 2)
+    quit(0 if failures == 0 else 1)
