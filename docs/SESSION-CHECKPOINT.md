@@ -1,5 +1,41 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
+## SHIPPED (2026-09-24) — #68 parallax scroll probe GREEN; #74 and #76 closed
+
+> Catch-up block. The previous newest entry was 2026-09-14, so the 2026-09-19 to
+> 2026-09-24 work was unrecorded; restored here from `git log` + issue history.
+>
+> **#74 slice-layers (CLOSED 2026-09-13; commits d27f845, e94895a).**
+> `tools/slice-layers` derives the L0/L1/L2 parallax layers from a rendered preview MP4
+> by flow-not-ML depth recovery. Source MP4s stay local-only (`.gitignore`, user
+> directive 2026-09-13); the derived layers are the artifact of record.
+>
+> **#76 image -> terrain map import (CLOSED 2026-09-19/20; commits 03e3272, 15ea539,
+> d225363).** `map_editor.gd` imports any PNG and converts colour to terrain by
+> quantisation. The resulting near band (`layer_2.png`) is rendered as a collidable
+> backdrop strip in BOTH the Simulator stack and the MapEditor grid; the x5 collision
+> strips are committed under `editor/assets/backdrop_layers/`. Outstanding doc hygiene
+> (not yet done): the #76 closing comment cites this checkpoint instead of a wiki page.
+>
+> **#68 parallax scroll (still OPEN; probe GREEN 2026-09-24, commits 6f1f9da, 3dff990).**
+> The editor scrollbar now drives a `Camera2D` at 1:1 and the near band sits at a static
+> 0.9x factor. Probe: `editor/tests/probe_parallax_scroll.gd`. Wiki section 4.2 (Map
+> Editor layer management) was committed 2026-09-25. Still to land for #68: the runtime
+> `biome_backdrop_layers` DB binding (v2) and the wiki acceptance-criteria tick-off.
+>
+> **Active step (next move): stale-issue sweep.** OPEN but already shipped — #38
+> (image-stamp importer), #49 (visual tile palette), #51 (Prune Duplicates button), #63
+> (Collision Map button). #62 (load/save dialog default filter) is code-fixed via
+> filter-ORDERING, because `FileDialog.current_filter` does not exist in Godot 4.4, and
+> needs a real-display GUI re-verify before it can be closed.
+>
+> **Housekeeping.** Godot 4.4 `.uid` sidecars are now tracked for all scripts
+> (20 were already tracked, 16 more added this pass). The pre-#76 world package
+> `editor/world.zip.bak-2026-09-19` (1.26 MB) is parked at
+> `/tmp/user/1000/opencode/sstd-world-pre-image-2026-09-19.zip` for the older-data-load
+> and serde-versioning check — the `*.bak` rule in `.gitignore` does not match
+> `*.bak-<date>`, which is why it kept appearing as untracked.
+
 ## SHIPPED (2026-09-06) — #7 rarity FK seed + doc integrity (impl from PLAN below)
 
 > Implemented per the PLAN block below and landed this pass.
