@@ -58,11 +58,12 @@ this is closeable on request: open a package-backed world, confirm the filter
 dropdown defaults to "SSTD World Package", then a legacy world and confirm
 "Screen JSON (legacy)".
 
-**#79 FILED — real data loss, cause not yet pinned.** Gating ran all four GDScript
-suites (the previous session's gate list omitted three of them) and
-`test_override_merge` came back **red, 3 of 12**. All three trace to one cause:
-`terrain_overrides.json` is absent from `editor/world.zip`. Proof by archive diff
-against the parked pre-#76 backup:
+**#79 SHIPPED and CLOSED — the "data loss" reading was WRONG. Withdrawn.** The section
+this replaces claimed "real data loss, cause not yet pinned", and flagged an
+unproven `map_editor` / `placement_editor` asymmetry. Both claims were investigated
+and both are false. **The measurements below are correct; the interpretation was not.**
+
+What the archive diff actually shows (still valid, and it is what pinned the cause):
 
 | | pre-#76 backup (2026-09-14) | current `editor/world.zip` (2026-09-19 13:22) |
 |---|---|---|
@@ -71,30 +72,62 @@ against the parked pre-#76 backup:
 | `screens/1.json` | 230,849 B | 6,764 B |
 | tile bank | ~90 `stamp_N` tiles | `dirt.png`, `grass.png` |
 
-Not a legitimate "nothing diverged" state: `editor/default_package/terrain_types.json`
-carries `air=0`/`dirt=15`, the inverse, so the world genuinely diverged and the
-divergence is gone. Mechanism verified: `world_archive.gd:117` writes the file
-only `if not terrain_overrides.is_empty()`, so an empty dict yields no file and
-no journal line. **Why the dict was empty at save time is NOT established** — the
-load ordering (`main.gd:199-202`) and the delta logic
-(`terrain_editor.gd:793`) both check out, so it is either a terrain-editor state
-reset before that save or an unfound save call site. Do not treat either as fact.
+No data was lost. Two things had been conflated:
 
-Also unproven, flagged in #79: `map_editor.gd:1124` passes literal `{}` for
-`entity_overrides` while `placement_editor.gd:574` correctly passes
-`_collect_entity_overrides()`. `entity_defs.json` still saves, so no loss shown.
+1. **Boot never reads `res://world.json`.** `main.gd:4` uses
+   `user://data/world.json`, and on this host that file is an empty legacy
+   manifest, `{"screens": {}, "version": "0.2.0"}` — zero screens, no `.world`
+   key. So `on_world_loaded` receives no overrides, `apply_terrain_overrides` is
+   never called, the Terrain Editor sits at framework defaults, and
+   `collect_terrain_overrides()` correctly returns `{}` — a zero delta against a
+   framework it exactly matches. `world_archive.gd:117` writing only on a
+   non-empty delta is **correct** delta semantics, symmetric with the read at
+   `:181-184`. There is no defect there.
+2. **The file was absent because the world was replaced, not corrupted.** A
+   1.26 MB / ~90-tile world and a 3.8 KB / 2-tile world are different worlds, not
+   one damaged world. The overrides belonged to the world that was swapped out.
+   What caused the 2026-09-19 reset is still not established, but it is
+   environment rot, not a code defect, and it is not this issue.
 
-Second, separate defect in #79: `editor/world.zip` is **gitignored**
-(`.gitignore:49`) and untracked, yet `test_override_merge.gd:49` reads the
-override payload from it. The guard is therefore not reproducible on a fresh
-clone — it asserts local machine state, not tracked code behaviour. The fixture
-should move into the repo.
+The `map_editor` / `placement_editor` asymmetry was also wrong:
+`_collect_entity_overrides()` at `placement_editor.gd:598` is a **stub that returns
+`{}`**, so both call sites pass `{}`. What is real is that `entity_overrides` is a
+dead channel end to end — a separate follow-up, not folded into #79.
 
-Neither `editor/world.zip` nor the backup was touched this session — restoring
-needs a human call on whether the 2026-09-19 reset was deliberate for the #76
-backdrop work. Backup still parked at
+The actual defect was the test, and it was worse than "not reproducible":
+
+- **Non-hermetic.** The guard read its input from gitignored, untracked
+  `editor/world.zip`, so it asserted machine state, not tracked code behaviour.
+- **Two vacuous assertions.** It checked `arrow_tower` `attack_power=100` /
+  `max_hp=500` and `mine` `class=trap` — which are the framework prototype's own
+  values in `default_package/entity_defs.json`. Those assertions passed whether
+  or not the merge ran. That is why the entity half stayed green while the terrain
+  half went red: the entity half was never testing anything.
+- **Silent truncation.** A guard is a coroutine; a runtime script error aborts it
+  but lets `_run` continue, so the suite printed `failures=0` and exited 0 with
+  the merge never called. Proven by injecting a tab into space-indented
+  `entity_editor.gd`.
+- **Coverage hole.** The archive codec for overrides had no test with a non-empty
+  payload, so a save/load asymmetry or a rename of `TERRAIN_OVERRIDES_PATH` would
+  go unnoticed.
+
+Fixed in `2c08989`; guard now has three falsifiable parts (terrain merge, entity
+merge, archive codec round-trip) with vacuity tripwires and a completion check.
+Verified by mutation, all files restored: no-op `apply_terrain_overrides` → 2
+failures; no-op `apply_world_entity_defs` → 4 failures; renamed
+`TERRAIN_OVERRIDES_PATH` → 1 failure; `world.zip` moved aside → 0; tab-parse abort
+→ truncation check fires. Plan and full evidence in
+[PLAN-2026-09-25-override-merge-guard-hermetic](PLAN-2026-09-25-override-merge-guard-hermetic.md).
+
+**#80 filed** while verifying: `test_image_to_map.gd:63` and
+`test_terrain_brush.gd:70` both have an inverted ternary,
+`quit(1 if failures == 0 else 2)`, so they exit non-zero when they **pass**. They
+survived because a failing test also exits non-zero, which satisfies an
+exit-code check for the wrong reason. Not touched by #79.
+
+`editor/world.zip` and the backup were never modified. The backup is still at
 `/tmp/user/1000/opencode/sstd-world-pre-image-2026-09-19.zip`; `/tmp` does not
-survive a reboot, so copy it somewhere durable if that test still matters.
+survive a reboot, so copy it somewhere durable if the pre-#76 world still matters.
 
 **Legacy single-screen `.json` layer round-trip stays parked in #68.** It is
 in-flight #68 work, not a repo regression, so no bug was filed. `_on_import_file`
