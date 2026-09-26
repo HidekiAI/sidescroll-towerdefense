@@ -1,5 +1,66 @@
 # Session Checkpoint — Editor Core & Persistence (post-#67)
 
+## CURRENT STATE / NEXT MOVE
+
+> This block is the single authoritative resume point. It **supersedes** every
+> `## Active step` and `## Next move` heading further down, which are retained as the
+> historical record only. A cold-start session should read this block and stop; the
+> sections below it are an append-only log of past sessions, not a live plan.
+
+_Last updated: 2026-09-25_
+
+**Both repos clean and pushed, 0 unpushed** (`sidescroll-towerdefense` on `trunk`,
+`sidescroll-towerdefense.wiki` on `master`).
+
+### Shipped this cycle
+
+| commit | what |
+|---|---|
+| `2c08989` | hermetic, falsifiable `test_override_merge` guard (#79) |
+| `6c0732b` | corrected the withdrawn data-loss claim in this file (#79) |
+| `c955cec` | inverted exit ternary in two test runners (#80) |
+| `7ff696a` | override-delta write rule + guard requirements, `TDD_World-Archive` §3b / §8a |
+
+Plans: `PLAN-2026-09-25-override-merge-guard-hermetic.md`, `PLAN-2026-09-25-test-exit-codes.md`.
+
+### Do NOT redo these
+
+- **A missing `terrain_overrides.json` is not data loss.** It is correct delta semantics
+  and the normal representation of a world at framework defaults. #79's original claim
+  was disproved; the measurements behind it were right, the inference was wrong.
+- **The pre-#76 world backup in `/tmp` is skipped by user decision** (2026-09-25). Do not
+  restore, chase, or re-raise it. `/tmp` does not survive a reboot; that is accepted.
+- **Do not bundle the `entity_overrides` dead-channel removal** into another fix — it
+  removes a `save_world` positional parameter, a breaking contract change.
+- **Indentation is mixed**: `editor/scripts/entity_editor.gd` uses spaces,
+  `editor/scripts/terrain_editor.gd` uses tabs. Injecting a line with the wrong style is
+  a parse error, not a behavioural mutation; this invalidated a whole experiment once.
+
+### Open threads
+
+| # | item | why still open |
+|---|---|---|
+| #62 | save/load dialog default filter | code-fixed via filter-**ordering** (`current_filter` does not exist in Godot 4.4); needs a real-display click-through. A display **is** available here (`DISPLAY=:0.0`) |
+| #81 | `test_screen_store` silent-truncation exposure | 86 `await` sites, no completion tracking. **Unproven** — the issue carries the experiment that would settle it |
+| #68 | parallax runtime + legacy single-screen `.json` round-trip | parked; probe GREEN, runtime rendering unverified |
+| #82 | `entity_overrides` dead channel | proven: written to the archive, read into the load result, **zero consumers**; only producer is a stub returning `{}`. Deleting it removes the 5th positional `save_world` param — breaking, own review |
+
+Also still open from earlier cycles: #44, #65, #69.
+
+### Gate
+
+`cargo test -p sstd-core` (**110** passed) plus all four GDScript suites, which must
+each exit 0 — the exit code is authoritative, not the printed `failures=0` line:
+
+```bash
+~/bin/godot4 --headless --path editor --script res://tests/test_screen_store.gd    # 187 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_image_to_map.gd    # 9 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_terrain_brush.gd  # 14 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_override_merge.gd  # 26 ok
+```
+
+---
+
 ## SHIPPED (2026-09-25) — stale-issue sweep: #38 #49 #51 #63 closed; #76 re-cited; #79 filed
 
 > Bookkeeping pass, no code changed. Four issues were OPEN but had shipped weeks
@@ -745,6 +806,12 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
   wiki TDD_gRPC-Architecture.md "EditorRemote"; tracked as #58. NOT implemented.
 
 ## Active step
+
+> **SUPERSEDED — historical record only.** The live resume point is
+> [CURRENT STATE / NEXT MOVE](#current-state--next-move) at the top of this file. This
+> section describes the 2026-08-29 state and has not been maintained since; figures
+> below (e.g. "cargo workspace 122 pass") predate the current **110**.
+
 1. **#61 prune crash — DONE, committed `6103ba4`, issue closed.**
    - Root cause: after first prune, `_drop_tiles()` shrinks `_stamp_catalog`
      while cached `_prune_bytes`/`_canonical_flat` kept pre-prune sizes, and
@@ -815,16 +882,19 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
      first (Xvfb crashes on this host, headless/Dummy cannot capture).
 
 ## Next move (proposed order)
-1. **#67 — author wiki TDD + close.** #64 is DONE and CLOSED. #67 code shipped
-   `9d78881`, regression test `e1d18af` validated the real-world merge (terrain:
-   air sub_tile_mask 0->15, dirt->0, partial-patch semantics; entity: 8 defs by
-   key, no dups; 11 assertions green). Remaining: author/provide wiki TDD page
-   (e.g. TDD_Entity-and-Terrain-Overrides) + Home/TODO entry, post closing comment
-   citing the wiki, then close #67.
+
+> **SUPERSEDED — historical record only.** The live resume point is
+> [CURRENT STATE / NEXT MOVE](#current-state--next-move) at the top of this file.
+> Item 1 below was completed and is retained for the record.
+
+1. ~~**#67 — author wiki TDD + close.**~~ **DONE.** #67 is CLOSED; the page shipped as
+   `TDD_Def-Overrides` (see TODO row TS57). Code shipped `9d78881`; the wiki page and
+   closing comment citing it both exist.
 2. **#62 — GUI preselect re-verify then close.** Re-verify functionally that Load
    defaults to `.zip` when the world package is active (the `current_filter`
    property DOES NOT EXIST in Godot 4.4; the fix uses filter-ORDERING instead).
-   Needs a real-display session to click through. Then close #62.
+   Needs a real-display session to click through. Then close #62. **Still open — see
+   the live block above.**
 3. (Optional) Add a grpcurl CI loop for the TabNames x CaptureScreenshot flow
    referenced in the TDD; currently verified via the Rust smoke client instead.
 
