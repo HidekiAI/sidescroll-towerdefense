@@ -9,13 +9,18 @@
 
 _Last updated: 2026-09-27_
 
-**Both repos have one unpushed commit each.** Nothing is pushed yet; merge mode and push
-permission have not been granted.
+**Both repos clean, merged, and pushed, 0 unpushed.** #83 is closed.
 
-| repo | branch | commit | what |
+| repo | default | head | this pass |
 |---|---|---|---|
-| `sidescroll-towerdefense` | `fix/agents-consolidate` (off `trunk`) | `572dbb4` | consolidated AGENTS + `opencode.json` wiring (#83) |
-| `sidescroll-towerdefense.wiki` | `docs/home-md-index` (off `master`) | `865439f` | indexed 19 unlinked wiki pages (#83) |
+| `sidescroll-towerdefense` | `trunk` | `72857e2` | consolidated AGENTS + `opencode.json` wiring (#83) |
+| `sidescroll-towerdefense.wiki` | `master` | `a61a7ed` | indexed 19 unlinked wiki pages (#83) |
+
+Worked on `fix/agents-consolidate` / `docs/home-md-index`, both merged back with
+`git merge --ff-only` and pushed (fast-forwards `47d0552..72857e2` and `8059ddd..a61a7ed`).
+**No PR** — @me's standing decision, now recorded in
+`~/.cache/opencode/branch-then-merge-repos.md` for both repos. The wiki remote has no usable
+API repo at all, so a PR is impossible there regardless.
 
 ### Why the `opencode.json` files exist
 
@@ -86,17 +91,19 @@ Plans: `PLAN-2026-09-25-override-merge-guard-hermetic.md`, `PLAN-2026-09-25-test
 | #81 | `test_screen_store` silent-truncation exposure | 86 `await` sites, no completion tracking. **Unproven** — the issue carries the experiment that would settle it |
 | #68 | parallax runtime + legacy single-screen `.json` round-trip | parked; probe GREEN, runtime rendering unverified |
 | #82 | `entity_overrides` dead channel | proven: written to the archive, read into the load result, **zero consumers**; only producer is a stub returning `{}`. Deleting it removes the 5th positional `save_world` param — breaking, own review |
-| #83 | AGENTS consolidation + `opencode.json` wiring + wiki index | code committed `572dbb4`, wiki `865439f`; both unpushed, merge mode not chosen |
 | #84 | LUCK AGENTS section contradicts code, wiki, and itself | filed from #83; needs an owner decision, deliberately not resolved here |
 
 Also still open from earlier cycles: #44, #65, #69.
 
 ### Next move
 
-1. Ask the owner for merge mode (code repo: PR vs local `git merge --ff-only`) and push
-   permission. Wiki needs no PR — GitHub wiki remotes have no usable PR API.
-2. Once #84 is decided, correct either the AGENTS LUCK section or the luck code/wiki, and
-   reconcile the "Replay & seeded rolls" subsection either way.
+1. **#84 is the only thing this pass left open.** Once decided, correct either the AGENTS
+   LUCK section or the luck code/wiki, and reconcile the "Replay & seeded rolls" subsection
+   either way. Note that `seeded_roll`/`RollLog` are also load-bearing for the replay/CI
+   checksum invariant, so a "make it deterministic" fix cannot simply delete them.
+2. Start a **new session** to confirm the `opencode.json` wiring actually loads. The config
+   resolves, but resolution is not loading — only a fresh session proves the AGENTS file is
+   in context.
 
 ### Gate
 
