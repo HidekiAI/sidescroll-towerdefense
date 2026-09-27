@@ -7,12 +7,54 @@
 > historical record only. A cold-start session should read this block and stop; the
 > sections below it are an append-only log of past sessions, not a live plan.
 
-_Last updated: 2026-09-25_
+_Last updated: 2026-09-27_
 
-**Both repos clean and pushed, 0 unpushed** (`sidescroll-towerdefense` on `trunk`,
-`sidescroll-towerdefense.wiki` on `master`).
+**Both repos have one unpushed commit each.** Nothing is pushed yet; merge mode and push
+permission have not been granted.
 
-### Shipped this cycle
+| repo | branch | commit | what |
+|---|---|---|---|
+| `sidescroll-towerdefense` | `fix/agents-consolidate` (off `trunk`) | `572dbb4` | consolidated AGENTS + `opencode.json` wiring (#83) |
+| `sidescroll-towerdefense.wiki` | `docs/home-md-index` (off `master`) | `865439f` | indexed 19 unlinked wiki pages (#83) |
+
+### Why the `opencode.json` files exist
+
+`.opencode/AGENTS.md` is **not** auto-discovered. The only supported mechanism is the
+`instructions` array in `opencode.json`, and neither repo had one — so the project's
+knowledge file was never loaded by a session started inside the repo. Config lookup stops
+at the nearest git directory, so two files are needed: the repo-root one for repo launches
+and `SSTD/opencode.json` for workspace launches. Both verified with `opencode debug config`;
+each resolves to a real file and both concatenate with the global
+`~/.config/opencode/opencode.jsonc` entries rather than replacing them. **A new session is
+required to observe the effect** — resolution is not loading.
+
+### Do NOT redo these
+
+- **The LUCK section of the project AGENTS is wrong** (filed as #84, deliberately left
+  undecided). It claims deterministic, no-dice-roll behaviour with `luck.bonus_cap`,
+  `crit_interval`, and `rarity_floor` — **none of those three exist in the code**, which
+  has `crit_chance`, `WeightedTable::pick`, and `luck_weighted_rarity`. The wiki matches the
+  code, not the AGENTS file. Same file also contradicts itself: the adjacent "Replay &
+  seeded rolls" subsection correctly describes `seeded_roll` + `RollLog`. Do not "fix" the
+  docs here without the owner deciding whether the code or the 2026-08-07 decision is wrong.
+- **Coverage counts must be verified against `HEAD`, not trusted from a loop's output.** An
+  earlier pass reported 11 unlinked wiki pages; the true figure was 19 (8
+  `GDD_Gameplay.*` sub-pages were missed). Check with `git show HEAD:Home.md` before quoting
+  a number.
+- **Validate a mutation before believing its result.** Two void experiments in one pass: a
+  tab injected into a space-indented file, and a "missing page" probe that was also linked
+  in `Home.md`. Both produced a clean result that looked like a real finding.
+- **`opencode debug config` prints the Anthropic API key in plaintext** (it is in the global
+  `opencode.jsonc` under `provider.anthropic.options.apiKey`). Never paste that output into
+  an issue, PR, commit message, or log.
+- **`godot4` IS on `PATH`** via `~/bin` (`command -v godot4` -> `/home/hidekiai/bin/godot4`).
+  The earlier claim that it was "not on the default PATH" was wrong and is corrected in
+  `SSTD/AGENTS.md`. The `$HOME/bin/` prefix is kept for portability only.
+- **`CONTRIBUTING.md` and `docs/guidelines.md` are in the global instructions list but
+  exist in neither root.** They match nothing and are silently skipped. Pre-existing, from
+  the global config, not introduced here.
+
+### Shipped last cycle (2026-09-25/26)
 
 | commit | what |
 |---|---|
@@ -23,7 +65,7 @@ _Last updated: 2026-09-25_
 
 Plans: `PLAN-2026-09-25-override-merge-guard-hermetic.md`, `PLAN-2026-09-25-test-exit-codes.md`.
 
-### Do NOT redo these
+### Do NOT redo these (last cycle)
 
 - **A missing `terrain_overrides.json` is not data loss.** It is correct delta semantics
   and the normal representation of a world at framework defaults. #79's original claim
@@ -44,8 +86,17 @@ Plans: `PLAN-2026-09-25-override-merge-guard-hermetic.md`, `PLAN-2026-09-25-test
 | #81 | `test_screen_store` silent-truncation exposure | 86 `await` sites, no completion tracking. **Unproven** — the issue carries the experiment that would settle it |
 | #68 | parallax runtime + legacy single-screen `.json` round-trip | parked; probe GREEN, runtime rendering unverified |
 | #82 | `entity_overrides` dead channel | proven: written to the archive, read into the load result, **zero consumers**; only producer is a stub returning `{}`. Deleting it removes the 5th positional `save_world` param — breaking, own review |
+| #83 | AGENTS consolidation + `opencode.json` wiring + wiki index | code committed `572dbb4`, wiki `865439f`; both unpushed, merge mode not chosen |
+| #84 | LUCK AGENTS section contradicts code, wiki, and itself | filed from #83; needs an owner decision, deliberately not resolved here |
 
 Also still open from earlier cycles: #44, #65, #69.
+
+### Next move
+
+1. Ask the owner for merge mode (code repo: PR vs local `git merge --ff-only`) and push
+   permission. Wiki needs no PR — GitHub wiki remotes have no usable PR API.
+2. Once #84 is decided, correct either the AGENTS LUCK section or the luck code/wiki, and
+   reconcile the "Replay & seeded rolls" subsection either way.
 
 ### Gate
 
