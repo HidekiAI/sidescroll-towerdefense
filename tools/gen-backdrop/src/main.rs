@@ -35,7 +35,7 @@
 //! Every run writes its inputs, per-layer dimensions, factor pairs and output paths to
 //! stdout, so an incident is replayable from the log alone.
 
-use image::RgbaImage;
+use image::{Rgba, RgbaImage};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -121,7 +121,7 @@ fn layer_specs() -> Vec<LayerSpec> {
 }
 
 // ---------------------------------------------------------------------------
-// 1/7 - lattice hash
+// 1/9 - lattice hash
 // ---------------------------------------------------------------------------
 
 /// Maps a lattice coordinate to a pseudo-random value in `[0, 1)`.
@@ -133,12 +133,27 @@ fn layer_specs() -> Vec<LayerSpec> {
 /// Deliberately NOT a "good" hash (no avalanche guarantees needed): it only has to be
 /// cheap, deterministic and decorrelate adjacent lattice points enough that the
 /// interpolated value noise is smooth rather than blocky.
-///
-/// `// let v: f32 = 0.0;`
-fn lattice_hash(x: i64, y: i64, seed: u64) -> f32 {}
+// TODO(human): begin block 1/9
+fn lattice_hash(x: i64, y: i64, seed: u64) -> f32 {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let mixed: u64 = (x as u64)
+    //     .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+    //     ^ (y as u64).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+    //     ^ seed;
+    // // splitmix64's finaliser: xor-shift, multiply, xor-shift, multiply, xor-shift.
+    // let s1: u64 = mixed ^ (mixed >> 33);
+    // let m1: u64 = s1.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    // let s2: u64 = m1 ^ (m1 >> 29);
+    // let m2: u64 = s2.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    // let s3: u64 = m2 ^ (m2 >> 32);
+    // // Top 24 bits only: the low bits of a multiply-xor mix are the weakest, and the
+    // // callers only need enough range to divide into [0, 1).
+    // (s3 >> 40) as f32 / (1u32 << 24) as f32
+}
+// TODO(human): end block 1/9
 
 // ---------------------------------------------------------------------------
-// 2/7 - value noise, wrapping in x
+// 2/9 - value noise, wrapping in x
 // ---------------------------------------------------------------------------
 
 /// Smoothly interpolated value noise in `[0, 1]`, PERIODIC in `x` with period `period`.
@@ -172,12 +187,32 @@ fn lattice_hash(x: i64, y: i64, seed: u64) -> f32 {}
 ///
 /// Dividing by a round pixel divisor (say `x / 260.0`) does not work either: the wrap then
 /// lands at `260 * period` px, which is not the texture edge at all.
-///
-/// `// let v: f32 = 0.0;`
-fn value_noise(_x: f32, _y: f32, _period: i64, _seed: u64) -> f32 {}
+// TODO(human): begin block 2/9
+fn value_noise(x: f32, y: f32, period: i64, seed: u64) -> f32 {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let p: i64 = if period < 1 { 1 } else { period };
+    // let x0: i64 = x.floor() as i64;
+    // let y0: i64 = y.floor() as i64;
+    // let fx: f32 = x - x.floor();
+    // let fy: f32 = y - y.floor();
+    // // Smoothstep the fractional part, not linear: zero slope at every lattice point.
+    // let sx: f32 = fx * fx * (3.0 - 2.0 * fx);
+    // let sy: f32 = fy * fy * (3.0 - 2.0 * fy);
+    // // x wraps at `p`; y does not. `i64 % p` is negative for negative i, hence the
+    // // two-step normalisation rather than a bare `%`.
+    // let wrap = |i: i64| -> i64 { ((i % p) + p) % p };
+    // let h00: f32 = lattice_hash(wrap(x0), y0, seed);
+    // let h10: f32 = lattice_hash(wrap(x0 + 1), y0, seed);
+    // let h01: f32 = lattice_hash(wrap(x0), y0 + 1, seed);
+    // let h11: f32 = lattice_hash(wrap(x0 + 1), y0 + 1, seed);
+    // let top: f32 = h00 + (h10 - h00) * sx;
+    // let bot: f32 = h01 + (h11 - h01) * sx;
+    // top + (bot - top) * sy
+}
+// TODO(human): end block 2/9
 
 // ---------------------------------------------------------------------------
-// 3/7 - fractional Brownian motion
+// 3/9 - fractional Brownian motion
 // ---------------------------------------------------------------------------
 
 /// Sum of `octaves` value-noise layers, each at double the previous frequency, so the
@@ -201,12 +236,81 @@ fn value_noise(_x: f32, _y: f32, _period: i64, _seed: u64) -> f32 {}
 ///
 /// Return in `[0, 1]`, not the raw sum, so callers can threshold it against a meaningful
 /// fraction.
-///
-/// `// let v: f32 = 0.0;`
-fn fbm(_x: f32, _y: f32, _period: i64, _octaves: u32, _seed: u64) -> f32 {}
+// TODO(human): begin block 3/9
+fn fbm(x: f32, y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let mut sum: f32 = 0.0;
+    // let mut amp: f32 = 1.0;
+    // let mut norm: f32 = 0.0;
+    // let mut freq: f32 = 1.0;
+    // for o in 0..octaves.max(1) {
+    //     // DOUBLES per octave: octave o samples at 2^o frequency, so it spans 2^o cells
+    //     // and keeps the same spatial period as octave 0.
+    //     let per: i64 = period.saturating_mul(1i64 << o.min(20));
+    //     sum += amp
+    //         * value_noise(x * freq, y * freq, per, seed ^ (o as u64).wrapping_mul(0x9e37_79b9));
+    //     norm += amp;
+    //     amp *= 0.5;
+    //     freq *= 2.0;
+    // }
+    // sum / norm
+}
+// TODO(human): end block 3/9
 
 // ---------------------------------------------------------------------------
-// 4/7 - sky
+// 4/9 - colour lerp
+// ---------------------------------------------------------------------------
+
+/// Interpolates two RGB triples on `t` in `[0, 1]`.
+///
+/// INTENT (permanent): u8 channels cannot be interpolated directly. `a + (b - a) * t` in
+/// u8 arithmetic truncates, so a 1% mix of two dark colours rounds back to the original
+/// and the gradient bands. Widening to f32, mixing, then narrowing once at the end keeps
+/// the full range. This is why every gradient in this file goes through here rather than
+/// doing channel arithmetic inline.
+///
+/// Clamping `t` is deliberate: a caller passing a value slightly outside `[0, 1]` from a
+/// noisy expression should not wrap around to the far end of the ramp.
+// TODO(human): begin block 4/9
+fn lerp_rgb(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let t: f32 = t.clamp(0.0, 1.0);
+    // [
+    //     (a[0] as f32 + (b[0] as f32 - a[0] as f32) * t) as u8,
+    //     (a[1] as f32 + (b[1] as f32 - a[1] as f32) * t) as u8,
+    //     (a[2] as f32 + (b[2] as f32 - a[2] as f32) * t) as u8,
+    // ]
+}
+// TODO(human): end block 4/9
+
+// ---------------------------------------------------------------------------
+// 5/9 - smoothstep
+// ---------------------------------------------------------------------------
+
+/// Hermite ramp from 0 at `edge0` to 1 at `edge1`, clamped outside.
+///
+/// INTENT (permanent): this is what makes a cloud edge gradual rather than a cutout, and
+/// what makes the sun disc fall off softly instead of having an aliased rim. It is the
+/// same `t*t*(3-2t)` curve block 2/9 applies to the noise lattice, reused here because
+/// both jobs are "ease between two values with zero slope at each end".
+///
+/// The degenerate-interval guard matters for the sky: `sun_r` is derived from `height`,
+/// and at a small height the inner and outer radii can round to the same value. Dividing
+/// by a zero-width interval would produce NaN, and a NaN alpha poisons every downstream
+/// pixel comparison in the test suite.
+// TODO(human): begin block 5/9
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // if (edge1 - edge0).abs() < f32::EPSILON {
+    //     return if x < edge0 { 0.0 } else { 1.0 };
+    // }
+    // let t: f32 = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    // t * t * (3.0 - 2.0 * t)
+}
+// TODO(human): end block 5/9
+
+// ---------------------------------------------------------------------------
+// 6/9 - sky
 // ---------------------------------------------------------------------------
 
 /// The sky plane: fully opaque, a vertical gradient plus fBm haze plus one sun disc.
@@ -219,14 +323,49 @@ fn fbm(_x: f32, _y: f32, _period: i64, _octaves: u32, _seed: u64) -> f32 {}
 /// function is correct at any height; the sun disc is a radial falloff, not a hard circle,
 /// so it has no aliased edge at 1:1 scale.
 ///
-/// The haze term MUST go through the 2/7 caller contract (`x * cells / width`) or the sky
-/// seams and the sun disc alone cannot hide it.
-///
-/// `// let img: RgbaImage = RgbaImage::new(0, 0);`
-fn make_sky(_width: u32, _height: u32, _seed: u64) -> RgbaImage {}
+/// The haze term MUST go through the 2/9 caller contract (`x * cells / (width - 1)`) or the
+/// sky seams, and the sun disc alone cannot hide it.
+// TODO(human): begin block 6/9
+fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let mut img: RgbaImage = RgbaImage::new(width, height);
+    // let top: [u8; 3] = [138, 152, 172];
+    // let mid: [u8; 3] = [166, 178, 192];
+    // let low: [u8; 3] = [196, 204, 210];
+    // let cells: i64 = 6;
+    // // 2/9 caller contract: `cells` cells across the width, dividing by (width - 1) so
+    // // the last column wraps exactly onto the first.
+    // let x_of = |x: u32| -> f32 { x as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    // let sun_x: f32 = width as f32 * 0.68;
+    // let sun_y: f32 = height as f32 * 0.24;
+    // let sun_r: f32 = height as f32 * 0.06;
+    // for y in 0..height {
+    //     let t: f32 = y as f32 / height.max(1) as f32;
+    //     let base: [u8; 3] = if t < 0.55 {
+    //         lerp_rgb(top, mid, t / 0.55)
+    //     } else {
+    //         lerp_rgb(mid, low, (t - 0.55) / 0.45)
+    //     };
+    //     for x in 0..width {
+    //         let haze: f32 = fbm(x_of(x), y as f32 * 0.002, cells, 3, seed) - 0.5;
+    //         let dx: f32 = x as f32 - sun_x;
+    //         let dy: f32 = y as f32 - sun_y;
+    //         let d: f32 = (dx * dx + dy * dy).sqrt();
+    //         let disc: f32 = 1.0 - smoothstep(sun_r * 0.65, sun_r, d);
+    //         let mut c: [u8; 3] = lerp_rgb(base, [255, 250, 238], disc * 0.85);
+    //         let hv: f32 = (haze * 14.0).clamp(-20.0, 20.0);
+    //         for ch in 0..3 {
+    //             c[ch] = (c[ch] as f32 + hv).clamp(0.0, 255.0) as u8;
+    //         }
+    //         img.put_pixel(x, y, Rgba([c[0], c[1], c[2], 255]));
+    //     }
+    // }
+    // img
+}
+// TODO(human): end block 6/9
 
 // ---------------------------------------------------------------------------
-// 5/7 - clouds
+// 7/9 - clouds
 // ---------------------------------------------------------------------------
 
 /// One cloud plane: alpha is a smoothstep over fBm, so the layer has GENUINE holes.
@@ -245,19 +384,41 @@ fn make_sky(_width: u32, _height: u32, _seed: u64) -> RgbaImage {}
 /// pixel anywhere reaches alpha 255, so the layer reads as flat haze instead of cloud. The
 /// contract `cloud_layers_have_holes` asserts is that fully-opaque AND fully-clear pixels
 /// both exist, so a gradient that never reaches 1 is a failure, not a subtlety.
-///
-/// `// let img: RgbaImage = RgbaImage::new(0, 0);`
-fn make_clouds(_width: u32, _height: u32, _seed: u64, _t0: f32, _t1: f32) -> RgbaImage {}
+// TODO(human): begin block 7/9
+fn make_clouds(width: u32, height: u32, seed: u64, t0: f32, t1: f32) -> RgbaImage {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let mut img: RgbaImage = RgbaImage::new(width, height);
+    // let cells: i64 = 8;
+    // let body: [u8; 3] = [236, 238, 240];
+    // let shade: [u8; 3] = [206, 210, 216];
+    // // 2/9 caller contract, same as 6/9.
+    // let x_of = |x: u32| -> f32 { x as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    // for y in 0..height {
+    //     let vy: f32 = y as f32 / height.max(1) as f32;
+    //     // Saturates at 1.0 over the lower 55% of the band, so the cloud body reaches
+    //     // full opacity. A gradient still below 1 at the bottom makes the plane read as
+    //     // haze instead of cloud.
+    //     let band: f32 = ((0.78 - vy) / 0.30).clamp(0.0, 1.0);
+    //     for x in 0..width {
+    //         let v: f32 = fbm(x_of(x), vy * 1.6, cells, 4, seed);
+    //         let a: f32 = (smoothstep(t0, t1, v) * band).clamp(0.0, 1.0);
+    //         let c: [u8; 3] = lerp_rgb(shade, body, a);
+    //         img.put_pixel(x, y, Rgba([c[0], c[1], c[2], (a * 255.0).round() as u8]));
+    //     }
+    // }
+    // img
+}
+// TODO(human): end block 7/9
 
 // ---------------------------------------------------------------------------
-// 6/7 - silhouettes
+// 8/9 - silhouettes
 // ---------------------------------------------------------------------------
 
 /// A silhouette plane: an opaque ground band below a periodic skyline, with a darker rim
 /// along the skyline itself.
 ///
 /// INTENT (permanent): the skyline is a heightfield sampled from fBm, so it inherits the
-/// x-wrap from block 2/7 and therefore tiles. Filling DOWNWARD from the skyline rather
+/// x-wrap from block 2/9 and therefore tiles. Filling DOWNWARD from the skyline rather
 /// than drawing shapes keeps the alpha channel trivially predictable: fully opaque below
 /// the line, fully transparent above it, which is what makes the layer readable as a
 /// silhouette rather than as a cloud.
@@ -271,19 +432,38 @@ fn make_clouds(_width: u32, _height: u32, _seed: u64, _t0: f32, _t1: f32) -> Rgb
 /// same authored number; and a fraction collapses to zero at small sizes, which silently
 /// makes the noise -- and therefore the seed -- irrelevant. `deterministic` asserts that
 /// changing the seed changes the image, and that assertion is what caught this.
-///
-/// `// let img: RgbaImage = RgbaImage::new(0, 0);`
-fn make_silhouette(
-    _width: u32,
-    _height: u32,
-    _seed: u64,
-    _base_y: f32,
-    _relief_px: f32,
-) -> RgbaImage {
+// TODO(human): begin block 8/9
+fn make_silhouette(width: u32, height: u32, seed: u64, base_y: f32, relief_px: f32) -> RgbaImage {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // let mut img: RgbaImage = RgbaImage::new(width, height);
+    // let cells: i64 = 5;
+    // let body: [u8; 3] = [46, 56, 52];
+    // let rim: [u8; 3] = [30, 38, 36];
+    // // 2/9 caller contract, same as 6/9 and 7/9.
+    // let x_of = |x: u32| -> f32 { x as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    // let base: i32 = (base_y * height as f32).round() as i32;
+    // for x in 0..width {
+    //     let n: f32 = fbm(x_of(x), 0.0, cells, 4, seed);
+    //     // relief_px is ABSOLUTE pixels, so amplitude does not vary with layer height.
+    //     let line: i32 = base - (n * relief_px).round() as i32;
+    //     for y in 0..height {
+    //         let yi: i32 = y as i32;
+    //         let px: Rgba<u8> = if yi < line {
+    //             Rgba([0, 0, 0, 0])
+    //         } else if yi < line + 3 {
+    //             Rgba([rim[0], rim[1], rim[2], 255])
+    //         } else {
+    //             Rgba([body[0], body[1], body[2], 255])
+    //         };
+    //         img.put_pixel(x, y, px);
+    //     }
+    // }
+    // img
 }
+// TODO(human): end block 8/9
 
 // ---------------------------------------------------------------------------
-// 7/7 - factor validation + manifest
+// 9/9 - factor validation + manifest
 // ---------------------------------------------------------------------------
 
 /// Rejects any layer whose factors would break the node contract, and returns the first
@@ -297,9 +477,24 @@ fn make_silhouette(
 ///
 /// Validating here rather than in the scene means a bad factor fails at generation time,
 /// where the manifest is written, instead of silently at runtime.
-///
-/// `// let msg: String = String::new();`
-fn validate_factors(_specs: &[LayerSpec]) -> Result<(), String> {}
+// TODO(human): begin block 9/9
+fn validate_factors(specs: &[LayerSpec]) -> Result<(), String> {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // for s in specs {
+    //     let (x, y) = s.scroll_scale;
+    //     if !(x > 0.0 && x <= 1.5) {
+    //         return Err(format!("layer {}: scroll_scale.x {} out of range", s.name, x));
+    //     }
+    //     if !(y > 0.0) {
+    //         return Err(format!("layer {}: scroll_scale.y {} must be positive", s.name, y));
+    //     }
+    //     if x <= y {
+    //         return Err(format!("layer {}: scroll_scale.x {} must exceed y {}", s.name, x, y));
+    //     }
+    // }
+    // Ok(())
+}
+// TODO(human): end block 9/9
 
 /// Builds the `manifest.json` payload: the node contract for every layer, in one place.
 ///
@@ -308,8 +503,33 @@ fn validate_factors(_specs: &[LayerSpec]) -> Result<(), String> {}
 /// is `(width, 0)` -- horizontal tiling only, because vertical coverage is overscan plus a
 /// clamped camera-y travel and a vertical repeat would leave empty blocks above and below.
 ///
-/// `// let manifest: Manifest = Manifest { version: String::new(), width_px: 0, overscan_px: 0, seed: 0, layers: Vec::new() };`
-fn build_manifest(_specs: &[LayerSpec], _width: u32, _overscan: u32, _seed: u64) -> Manifest {}
+/// `repeat_size_y` is hard-coded 0 rather than passed in, because a vertical repeat is
+/// never correct here, and encoding that as a literal means the decision cannot be flipped
+/// by a caller.
+// TODO(human): begin block 9/9 (second function, same block)
+fn build_manifest(specs: &[LayerSpec], width: u32, overscan: u32, seed: u64) -> Manifest {
+    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
+    // Manifest {
+    //     version: MANIFEST_VERSION.to_string(),
+    //     width_px: width,
+    //     overscan_px: overscan,
+    //     seed,
+    //     layers: specs
+    //         .iter()
+    //         .map(|s| ManifestLayer {
+    //             name: s.name.to_string(),
+    //             file: s.file.to_string(),
+    //             scroll_scale_x: s.scroll_scale.0,
+    //             scroll_scale_y: s.scroll_scale.1,
+    //             repeat_size_x: width,
+    //             repeat_size_y: 0,
+    //             z_index: s.z_index,
+    //             height_px: s.height_px,
+    //         })
+    //         .collect(),
+    // }
+}
+// TODO(human): end block 9/9 (second function, same block)
 
 /// Serialized form of `manifest.json`.
 #[derive(Serialize)]
@@ -403,9 +623,9 @@ fn run(args: &[String]) -> Result<PathBuf, String> {
         specs.len()
     );
 
-    // One generator call per layer. Each layer's own noise seed is derived from the run
-    // seed and its index, so changing the stack's order or length cannot silently alter
-    // an unrelated layer's texture.
+    /// One generator call per layer. Each layer's own noise seed is derived from the run
+    /// seed and its index, so changing the stack's order or length cannot silently alter
+    /// an unrelated layer's texture.
     for (index, spec) in specs.iter().enumerate() {
         let layer_seed = seed
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
