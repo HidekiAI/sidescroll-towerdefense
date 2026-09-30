@@ -15,13 +15,17 @@ _Last updated: 2026-09-30_
 — replace the video-sliced art with self-generated layers, make the backdrop actually
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
-**State: research and design DONE. No code, no art, no runtime change yet.** Two
-branches are open with uncommitted-then-committed documentation; nothing is pushed.
+**State: research and design DONE. No code, no art, no runtime change yet.** Both
+branches carry committed, self-reviewed documentation; **nothing is pushed yet.**
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint |
-| `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `Home.md` row, `TODO.md` row TS71 |
+| `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
+| `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
+
+Issue #68 has a design-revision comment and stays **OPEN** (no code landed). Issue **#85**
+was filed during the pre-push self-review — see the Gate section, it is unrelated to this
+work and must not be folded into it.
 
 **Where the design lives:** the wiki TDD is the design of record. The code repo's
 `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` is the session-local execution plan
@@ -84,31 +88,34 @@ not in the PNG.
 
 ### Next move, in runnable order
 
-1. Commit the code-repo docs on `feat/parallax-tutorial-stack` (plan file, this
-   checkpoint, `tools/slice-layers/README.md`). The wiki revision is already committed on
-   `docs/parallax-tutorial-model`.
-2. Comment on issue #68 recording the design revision, the no-assets finding, and the
-   owner decisions. **#68 stays OPEN** — the code has not landed.
-3. Ask @me once for push permission covering both branches, then push both.
-4. Phase 1: `tools/gen-backdrop`. The non-trivial logic is @me's to write via the
+1. ~~Commit the code-repo docs on `feat/parallax-tutorial-stack`.~~ **DONE** (3 commits,
+   self-reviewed).
+2. ~~Comment on issue #68 recording the design revision.~~ **DONE**, and **#68 stays
+   OPEN** — no code has landed.
+3. ~~Pre-push self-review.~~ **DONE**, and it was worth it: it caught the Godot-runtime
+   claim (4.4.1 -> 4.7.2) and the asset size, both of which had gone into the docs
+   unverified, and surfaced the unrelated red now filed as **#85**.
+4. **Ask @me once for push permission covering both branches**, then push both, merge
+   `--ff-only` back to `trunk` / `master`, push, and offer to delete the branches.
+5. Phase 1: `tools/gen-backdrop`. The non-trivial logic is @me's to write via the
    `coding-assistant` skill, in 7 blocks (block map in the plan file §5). The
    assistant writes scaffolding, the serde config, the assembly loop, and all 5 unit
    tests. **The skill's editor channel is verified working**: `$NVIM` is set and a
    non-terminal editor window exists (win 1002) beside the opencode terminal (win 1000).
-5. Phase 2: `git rm` the 10 old PNGs.
-6. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false`
+6. Phase 2: `git rm` the 10 old PNGs.
+7. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false`
    and `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a
    240px-clamped VScrollBar; drive `camera.position` from both bars in `simulator.gd`.
-7. Phase 4: repoint `tile_grid_display.gd`'s 6-entry `_layers` default stack.
-8. Phase 5: replace `probe_parallax_scroll.gd` with `test_parallax_backdrop.gd`.
+8. Phase 4: repoint `tile_grid_display.gd`'s 6-entry `_layers` default stack.
+9. Phase 5: replace `probe_parallax_scroll.gd` with `test_parallax_backdrop.gd`.
    **Spike first:** step the camera by `(+120, +40)`, `await process_frame` twice, read
    each `Parallax2D.get_screen_offset()`. If the offsets are observable headless, assert
    the both-axis drift; if not, degrade to a static contract and record which shipped.
    Every assertion must be mutation-verified (the TDD §6 table lists the mutation for
    each claim).
-9. Phase 6: gates, checkpoint, close #68 with the wiki page cited, file the legacy
-   `.json` layer round-trip gap (TDD §4.2) as a separate follow-up rather than bundling
-   it, `--ff-only` merge to `trunk`, push, offer to delete the branch.
+10. Phase 6: gates, checkpoint, close #68 with the wiki page cited, file the legacy
+    `.json` layer round-trip gap (TDD §4.2) as a separate follow-up rather than
+    bundling it, `--ff-only` merge to `trunk`, push, offer to delete the branch.
 
 ### Gate — MEASURED 2026-09-30, and one suite is RED on the current runtime
 
