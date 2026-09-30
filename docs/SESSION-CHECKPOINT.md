@@ -16,17 +16,87 @@ _Last updated: 2026-09-30_
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
 **State: design merged and PUSHED. Phase 1 scaffolding COMMITTED LOCALLY, NOT PUSHED.**
-Branch `feat/gen-backdrop-crate` (off `trunk`) holds 3 commits; the 9 generator blocks are
-still empty and awaiting @me. No art, no scene change, no runtime change yet.
+Branch `feat/gen-backdrop-crate` (off `trunk`) holds 4 commits. **Block 1/9 is now filled
+by @me**; blocks 2-9 are still empty and awaiting @me. No art, no scene change, no runtime
+change yet.
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 3 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 9 tests), workspace `Cargo.toml`, `Cargo.lock` |
+| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 4 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 11 tests; block 1 filled), workspace `Cargo.toml`, `Cargo.lock` |
 | `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
 | `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
 
 Issue #68 stays **OPEN**. Issue **#85** is a separate filed bug — see the Gate section; it
 is unrelated to this work and must not be folded into it.
+
+### Block 1 filled, naming sweep, and 2 direct `lattice_hash` tests
+
+**Block 1/9 was written by @me** (sample uncommented, both markers removed). Marker count
+therefore dropped 20 -> 18 and the E0308 count 10 -> 9. The plan/checkpoint counts written
+before that were stale; `sample-check.sh` step 0 now asserts every count against the repo
+file so a filled block fails loudly instead of silently skewing later steps.
+
+**Two naming sweeps, both user-driven, recorded as a GLOBAL rule** in
+`~/scripts/LLM/rules/default.md`:
+
+1. *No bare `x` / `y`* as a parameter or variable, any language — name the coordinate
+   space. This was already the project's own rule (`Coordinate & Unit — explicit suffixes
+   required everywhere`), so bare `x`/`y` was a convention violation, not a preference.
+   `left_hand_side` / `lhs` was explicitly rejected: those name a role in an equation, and
+   these are two coordinates of a lattice, so `lhs` is *less* informative than `x`/`y`.
+2. *No meaningless short locals* (`s1`, `m1`, `p`, `c`, `n`, `h`, `v`, `a`, `b`, `t`).
+   Block 1's `s1/m1/s2/m2/s3` became `xorshift_1/multiply_1/xorshift_2/multiply_2/
+   xorshift_3`, which now reads as the algorithm and matches the comment already above it.
+
+Applied via counted perl rules (`rename.pl`, `rename2.pl` in
+`/tmp/user/1000/opencode/`), 40 + 29 rules, each printing a hit count so a missed site is
+a `0` rather than a silent skip. Two lessons from that, both worth keeping:
+
+- **A rule that matches part of a construct is worse than no rule.** The first `run()` rule
+  renamed the `let`/`while`/`match` lines and left 14 uses of `i` behind — a build break
+  disguised as a rename. Match the whole arm.
+- **The per-rule counter cannot see a site it was never told about.** Five `put_pixel(x, y)`
+  sites and two test bodies were missed by every rule; only grepping the *output* for bare
+  `x`/`y` found them. Counted rules prove the sites you knew about; a sweep proves the
+  sites you did not.
+
+**`cargo check -p gen-backdrop` does NOT compile the test module.** The whole `#[cfg(test)]`
+module sits behind a cfg, so a plain check reported a clean 9-error bill while the test
+module held an unresolved `h`. Always use `cargo check -p gen-backdrop --tests`. This is now
+asserted in `sample-check.sh` step 0 (9 E0308 expected, 0 non-hole errors).
+
+**2 new tests, both mutation-verified: `lattice_hash_is_in_unit_range` and
+`lattice_hash_decorrelates_adjacent_cells`.** `lattice_hash` previously had no direct test —
+it was only ever reached through `value_noise`, so every assertion was about the composite.
+
+The decorrelation test's original doc comment claimed no other test could see a bad hash.
+**That was false, and the mutation run is what disproved it** — the ramp mutant
+`((cell_x + cell_y + seed) % 256) / 256` trips `cloud_layers_have_holes` *and* `deterministic`
+too, because a near-uniform 1/256 seed shift is quantized away by the `.round()` in the
+silhouette. What the other tests cannot do is LOCALISE the fault. The corrected comment
+keeps the measurements and drops the wrong conclusion. Three mutants are recorded there:
+
+| mutant | mean horiz delta | tests it fails |
+|---|---|---|
+| `ramp` `((cx+cy+seed)%256)/256` | 0.00391 | decorrelation, `cloud_layers_have_holes`, `deterministic` |
+| `ramp2` `(cx*3+cy*5)/512` + seed jitter | — | decorrelation, `cloud_layers_have_holes` |
+| `sine` `sin(cx*0.11+cy*0.07+seed*0.9)/2+0.5` | 0.03486 | **decorrelation only (10 passed, 1 failed)** |
+
+The `sine` row is what justifies the test: in range, pure, seed-sensitive, seamless, valid
+sky and clouds — every other assertion satisfied — yet locally smooth. Threshold 0.15 is
+derived, not guessed: E|X-Y| = 1/3 for uniform draws, and no plausible hash lands between
+0.15 and 1/3. Fixed seeds, no RNG, so it cannot flake.
+
+**Tooling rebuilt** (all in `/tmp/user/1000/opencode/`, outside the repo tree):
+`sample-check.sh` (repo-shape assertions -> ranged uncomment -> compile -> 11 tests),
+`uncomment.pl` (uncomments ONLY inside marker ranges — a blanket pass would have destroyed
+block 1's now-live comments), `mutate.sh <fn> <body> [expected_failing_test]` (asserts the
+mutant parses BEFORE reading the result, because an unparseable mutation reads as "the
+guard is vacuous" when the experiment never ran).
+
+**Coding-assistant scope, confirmed by @me:** tests are the assistant's job, no
+TODO(human) blocks in test files. Source: `skills/coding-assistant/SKILL.md:31` "Tests are
+the assistant's job". @me chose to gate every test diff anyway.
 
 ### Phase 1 gate: 4 contracts the tests falsified, and 2 test gaps they exposed
 

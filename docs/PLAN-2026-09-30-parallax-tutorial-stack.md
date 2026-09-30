@@ -296,7 +296,38 @@ for verification is **10 marker pairs / 10 E0308 holes / 10 function bodies**.
 
 The assistant writes: `Cargo.toml`, the `use` block, the `main`/`run` signatures, the
 serde config struct (mirroring `import-tiles`), the per-layer assembly loop that walks
-the config and calls 6/7/8, the journal lines, the PNG writer call, and all 9 unit tests.
+the config and calls 6/7/8, the journal lines, the PNG writer call, and all 11 unit tests.
+
+**Progress: block 1/9 is filled** (written by @me). Remaining: 9 marker pairs / 9 E0308
+holes / 9 open function bodies. `sample-check.sh` asserts all of those counts against the
+repo file, so filling a block fails the harness loudly rather than silently skewing it.
+
+### 5.2 Naming rules now in force for every block
+
+Both are user directives dated 2026-09-30, recorded in `~/scripts/LLM/rules/default.md`.
+They were applied retroactively to blocks 1-9 and to the assistant-written plumbing, so the
+SAMPLE lines already carry the correct names — write them as shown.
+
+**No bare `x` / `y`, and no meaningless short locals.** Name the coordinate space and the
+unit; a name that cannot say the unit gets a suffix (`_px`, `_tiles`, `_frac`).
+
+| concept | name | NOT |
+|---|---|---|
+| integer lattice cell | `cell_x`, `cell_y` | `x`, `y` |
+| fractional position in cell units | `pos_x`, `pos_y` | `x`, `y` |
+| pixel column / row | `col`, `row` | `x`, `y` |
+| dimensionless scroll factor | `scale_x`, `scale_y` | `x`, `y` |
+| normalised 0..1 of a dimension | `row_frac`, `baseline_frac` | `t`, `base_y` |
+| distance in pixels | `dist_px`, `sun_offset_x_px`, `relief_px` | `d`, `dx`, `dy` |
+| the four noise corners | `hash_x0y0`, `hash_x1y0`, `hash_x0y1`, `hash_x1y1` | `h00`, `h10` |
+| the two interpolated lattice rows | `row_y0`, `row_y1` | `top`, `bot` |
+| splitmix64 finaliser steps | `xorshift_1`, `multiply_1`, ... | `s1`, `m1` |
+| smoothstep's ramped value | `blend`, `ramp_t`, `value` | `t`, `x` |
+| cloud density / alpha | `density`, `alpha` | `v`, `a` |
+| RGB triple in flight | `sky_rgb`, `cloud_rgb` | `c` |
+
+`left_hand_side` / `lhs` was explicitly rejected: it names a role in an equation, and these
+are two coordinates of a lattice, so `lhs` carries LESS information than `x`/`y`.
 
 ### 5.1 Block format and how it is verified
 
@@ -306,14 +337,30 @@ Each open block is `begin marker` / INTENT doc comment / signature with an empty
 - **Hole mechanism:** real return type, empty body -> `E0308`. Never `todo!()`, which
   type-checks as `!` and would let the crate build with the logic missing.
 - **Markers:** `// TODO(human): begin block N/9` / `end block N/9`. The skill's own check is
-  that `grep -n "TODO(human)"` lists both ends of every open block; it must return **20**.
+  that `grep -n "TODO(human)"` lists both ends of every open block. It returned **20** at
+  scaffold time and returns **18** now, because block 1 is filled and carries no markers.
+  `sample-check.sh` asserts the current count rather than a constant, so filling a block
+  fails the harness instead of silently skewing it.
 - **Sample notes vs sample code:** a note belonging to the SAMPLE is written `// // note`
   and uncomments to `// note`; a statement is `// code` and uncomments to `code`. The
   distinction is load bearing - see the double-strip failure in
   `docs/SESSION-CHECKPOINT.md`.
+- **Uncomment must be RANGE-SCOPED.** Once a block is filled its comments are live, and a
+  blanket `s{^    // (?!/)}` over the whole file turns that prose into bare Rust tokens.
+  `uncomment.pl` derives the block ranges from the markers, so a filled block has no range
+  and is never touched.
 - **Verification:** strip markers, uncomment every sample line, and require the result to
-  compile clean and pass all 9 tests. Run on a throwaway copy; the repo tree is never
-  written to. Measured result: compiles clean, 9 passed / 0 failed.
+  compile clean and pass all 11 tests. Run on a throwaway copy; the repo tree is never
+  written to. Measured 2026-09-30 after the naming sweeps: 168 sample lines uncommented,
+  compiles clean, **11 passed / 0 failed**.
+- **`cargo check -p gen-backdrop` does not compile the test module.** The whole
+  `#[cfg(test)]` module is behind a cfg, so a plain check reports a clean 9-hole bill while
+  the test module can hold unresolved names. Always `cargo check -p gen-backdrop --tests`.
+  This is asserted in `sample-check.sh` step 0: 9 E0308 expected, 0 non-hole errors.
+- **Falsifiability of new tests:** `mutate.sh <fn> <body_file> [expected_failing_test]`
+  plants a mutant body and asserts the suite goes red. It checks the mutant PARSES before
+  consulting the result, because an unparseable mutation reads as "the guard is vacuous"
+  when the experiment never ran. Used to prove both new `lattice_hash` tests bite.
 
 
 **Environment prerequisite (verified 2026-09-30):** the editor-driving channel works, so

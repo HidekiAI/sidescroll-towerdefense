@@ -126,31 +126,27 @@ fn layer_specs() -> Vec<LayerSpec> {
 
 /// Maps a lattice coordinate to a pseudo-random value in `[0, 1)`.
 ///
-/// INTENT (permanent): a pure function of `(x, y, seed)` with no RNG state, because the
+/// INTENT (permanent): a pure function of `(cell_x, cell_y, seed)` with no RNG state, because the
 /// same seed must reproduce byte-identical PNGs. A stateful RNG makes output depend on
 /// call order, which would break the determinism the `deterministic` test asserts.
 ///
 /// Deliberately NOT a "good" hash (no avalanche guarantees needed): it only has to be
 /// cheap, deterministic and decorrelate adjacent lattice points enough that the
 /// interpolated value noise is smooth rather than blocky.
-// TODO(human): begin block 1/9
-fn lattice_hash(x: i64, y: i64, seed: u64) -> f32 {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let mixed: u64 = (x as u64)
-    //     .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-    //     ^ (y as u64).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
-    //     ^ seed;
-    // // splitmix64's finaliser: xor-shift, multiply, xor-shift, multiply, xor-shift.
-    // let s1: u64 = mixed ^ (mixed >> 33);
-    // let m1: u64 = s1.wrapping_mul(0xff51_afd7_ed55_8ccd);
-    // let s2: u64 = m1 ^ (m1 >> 29);
-    // let m2: u64 = s2.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
-    // let s3: u64 = m2 ^ (m2 >> 32);
-    // // Top 24 bits only: the low bits of a multiply-xor mix are the weakest, and the
-    // // callers only need enough range to divide into [0, 1).
-    // (s3 >> 40) as f32 / (1u32 << 24) as f32
+fn lattice_hash(cell_x: i64, cell_y: i64, seed: u64) -> f32 {
+    let mixed: u64 = (cell_x as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ (cell_y as u64).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+        ^ seed;
+    // splitmix64's finaliser: xor-shift, multiply, xor-shift, multiply, xor-shift.
+    let xorshift_1: u64 = mixed ^ (mixed >> 33);
+    let multiply_1: u64 = xorshift_1.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    let xorshift_2: u64 = multiply_1 ^ (multiply_1 >> 29);
+    let multiply_2: u64 = xorshift_2.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    let xorshift_3: u64 = multiply_2 ^ (multiply_2 >> 32);
+    // Top 24 bits only: the low bits of a multiply-xor mix are the weakest, and the
+    // callers only need enough range to divide into [0, 1).
+    (xorshift_3 >> 40) as f32 / (1u32 << 24) as f32
 }
-// TODO(human): end block 1/9
 
 // ---------------------------------------------------------------------------
 // 2/9 - value noise, wrapping in x
@@ -174,7 +170,7 @@ fn lattice_hash(x: i64, y: i64, seed: u64) -> f32 {
 /// CALLER CONTRACT (this is the part that is easy to get wrong, and the seam test exists
 /// because it was): the wrap point is `period` lattice cells, so the CALLER owns the pixel
 /// -> lattice mapping. For a texture `width` px wide wanting `cells` cells across, sample
-/// `x as f32 * cells as f32 / (width - 1) as f32`.
+/// `col as f32 * cells as f32 / (width - 1) as f32`.
 ///
 /// The `width - 1` is load bearing and is the whole difference between a seamless texture
 /// and a merely continuous one. It maps pixel `width - 1` onto `cells`, which wraps to `0`,
@@ -185,29 +181,31 @@ fn lattice_hash(x: i64, y: i64, seed: u64) -> f32 {
 /// but the columns are not equal, so a byte-comparing test cannot verify the seam at all.
 /// A seam you cannot assert is a seam nobody maintains.
 ///
-/// Dividing by a round pixel divisor (say `x / 260.0`) does not work either: the wrap then
+/// Dividing by a round pixel divisor (say `col / 260.0`) does not work either: the wrap then
 /// lands at `260 * period` px, which is not the texture edge at all.
 // TODO(human): begin block 2/9
-fn value_noise(x: f32, y: f32, period: i64, seed: u64) -> f32 {
+fn value_noise(pos_x: f32, pos_y: f32, period: i64, seed: u64) -> f32 {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let p: i64 = if period < 1 { 1 } else { period };
-    // let x0: i64 = x.floor() as i64;
-    // let y0: i64 = y.floor() as i64;
-    // let fx: f32 = x - x.floor();
-    // let fy: f32 = y - y.floor();
+    // let clamped_period: i64 = if period < 1 { 1 } else { period };
+    // let cell_x0: i64 = pos_x.floor() as i64;
+    // let cell_y0: i64 = pos_y.floor() as i64;
+    // let frac_x: f32 = pos_x - pos_x.floor();
+    // let frac_y: f32 = pos_y - pos_y.floor();
     // // Smoothstep the fractional part, not linear: zero slope at every lattice point.
-    // let sx: f32 = fx * fx * (3.0 - 2.0 * fx);
-    // let sy: f32 = fy * fy * (3.0 - 2.0 * fy);
-    // // x wraps at `p`; y does not. `i64 % p` is negative for negative i, hence the
-    // // two-step normalisation rather than a bare `%`.
-    // let wrap = |i: i64| -> i64 { ((i % p) + p) % p };
-    // let h00: f32 = lattice_hash(wrap(x0), y0, seed);
-    // let h10: f32 = lattice_hash(wrap(x0 + 1), y0, seed);
-    // let h01: f32 = lattice_hash(wrap(x0), y0 + 1, seed);
-    // let h11: f32 = lattice_hash(wrap(x0 + 1), y0 + 1, seed);
-    // let top: f32 = h00 + (h10 - h00) * sx;
-    // let bot: f32 = h01 + (h11 - h01) * sx;
-    // top + (bot - top) * sy
+    // let smooth_x: f32 = frac_x * frac_x * (3.0 - 2.0 * frac_x);
+    // let smooth_y: f32 = frac_y * frac_y * (3.0 - 2.0 * frac_y);
+    // // The x axis wraps at `p`; the y axis does not. `i64 % p` is negative for negative
+    // // i, hence the two-step normalisation rather than a bare `%`.
+    // let wrap = |raw_cell: i64| -> i64 {
+    //     ((raw_cell % clamped_period) + clamped_period) % clamped_period
+    // };
+    // let hash_x0y0: f32 = lattice_hash(wrap(cell_x0), cell_y0, seed);
+    // let hash_x1y0: f32 = lattice_hash(wrap(cell_x0 + 1), cell_y0, seed);
+    // let hash_x0y1: f32 = lattice_hash(wrap(cell_x0), cell_y0 + 1, seed);
+    // let hash_x1y1: f32 = lattice_hash(wrap(cell_x0 + 1), cell_y0 + 1, seed);
+    // let row_y0: f32 = hash_x0y0 + (hash_x1y0 - hash_x0y0) * smooth_x;
+    // let row_y1: f32 = hash_x0y1 + (hash_x1y1 - hash_x0y1) * smooth_x;
+    // row_y0 + (row_y1 - row_y0) * smooth_y
 }
 // TODO(human): end block 2/9
 
@@ -237,7 +235,7 @@ fn value_noise(x: f32, y: f32, period: i64, seed: u64) -> f32 {
 /// Return in `[0, 1]`, not the raw sum, so callers can threshold it against a meaningful
 /// fraction.
 // TODO(human): begin block 3/9
-fn fbm(x: f32, y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
+fn fbm(pos_x: f32, pos_y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
     // let mut sum: f32 = 0.0;
     // let mut amp: f32 = 1.0;
@@ -248,7 +246,7 @@ fn fbm(x: f32, y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
     //     // and keeps the same spatial period as octave 0.
     //     let per: i64 = period.saturating_mul(1i64 << o.min(20));
     //     sum += amp
-    //         * value_noise(x * freq, y * freq, per, seed ^ (o as u64).wrapping_mul(0x9e37_79b9));
+    //         * value_noise(pos_x * freq, pos_y * freq, per, seed ^ (o as u64).wrapping_mul(0x9e37_79b9));
     //     norm += amp;
     //     amp *= 0.5;
     //     freq *= 2.0;
@@ -261,24 +259,24 @@ fn fbm(x: f32, y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
 // 4/9 - colour lerp
 // ---------------------------------------------------------------------------
 
-/// Interpolates two RGB triples on `t` in `[0, 1]`.
+/// Interpolates two RGB triples on `blend` in `[0, 1]`.
 ///
-/// INTENT (permanent): u8 channels cannot be interpolated directly. `a + (b - a) * t` in
+/// INTENT (permanent): u8 channels cannot be interpolated directly. `from + (to - from) * blend` in
 /// u8 arithmetic truncates, so a 1% mix of two dark colours rounds back to the original
 /// and the gradient bands. Widening to f32, mixing, then narrowing once at the end keeps
 /// the full range. This is why every gradient in this file goes through here rather than
 /// doing channel arithmetic inline.
 ///
-/// Clamping `t` is deliberate: a caller passing a value slightly outside `[0, 1]` from a
+/// Clamping `blend` is deliberate: a caller passing a value slightly outside `[0, 1]` from a
 /// noisy expression should not wrap around to the far end of the ramp.
 // TODO(human): begin block 4/9
-fn lerp_rgb(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
+fn lerp_rgb(from_rgb: [u8; 3], to_rgb: [u8; 3], blend: f32) -> [u8; 3] {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let t: f32 = t.clamp(0.0, 1.0);
+    // let blend: f32 = blend.clamp(0.0, 1.0);
     // [
-    //     (a[0] as f32 + (b[0] as f32 - a[0] as f32) * t) as u8,
-    //     (a[1] as f32 + (b[1] as f32 - a[1] as f32) * t) as u8,
-    //     (a[2] as f32 + (b[2] as f32 - a[2] as f32) * t) as u8,
+    //     (from_rgb[0] as f32 + (to_rgb[0] as f32 - from_rgb[0] as f32) * blend) as u8,
+    //     (from_rgb[1] as f32 + (to_rgb[1] as f32 - from_rgb[1] as f32) * blend) as u8,
+    //     (from_rgb[2] as f32 + (to_rgb[2] as f32 - from_rgb[2] as f32) * blend) as u8,
     // ]
 }
 // TODO(human): end block 4/9
@@ -299,13 +297,13 @@ fn lerp_rgb(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
 /// by a zero-width interval would produce NaN, and a NaN alpha poisons every downstream
 /// pixel comparison in the test suite.
 // TODO(human): begin block 5/9
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
     // if (edge1 - edge0).abs() < f32::EPSILON {
-    //     return if x < edge0 { 0.0 } else { 1.0 };
+    //     return if value < edge0 { 0.0 } else { 1.0 };
     // }
-    // let t: f32 = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    // t * t * (3.0 - 2.0 * t)
+    // let ramp_t: f32 = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    // ramp_t * ramp_t * (3.0 - 2.0 * ramp_t)
 }
 // TODO(human): end block 5/9
 
@@ -319,11 +317,11 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 /// so any hole in it would show the clear colour through the gap instead of another depth
 /// plane. `sky_has_no_alpha` asserts this.
 ///
-/// The gradient runs on `y / height` rather than on absolute pixel rows so the same
+/// The gradient runs on `row / height` rather than on absolute pixel rows so the same
 /// function is correct at any height; the sun disc is a radial falloff, not a hard circle,
 /// so it has no aliased edge at 1:1 scale.
 ///
-/// The haze term MUST go through the 2/9 caller contract (`x * cells / (width - 1)`) or the
+/// The haze term MUST go through the 2/9 caller contract (`col * cells / (width - 1)`) or the
 /// sky seams, and the sun disc alone cannot hide it.
 // TODO(human): begin block 6/9
 fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
@@ -335,29 +333,30 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
     // let cells: i64 = 6;
     // // 2/9 caller contract: `cells` cells across the width, dividing by (width - 1) so
     // // the last column wraps exactly onto the first.
-    // let x_of = |x: u32| -> f32 { x as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // let sun_x: f32 = width as f32 * 0.68;
-    // let sun_y: f32 = height as f32 * 0.24;
-    // let sun_r: f32 = height as f32 * 0.06;
-    // for y in 0..height {
-    //     let t: f32 = y as f32 / height.max(1) as f32;
-    //     let base: [u8; 3] = if t < 0.55 {
-    //         lerp_rgb(top, mid, t / 0.55)
+    // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    // let sun_center_x_px: f32 = width as f32 * 0.68;
+    // let sun_center_y_px: f32 = height as f32 * 0.24;
+    // let sun_radius_px: f32 = height as f32 * 0.06;
+    // for row in 0..height {
+    //     let row_frac: f32 = row as f32 / height.max(1) as f32;
+    //     let base: [u8; 3] = if row_frac < 0.55 {
+    //         lerp_rgb(top, mid, row_frac / 0.55)
     //     } else {
-    //         lerp_rgb(mid, low, (t - 0.55) / 0.45)
+    //         lerp_rgb(mid, low, (row_frac - 0.55) / 0.45)
     //     };
-    //     for x in 0..width {
-    //         let haze: f32 = fbm(x_of(x), y as f32 * 0.002, cells, 3, seed) - 0.5;
-    //         let dx: f32 = x as f32 - sun_x;
-    //         let dy: f32 = y as f32 - sun_y;
-    //         let d: f32 = (dx * dx + dy * dy).sqrt();
-    //         let disc: f32 = 1.0 - smoothstep(sun_r * 0.65, sun_r, d);
-    //         let mut c: [u8; 3] = lerp_rgb(base, [255, 250, 238], disc * 0.85);
-    //         let hv: f32 = (haze * 14.0).clamp(-20.0, 20.0);
-    //         for ch in 0..3 {
-    //             c[ch] = (c[ch] as f32 + hv).clamp(0.0, 255.0) as u8;
+    //     for col in 0..width {
+    //         let haze: f32 = fbm(col_to_cell(col), row as f32 * 0.002, cells, 3, seed) - 0.5;
+    //         let sun_offset_x_px: f32 = col as f32 - sun_center_x_px;
+    //         let sun_offset_y_px: f32 = row as f32 - sun_center_y_px;
+    //         let dist_px: f32 =
+    //             (sun_offset_x_px * sun_offset_x_px + sun_offset_y_px * sun_offset_y_px).sqrt();
+    //         let disc: f32 = 1.0 - smoothstep(sun_radius_px * 0.65, sun_radius_px, dist_px);
+    //         let mut sky_rgb: [u8; 3] = lerp_rgb(base, [255, 250, 238], disc * 0.85);
+    //         let haze_shift: f32 = (haze * 14.0).clamp(-20.0, 20.0);
+    //         for channel in 0..3 {
+    //             sky_rgb[channel] = (sky_rgb[channel] as f32 + haze_shift).clamp(0.0, 255.0) as u8;
     //         }
-    //         img.put_pixel(x, y, Rgba([c[0], c[1], c[2], 255]));
+    //         img.put_pixel(col, row, Rgba([sky_rgb[0], sky_rgb[1], sky_rgb[2], 255]));
     //     }
     // }
     // img
@@ -370,7 +369,7 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
 
 /// One cloud plane: alpha is a smoothstep over fBm, so the layer has GENUINE holes.
 ///
-/// INTENT (permanent): alpha is `smoothstep(t0, t1, fbm)` mapped to 0..255. Dense regions
+/// INTENT (permanent): alpha is `smoothstep(alpha_edge_low, alpha_edge_high, fbm)` mapped to 0..255. Dense regions
 /// of the noise field become opaque cloud, sparse regions become fully transparent, and
 /// the transition is gradual rather than a hard cutout. A hard threshold would produce
 /// the stair-stepped edge this technique exists to avoid.
@@ -385,25 +384,41 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
 /// contract `cloud_layers_have_holes` asserts is that fully-opaque AND fully-clear pixels
 /// both exist, so a gradient that never reaches 1 is a failure, not a subtlety.
 // TODO(human): begin block 7/9
-fn make_clouds(width: u32, height: u32, seed: u64, t0: f32, t1: f32) -> RgbaImage {
+fn make_clouds(
+    width: u32,
+    height: u32,
+    seed: u64,
+    alpha_edge_low: f32,
+    alpha_edge_high: f32,
+) -> RgbaImage {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
     // let mut img: RgbaImage = RgbaImage::new(width, height);
     // let cells: i64 = 8;
     // let body: [u8; 3] = [236, 238, 240];
     // let shade: [u8; 3] = [206, 210, 216];
     // // 2/9 caller contract, same as 6/9.
-    // let x_of = |x: u32| -> f32 { x as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // for y in 0..height {
-    //     let vy: f32 = y as f32 / height.max(1) as f32;
+    // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    // for row in 0..height {
+    //     let row_frac: f32 = row as f32 / height.max(1) as f32;
     //     // Saturates at 1.0 over the lower 55% of the band, so the cloud body reaches
     //     // full opacity. A gradient still below 1 at the bottom makes the plane read as
     //     // haze instead of cloud.
-    //     let band: f32 = ((0.78 - vy) / 0.30).clamp(0.0, 1.0);
-    //     for x in 0..width {
-    //         let v: f32 = fbm(x_of(x), vy * 1.6, cells, 4, seed);
-    //         let a: f32 = (smoothstep(t0, t1, v) * band).clamp(0.0, 1.0);
-    //         let c: [u8; 3] = lerp_rgb(shade, body, a);
-    //         img.put_pixel(x, y, Rgba([c[0], c[1], c[2], (a * 255.0).round() as u8]));
+    //     let band: f32 = ((0.78 - row_frac) / 0.30).clamp(0.0, 1.0);
+    //     for col in 0..width {
+    //         let density: f32 = fbm(col_to_cell(col), row_frac * 1.6, cells, 4, seed);
+    //         let alpha: f32 =
+    //             (smoothstep(alpha_edge_low, alpha_edge_high, density) * band).clamp(0.0, 1.0);
+    //         let cloud_rgb: [u8; 3] = lerp_rgb(shade, body, alpha);
+    //         img.put_pixel(
+    //             col,
+    //             row,
+    //             Rgba([
+    //                 cloud_rgb[0],
+    //                 cloud_rgb[1],
+    //                 cloud_rgb[2],
+    //                 (alpha * 255.0).round() as u8,
+    //             ])
+    //         );
     //     }
     // }
     // img
@@ -433,29 +448,35 @@ fn make_clouds(width: u32, height: u32, seed: u64, t0: f32, t1: f32) -> RgbaImag
 /// makes the noise -- and therefore the seed -- irrelevant. `deterministic` asserts that
 /// changing the seed changes the image, and that assertion is what caught this.
 // TODO(human): begin block 8/9
-fn make_silhouette(width: u32, height: u32, seed: u64, base_y: f32, relief_px: f32) -> RgbaImage {
+fn make_silhouette(
+    width: u32,
+    height: u32,
+    seed: u64,
+    baseline_frac: f32,
+    relief_px: f32,
+) -> RgbaImage {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
     // let mut img: RgbaImage = RgbaImage::new(width, height);
     // let cells: i64 = 5;
     // let body: [u8; 3] = [46, 56, 52];
     // let rim: [u8; 3] = [30, 38, 36];
     // // 2/9 caller contract, same as 6/9 and 7/9.
-    // let x_of = |x: u32| -> f32 { x as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // let base: i32 = (base_y * height as f32).round() as i32;
-    // for x in 0..width {
-    //     let n: f32 = fbm(x_of(x), 0.0, cells, 4, seed);
+    // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    // let baseline_row: i32 = (baseline_frac * height as f32).round() as i32;
+    // for col in 0..width {
+    //     let skyline_noise: f32 = fbm(col_to_cell(col), 0.0, cells, 4, seed);
     //     // relief_px is ABSOLUTE pixels, so amplitude does not vary with layer height.
-    //     let line: i32 = base - (n * relief_px).round() as i32;
-    //     for y in 0..height {
-    //         let yi: i32 = y as i32;
-    //         let px: Rgba<u8> = if yi < line {
+    //     let skyline_row: i32 = baseline_row - (skyline_noise * relief_px).round() as i32;
+    //     for row in 0..height {
+    //         let row_i: i32 = row as i32;
+    //         let px: Rgba<u8> = if row_i < skyline_row {
     //             Rgba([0, 0, 0, 0])
-    //         } else if yi < line + 3 {
+    //         } else if row_i < skyline_row + 3 {
     //             Rgba([rim[0], rim[1], rim[2], 255])
     //         } else {
     //             Rgba([body[0], body[1], body[2], 255])
     //         };
-    //         img.put_pixel(x, y, px);
+    //         img.put_pixel(col, row, px);
     //     }
     // }
     // img
@@ -480,16 +501,25 @@ fn make_silhouette(width: u32, height: u32, seed: u64, base_y: f32, relief_px: f
 // TODO(human): begin block 9/9
 fn validate_factors(specs: &[LayerSpec]) -> Result<(), String> {
     // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // for s in specs {
-    //     let (x, y) = s.scroll_scale;
-    //     if !(x > 0.0 && x <= 1.5) {
-    //         return Err(format!("layer {}: scroll_scale.x {} out of range", s.name, x));
+    // for spec in specs {
+    //     let (scale_x, scale_y) = spec.scroll_scale;
+    //     if !(scale_x > 0.0 && scale_x <= 1.5) {
+    //         return Err(format!(
+    //             "layer {}: scroll_scale.x {} out of range",
+    //             spec.name, scale_x
+    //         ));
     //     }
-    //     if !(y > 0.0) {
-    //         return Err(format!("layer {}: scroll_scale.y {} must be positive", s.name, y));
+    //     if !(scale_y > 0.0) {
+    //         return Err(format!(
+    //             "layer {}: scroll_scale.y {} must be positive",
+    //             spec.name, scale_y
+    //         ));
     //     }
-    //     if x <= y {
-    //         return Err(format!("layer {}: scroll_scale.x {} must exceed y {}", s.name, x, y));
+    //     if scale_x <= scale_y {
+    //         return Err(format!(
+    //             "layer {}: scroll_scale.x {} must exceed y {}",
+    //             spec.name, scale_x, scale_y
+    //         ));
     //     }
     // }
     // Ok(())
@@ -565,43 +595,43 @@ fn run(args: &[String]) -> Result<PathBuf, String> {
     let mut overscan: u32 = 240;
     let mut seed: u64 = 0x5EED_2026;
 
-    let mut i = 1usize;
-    while i < args.len() {
-        match args[i].as_str() {
+    let mut arg_index = 1usize;
+    while arg_index < args.len() {
+        match args[arg_index].as_str() {
             "--out" => {
-                i += 1;
+                arg_index += 1;
                 out_dir = PathBuf::from(
-                    args.get(i)
+                    args.get(arg_index)
                         .ok_or_else(|| "--out requires a directory".to_string())?,
                 );
             }
             "--width" => {
-                i += 1;
+                arg_index += 1;
                 width = args
-                    .get(i)
+                    .get(arg_index)
                     .ok_or_else(|| "--width requires a value".to_string())?
                     .parse::<u32>()
                     .map_err(|_| "--width must be an integer".to_string())?;
             }
             "--overscan" => {
-                i += 1;
+                arg_index += 1;
                 overscan = args
-                    .get(i)
+                    .get(arg_index)
                     .ok_or_else(|| "--overscan requires a value".to_string())?
                     .parse::<u32>()
                     .map_err(|_| "--overscan must be an integer".to_string())?;
             }
             "--seed" => {
-                i += 1;
+                arg_index += 1;
                 seed = args
-                    .get(i)
+                    .get(arg_index)
                     .ok_or_else(|| "--seed requires a value".to_string())?
                     .parse::<u64>()
                     .map_err(|_| "--seed must be an integer".to_string())?;
             }
             other => return Err(format!("unexpected argument '{}'", other)),
         }
-        i += 1;
+        arg_index += 1;
     }
 
     if width == 0 {
@@ -701,11 +731,11 @@ mod tests {
     const H: u32 = 64;
     const SEED: u64 = 12345;
 
-    fn raw_column(img: &RgbaImage, x: u32) -> Vec<[u8; 4]> {
+    fn raw_column(img: &RgbaImage, col: u32) -> Vec<[u8; 4]> {
         (0..img.height())
-            .map(|y| {
-                let p = img.get_pixel(x, y).0;
-                [p[0], p[1], p[2], p[3]]
+            .map(|row| {
+                let rgba = img.get_pixel(col, row).0;
+                [rgba[0], rgba[1], rgba[2], rgba[3]]
             })
             .collect()
     }
@@ -717,35 +747,38 @@ mod tests {
     /// A FNV-1a digest prints as one hex number, and `first_pixel_difference` localises it
     /// when the digests disagree.
     fn digest(img: &RgbaImage) -> u64 {
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in img.as_raw() {
-            h ^= *b as u64;
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        let mut running_hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in img.as_raw() {
+            running_hash ^= *byte as u64;
+            running_hash = running_hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
-        h
+        running_hash
     }
 
     /// Byte index of the first differing pixel, plus both pixels, so a failure names the
     /// exact spot instead of dumping the whole buffer.
-    fn first_pixel_difference(a: &RgbaImage, b: &RgbaImage) -> String {
-        if a.dimensions() != b.dimensions() {
+    fn first_pixel_difference(img_a: &RgbaImage, img_b: &RgbaImage) -> String {
+        if img_a.dimensions() != img_b.dimensions() {
             return format!(
                 "dimensions differ: {:?} vs {:?}",
-                a.dimensions(),
-                b.dimensions()
+                img_a.dimensions(),
+                img_b.dimensions()
             );
         }
-        for (i, (pa, pb)) in a
+        for (flat_index, (pixel_a, pixel_b)) in img_a
             .as_raw()
             .chunks_exact(4)
-            .zip(b.as_raw().chunks_exact(4))
+            .zip(img_b.as_raw().chunks_exact(4))
             .enumerate()
         {
-            if pa != pb {
-                let (x, y) = ((i as u32) % a.width(), (i as u32) / a.width());
+            if pixel_a != pixel_b {
+                let (col, row) = (
+                    (flat_index as u32) % img_a.width(),
+                    (flat_index as u32) / img_a.width(),
+                );
                 return format!(
-                    "first difference at pixel ({}, {}) index {}: {:?} vs {:?}",
-                    x, y, i, pa, pb
+                    "first difference at pixel (col {}, row {}) index {}: {:?} vs {:?}",
+                    col, row, flat_index, pixel_a, pixel_b
                 );
             }
         }
@@ -861,11 +894,11 @@ mod tests {
     fn skyline(img: &RgbaImage) -> Option<(i32, i32)> {
         let mut min = i32::MAX;
         let mut max = i32::MIN;
-        for x in 0..img.width() {
-            for y in 0..img.height() {
-                if img.get_pixel(x, y).0[3] == 255 {
-                    min = min.min(y as i32);
-                    max = max.max(y as i32);
+        for col in 0..img.width() {
+            for row in 0..img.height() {
+                if img.get_pixel(col, row).0[3] == 255 {
+                    min = min.min(row as i32);
+                    max = max.max(row as i32);
                     break;
                 }
             }
@@ -878,7 +911,7 @@ mod tests {
     }
 
     /// FACTOR CONTRACT, on the shipped stack. Factors drive `scroll_scale`, so they are the
-    /// mechanism itself. `x > y` is absolute; the upper bound is 1.5 rather than 1.0
+    /// mechanism itself. `scale_x > scale_y` is absolute; the upper bound is 1.5 rather than 1.0
     /// because `Foreground` is deliberately faster than the camera.
     #[test]
     fn factors_in_unit_range() {
@@ -894,37 +927,37 @@ mod tests {
             validate_factors(&specs)
         );
         for spec in &specs {
-            let (x, y) = spec.scroll_scale;
+            let (scale_x, scale_y) = spec.scroll_scale;
             assert!(
-                x > 0.0 && x <= 1.5,
+                scale_x > 0.0 && scale_x <= 1.5,
                 "{}: scroll_scale.x {} out of range",
                 spec.name,
-                x
+                scale_x
             );
             assert!(
-                y > 0.0 && y < x,
+                scale_y > 0.0 && scale_y < scale_x,
                 "{}: scroll_scale.y {} must be below x {}",
                 spec.name,
-                y,
-                x
+                scale_y,
+                scale_x
             );
         }
     }
 
     /// FACTOR CONTRACT, on the rejection path. `factors_in_unit_range` only ever feeds
     /// `validate_factors` the shipped stack, which is valid by construction -- so mutation
-    /// M12 (disabling the `x <= y` check) left that test GREEN. A validator only ever shown
+    /// M12 (disabling the `scale_x <= scale_y` check) left that test GREEN. A validator shown
     /// valid input is untested.
     ///
     /// Each case asserts the specific message, not merely `is_err`, so a validator that
     /// rejected everything for the wrong reason could not pass.
     #[test]
     fn validate_factors_rejects_bad_specs() {
-        fn bad(name: &'static str, x: f32, y: f32) -> LayerSpec {
+        fn bad(name: &'static str, scale_x: f32, scale_y: f32) -> LayerSpec {
             LayerSpec {
                 name,
                 file: "x.png",
-                scroll_scale: (x, y),
+                scroll_scale: (scale_x, scale_y),
                 height_px: 64,
                 z_index: 0,
             }
@@ -955,13 +988,13 @@ mod tests {
     /// this, and with it the ability to explain or regenerate an artifact later.
     #[test]
     fn deterministic() {
-        let a = make_clouds(W, H, SEED, 0.52, 0.68);
-        let b = make_clouds(W, H, SEED, 0.52, 0.68);
+        let clouds_a = make_clouds(W, H, SEED, 0.52, 0.68);
+        let clouds_b = make_clouds(W, H, SEED, 0.52, 0.68);
         assert_eq!(
-            digest(&a),
-            digest(&b),
+            digest(&clouds_a),
+            digest(&clouds_b),
             "same seed produced different pixels: {}",
-            first_pixel_difference(&a, &b)
+            first_pixel_difference(&clouds_a, &clouds_b)
         );
 
         let hills_a = make_silhouette(W, H, SEED, 0.62, 12.0);
@@ -986,20 +1019,130 @@ mod tests {
         );
     }
 
+    /// LATTICE HASH RANGE CONTRACT. The doc comment promises `[0, 1)`, half-open, and the
+    /// half-open half is load bearing: `value_noise` interpolates between four of these
+    /// values, so a hash that can return exactly `1.0` puts a lattice point on the top edge
+    /// of every interpolation. Asserting `<= 1.0` would let that through.
+    ///
+    /// Negative cells are outside the generator's domain (`col_to_cell` is non-negative for
+    /// every `col`). Only the range is asserted for them, not any particular value.
+    #[test]
+    fn lattice_hash_is_in_unit_range() {
+        for cell_x in -8..8 {
+            for cell_y in -8..8 {
+                for seed in [0u64, 1, 0x5eed, u64::MAX] {
+                    let value = lattice_hash(cell_x, cell_y, seed);
+                    assert!(
+                        (0.0..1.0).contains(&value),
+                        "lattice_hash(cell_x={}, cell_y={}, seed={}) = {} is outside [0,1)",
+                        cell_x,
+                        cell_y,
+                        seed,
+                        value
+                    );
+                }
+            }
+        }
+    }
+
+    /// LATTICE HASH DECORRELATION CONTRACT. `lattice_hash` was previously only ever
+    /// reached THROUGH `value_noise`, so every other assertion in this module was about the
+    /// composite rather than the hash. This asserts the hash itself: adjacent lattice
+    /// points must not be near-identical, or `value_noise` interpolates a smooth gradient
+    /// and the layers read as banding instead of noise.
+    ///
+    /// Both axes are checked. A hash that varies only horizontally would pass a
+    /// horizontal-adjacency test untouched.
+    ///
+    /// THRESHOLD: two independent uniform draws on `[0,1)` differ in absolute value by
+    /// exactly 1/3 on average. `0.15` sits well below that and far above any locally
+    /// smooth hash, so nothing plausible lands in the gap. Fixed seeds and no RNG, so this
+    /// cannot flake.
+    ///
+    /// FALSIFICATION -- measured, not asserted. Three mutant hashes were built and run
+    /// against the full suite:
+    ///
+    ///   ramp   `((cell_x + cell_y + seed) % 256) / 256`   -> mean horizontal delta
+    ///          0.00391. Fails HERE, plus `cloud_layers_have_holes` ("HighClouds: no
+    ///          fully opaque pixels at all") and `deterministic` ("changing the seed
+    ///          changed nothing" -- a near-uniform 1/256 seed shift is quantized away by
+    ///          the `.round()` in the silhouette, so both seeds give the same skyline).
+    ///   ramp2  `(cell_x * 3 + cell_y * 5) / 512` + seed jitter -> fails HERE and
+    ///          `cloud_layers_have_holes`; `deterministic` stays green.
+    ///   sine   `sin(cell_x * 0.11 + cell_y * 0.07 + seed * 0.9) / 2 + 0.5`
+    ///          -> mean horizontal delta 0.03486. Fails HERE AND NOTHING ELSE:
+    ///          10 passed, 1 failed.
+    ///
+    /// The `sine` mutant is what justifies this test existing. It is in range, pure,
+    /// seed-sensitive, seamless, and produces valid sky and cloud layers -- every other
+    /// assertion in the suite is satisfied -- yet it is locally smooth and would band
+    /// visibly.
+    ///
+    /// CORRECTION: an earlier draft of this comment claimed that no other test could see
+    /// a bad hash at all. That was wrong; the ramp mutants are caught by two others. What
+    /// the other tests cannot do is LOCALISE the fault -- they report "no opaque pixels"
+    /// and "seed changed nothing", which point at the generator, not at the hash. This
+    /// test names the mechanism and prints the measured number.
+    #[test]
+    fn lattice_hash_decorrelates_adjacent_cells() {
+        const MIN_MEAN_ADJACENT_DELTA: f32 = 0.15;
+        const CELLS: i64 = 64;
+
+        for seed in [0u64, 1, 0x5eed, u64::MAX] {
+            let mut horizontal: Vec<f32> = Vec::new();
+            let mut vertical: Vec<f32> = Vec::new();
+            for cell_y in 0..CELLS {
+                for cell_x in 0..CELLS {
+                    let here = lattice_hash(cell_x, cell_y, seed);
+                    if cell_x + 1 < CELLS {
+                        let east = lattice_hash(cell_x + 1, cell_y, seed);
+                        horizontal.push((here - east).abs());
+                    }
+                    if cell_y + 1 < CELLS {
+                        let north = lattice_hash(cell_x, cell_y + 1, seed);
+                        vertical.push((here - north).abs());
+                    }
+                }
+            }
+
+            let mean = |deltas: &Vec<f32>| deltas.iter().sum::<f32>() / deltas.len() as f32;
+            let mean_horizontal = mean(&horizontal);
+            let mean_vertical = mean(&vertical);
+            assert!(
+                mean_horizontal >= MIN_MEAN_ADJACENT_DELTA,
+                "seed {}: mean |delta| between horizontally adjacent cells is {:.5}, below \
+                 the {:.2} floor -- adjacent lattice points are too similar, which reads as \
+                 smooth diagonal banding rather than noise (a ramp fails here)",
+                seed,
+                mean_horizontal,
+                MIN_MEAN_ADJACENT_DELTA
+            );
+            assert!(
+                mean_vertical >= MIN_MEAN_ADJACENT_DELTA,
+                "seed {}: mean |delta| between vertically adjacent cells is {:.5}, below \
+                 the {:.2} floor -- a hash that varies only horizontally passes a \
+                 horizontal-only check, which is why both axes are measured",
+                seed,
+                mean_vertical,
+                MIN_MEAN_ADJACENT_DELTA
+            );
+        }
+    }
+
     /// VALUE NOISE RANGE CONTRACT. Every downstream layer thresholds or interpolates this
     /// value assuming `[0, 1]`; an out-of-range result silently shifts every threshold.
     #[test]
     fn value_noise_stays_in_unit_range() {
-        for i in 0..64 {
-            let x = i as f32 * 3.7;
-            let y = i as f32 * 1.3;
-            let v = value_noise(x, y, 8, SEED);
+        for step in 0..64 {
+            let sample_x = step as f32 * 3.7;
+            let sample_y = step as f32 * 1.3;
+            let sampled = value_noise(sample_x, sample_y, 8, SEED);
             assert!(
-                (0.0..=1.0).contains(&v),
+                (0.0..=1.0).contains(&sampled),
                 "value_noise({}, {}) = {} is outside [0,1]",
-                x,
-                y,
-                v
+                sample_x,
+                sample_y,
+                sampled
             );
         }
     }
@@ -1015,18 +1158,23 @@ mod tests {
     #[test]
     fn fbm_stays_in_unit_range_and_wraps() {
         let period: i64 = 64;
-        for i in 0..32 {
-            let y = i as f32 * 2.1;
-            let a = fbm(i as f32 * 1.5, y, period, 4, SEED);
-            let b = fbm(i as f32 * 1.5 + period as f32, y, period, 4, SEED);
-            assert!((0.0..=1.0).contains(&a), "fbm = {} is outside [0,1]", a);
+        for step in 0..32 {
+            let sample_y = step as f32 * 2.1;
+            let sample_x = step as f32 * 1.5;
+            let value_at = fbm(sample_x, sample_y, period, 4, SEED);
+            let value_shifted = fbm(sample_x + period as f32, sample_y, period, 4, SEED);
             assert!(
-                (a - b).abs() < 1e-5,
+                (0.0..=1.0).contains(&value_at),
+                "fbm = {} is outside [0,1]",
+                value_at
+            );
+            assert!(
+                (value_at - value_shifted).abs() < 1e-5,
                 "fbm is not periodic in x: f(x={}) = {} but f(x={}) = {}",
-                i as f32 * 1.5,
-                a,
-                i as f32 * 1.5 + period as f32,
-                b
+                sample_x,
+                value_at,
+                sample_x + period as f32,
+                value_shifted
             );
         }
     }

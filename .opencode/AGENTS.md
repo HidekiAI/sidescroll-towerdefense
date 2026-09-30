@@ -229,24 +229,44 @@ Recorded 2026-09-06; ticketed and designed the same day.
   `docs/SESSION-CHECKPOINT.md` CURRENT STATE, `tools/slice-layers/README.md`, wiki
   `TODO.md` TS71, GDScript test `test_parallax_backdrop.gd` to replace the probe.
 - **Phase 1 scaffold state (2026-09-30):** `tools/gen-backdrop` exists on
-  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 3 commits). Its non-trivial logic is @me's
+  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 4 commits). Its non-trivial logic is @me's
   to write via the `coding-assistant` skill, held open as **9 `TODO(human)` blocks over 10
-  functions** in `src/main.rs`; all are still empty. Three things a successor session must
-  not get wrong:
-  - **Verify the blocks with `grep -n 'TODO(human)' src/main.rs` → must be 20 lines**, and
-    `cargo check -p gen-backdrop` → must be **10 `E0308`, zero `todo!()`**. The scaffold
-    originally shipped with no markers at all and one-line stub samples; @me caught it, and
-    the count was also wrong (7 blocks over 8 functions) because `smoothstep` and
-    `lerp_rgb` were treated as scaffolding rather than as blocks. Full block map:
-    `docs/PLAN-...-stack.md` §5.
+  functions** in `src/main.rs`. **Block 1/9 (`lattice_hash`) is now FILLED by @me**; blocks
+  2-9 are empty. So the counts are no longer constants: `grep -c 'TODO(human)'` is **18**
+  (was 20) and the E0308 count is **9** (was 10) — each filled block removes one marker pair
+  and one hole. `sample-check.sh` asserts the live counts rather than fixed ones, so a
+  filled block fails the harness loudly instead of silently skewing it. Zero `todo!()`, ever.
+  Five things a successor session must not get wrong:
+  - **ALWAYS `cargo check -p gen-backdrop --tests`, never without `--tests`.** The whole
+    `#[cfg(test)]` module is behind a cfg, so a plain `cargo check` does not compile it at
+    all and reports a clean 9-hole bill while the test module holds unresolved names. This
+    gap hid a broken rename for a full round. Expect **9 E0308 and 0 non-hole errors**.
+  - **Uncommenting must be RANGE-SCOPED to the marker ranges.** Once a block is filled its
+    comments are LIVE prose, and a blanket `s{^    // (?!/)}` over the file turns that prose
+    into bare Rust tokens. `uncomment.pl` derives ranges from the markers, so a filled block
+    has no range and is never touched.
   - **A sample NOTE is written `// // note` and must uncomment to `//note` with NO space.**
     Emitting `// note` makes it indistinguishable from an unprocessed statement line, the
     second uncomment pass strips it again, and every note becomes a bare prose token. This
     is the trap in the verification harness; see the checkpoint section for the full story.
   - **Sample correctness is proven, not assumed:** strip markers, uncomment every sample
-    line, and require compiles-clean + 9/9 tests. Do that on a throwaway copy in
+    line, and require compiles-clean + 11/11 tests. Do that on a throwaway copy in
     `/tmp/user/1000/opencode/`; the repo tree is never written to. A build error is a **void
     experiment**, not a green result.
+  - **New unit tests are mutation-verified** with `mutate.sh <fn> <body_file> [expected_fail>`,
+    which asserts the mutant PARSES before consulting the result. An unparseable mutation
+    reads as "the guard is vacuous" when the experiment never ran. Both `lattice_hash` tests
+    are proved by mutants; the `sine` mutant (in range, seed-sensitive, seamless, valid
+    sky/clouds — locally smooth) fails ONLY the decorrelation test, which is what shows that
+    test is not redundant.
+  - **Naming, both user directives recorded 2026-09-30 in `~/scripts/LLM/rules/default.md`:**
+    no bare `x`/`y` (name the coordinate space — `cell_x`/`col`/`scale_x`), and no
+    meaningless short locals (`s1`, `p`, `c`, `n`, `h`, `v`, `a`, `b`, `t` are all banned;
+    `xorshift_1`, `sky_rgb`, `density`, `blend` are the replacements). `lhs`/`left_hand_side`
+    was explicitly REJECTED: it names an equation role, and these are two lattice
+    coordinates, so it carries less information than `x`/`y`. Full table: plan doc §5.2.
+    Block 1's own `s1/m1/s2/m2/s3` were renamed to `xorshift_1/multiply_1/...` to match the
+    comment sitting directly above them.
 
 ## gRPC Integration
 
