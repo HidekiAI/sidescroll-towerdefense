@@ -7,13 +7,14 @@ not in either.
 
 ## State
 
-Research and design complete, **zero code written**. Two branches open, documentation
-committed, nothing pushed:
+Research and design complete, **zero code written**. Both branches were merged `--ff-only`
+onto their base branches and pushed on 2026-09-30:
 
-- code repo `feat/parallax-tutorial-stack` (off `trunk`): plan file,
+- code repo `feat/parallax-tutorial-stack` -> `trunk`: plan file,
   `tools/slice-layers/README.md`, checkpoint + AGENTS updated
-- wiki `docs/parallax-tutorial-model` (off `master`): TDD revised, GDD Parallax
-  section, `Home.md` row, `TODO.md` TS71
+- wiki `docs/parallax-tutorial-model` -> `master`: TDD revised, GDD Parallax
+  section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows,
+  `TODO.md` TS71 + DD7
 
 Issue #68 stays **OPEN** — design revised, implementation pending.
 
@@ -33,8 +34,20 @@ Issue #68 stays **OPEN** — design revised, implementation pending.
   were found by *reading the scene file*, not by running anything. The probe had been
   GREEN for weeks. Reading the scene against the tutorial's own documented rules was
   what surfaced both.
+- The pre-push self-review found **two claims in my own docs were false**: the Godot
+  runtime (both AGENTS files said 4.4.1; the `godot4` symlink had moved to 4.7.2 on
+  2026-09-29) and the asset size. Re-measuring instead of trusting the memory turned up
+  a real red — issue #85 — that had nothing to do with this work. **Lesson: a baseline
+  number written from memory is a claim, not a measurement.** Re-run the gate before
+  recording its result, and always state which runtime it came from.
+- Rewording an **older** commit's subject with `git commit --amend` amends HEAD, not
+  the commit you named. It silently gave a commit the wrong subject. The safe path on an
+  unpushed branch is a scripted reword: `GIT_SEQUENCE_EDITOR` to mark the line
+  `reword` plus `GIT_EDITOR` to sed the message. Verify the diffstat afterwards is
+  byte-identical to before the reword.
 
 ## Resume in one line
 
 Open the checkpoint's CURRENT STATE block, work the numbered "Next move" list from
-step 3 (push permission), and start at Phase 1 of the plan file.
+step 5 (Phase 1, `tools/gen-backdrop` via the `coding-assistant` skill). Steps 1-4 are
+done: designed, reviewed, committed, pushed and merged.

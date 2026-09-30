@@ -15,13 +15,18 @@ _Last updated: 2026-09-30_
 — replace the video-sliced art with self-generated layers, make the backdrop actually
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
-**State: research and design DONE. No code, no art, no runtime change yet.** Both
-branches carry committed, self-reviewed documentation; **nothing is pushed yet.**
+**State: research and design DONE, reviewed, merged and PUSHED. No code, no art, no
+runtime change yet.** Both branches were merged `--ff-only` onto their base branches and
+pushed on 2026-09-30, so the design is live on `trunk` and `master`.
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
-| `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
+| `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
+| `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
+
+The two branch refs exist on the remotes:
+`https://github.com/HidekiAI/sidescroll-towerdefense/tree/feat/parallax-tutorial-stack`
+and `https://github.com/HidekiAI/sidescroll-towerdefense.wiki/tree/docs/parallax-tutorial-model`.
 
 Issue #68 has a design-revision comment and stays **OPEN** (no code landed). Issue **#85**
 was filed during the pre-push self-review — see the Gate section, it is unrelated to this
@@ -95,8 +100,9 @@ not in the PNG.
 3. ~~Pre-push self-review.~~ **DONE**, and it was worth it: it caught the Godot-runtime
    claim (4.4.1 -> 4.7.2) and the asset size, both of which had gone into the docs
    unverified, and surfaced the unrelated red now filed as **#85**.
-4. **Ask @me once for push permission covering both branches**, then push both, merge
-   `--ff-only` back to `trunk` / `master`, push, and offer to delete the branches.
+4. ~~Push both branches, merge `--ff-only` onto `trunk` / `master`, push both.~~
+   **DONE** — `trunk` and `master` are pushed and level with their remotes. Branch
+   deletion was offered to @me; not yet answered.
 5. Phase 1: `tools/gen-backdrop`. The non-trivial logic is @me's to write via the
    `coding-assistant` skill, in 7 blocks (block map in the plan file §5). The
    assistant writes scaffolding, the serde config, the assembly loop, and all 5 unit
