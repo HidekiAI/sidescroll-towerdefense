@@ -3,8 +3,8 @@
 **Status:** kept as a one-off recovery tool. Not the way SSTD produces backdrop layers.
 
 Design of record: [TDD_Parallax-Background §4.1.1](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Background).
-The normal path is [`tools/gen-backdrop`](../gen-backdrop) (planned), which generates
-layers in-repo with a wrapping noise lattice.
+The normal path is a planned `tools/gen-backdrop` crate (does not exist yet), which
+generates layers in-repo with a wrapping noise lattice.
 
 ## What it does
 
