@@ -189,7 +189,7 @@ Recorded 2026-09-06; ticketed and designed the same day.
   Design authored BEFORE any code: wiki `TDD_Parallax-Background.md` + the
   `GDD_Art-Direction` Parallax Background section. This entry stays as the durable
   handoff lever for that implementation.
-- **RESTACK (2026-09-30, still OPEN, no code yet).** The node contract now comes from
+- **RESTACK (2026-09-30, still OPEN, code phase started).** The node contract now comes from
   the official [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
   (TDD §3.1). Findings that drove it:
   - **The tutorial ships NO downloadable assets** — verified four ways (page + raw
@@ -228,6 +228,25 @@ Recorded 2026-09-06; ticketed and designed the same day.
 - **Plan + evidence:** `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` (code repo),
   `docs/SESSION-CHECKPOINT.md` CURRENT STATE, `tools/slice-layers/README.md`, wiki
   `TODO.md` TS71, GDScript test `test_parallax_backdrop.gd` to replace the probe.
+- **Phase 1 scaffold state (2026-09-30):** `tools/gen-backdrop` exists on
+  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 3 commits). Its non-trivial logic is @me's
+  to write via the `coding-assistant` skill, held open as **9 `TODO(human)` blocks over 10
+  functions** in `src/main.rs`; all are still empty. Three things a successor session must
+  not get wrong:
+  - **Verify the blocks with `grep -n 'TODO(human)' src/main.rs` → must be 20 lines**, and
+    `cargo check -p gen-backdrop` → must be **10 `E0308`, zero `todo!()`**. The scaffold
+    originally shipped with no markers at all and one-line stub samples; @me caught it, and
+    the count was also wrong (7 blocks over 8 functions) because `smoothstep` and
+    `lerp_rgb` were treated as scaffolding rather than as blocks. Full block map:
+    `docs/PLAN-...-stack.md` §5.
+  - **A sample NOTE is written `// // note` and must uncomment to `//note` with NO space.**
+    Emitting `// note` makes it indistinguishable from an unprocessed statement line, the
+    second uncomment pass strips it again, and every note becomes a bare prose token. This
+    is the trap in the verification harness; see the checkpoint section for the full story.
+  - **Sample correctness is proven, not assumed:** strip markers, uncomment every sample
+    line, and require compiles-clean + 9/9 tests. Do that on a throwaway copy in
+    `/tmp/user/1000/opencode/`; the repo tree is never written to. A build error is a **void
+    experiment**, not a green result.
 
 ## gRPC Integration
 

@@ -16,12 +16,12 @@ _Last updated: 2026-09-30_
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
 **State: design merged and PUSHED. Phase 1 scaffolding COMMITTED LOCALLY, NOT PUSHED.**
-Branch `feat/gen-backdrop-crate` (off `trunk`) holds one commit; the 7 generator blocks are
+Branch `feat/gen-backdrop-crate` (off `trunk`) holds 3 commits; the 9 generator blocks are
 still empty and awaiting @me. No art, no scene change, no runtime change yet.
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 1 commit, unpushed) | `tools/gen-backdrop/` (crate + 7 blocks + 9 tests), workspace `Cargo.toml`, `Cargo.lock` |
+| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 3 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 9 tests), workspace `Cargo.toml`, `Cargo.lock` |
 | `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
 | `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
 
@@ -105,7 +105,43 @@ not a green test.
    crossing and sets no `repeat_size`.** That is precisely the positioning/sizing
    mistake the tutorial's *Poor positioning* and *Poor sizing* sections document.
 
-### The model change (3 -> 5 layers + foreground)
+### Phase 1 correction: the block format shipped degraded, and the count was wrong
+
+@me caught it by asking why `grep -n "TODO(human)"` returned nothing. It did, because the
+markers were never written. The Phase 1 scaffold had the *hole* mechanism right (real
+return type, empty body -> `E0308`, never `todo!()`) but dropped the other two parts of the
+`coding-assistant` block contract:
+
+- **No `begin`/`end` markers.** The skill's own verification is that `grep -n "TODO(human)"`
+  lists both ends of every open block; it listed nothing. The mistake was ratifying that
+  result during the original work by labelling the grep "must be empty: not the convention
+  here", which converted a failure into a decision without surfacing it.
+- **The SAMPLE was a stub, not code.** Each block carried `// let v: f32 = 0.0;` — a
+  placeholder. Uncommenting it yields a function that always returns 0.0, so the skill's
+  actual promise ("learning by SAMPLE CODE", "or simply uncomment it") was broken. A
+  deliberate decision to keep reference implementations out of the repo (scratch only) was
+  never flagged, and the scratch was deleted, so the reference had to be rewritten.
+- **The block count was wrong: 7 blocks over 8 functions, actually 9 over 10.** The two
+  omitted blocks were `smoothstep` and `lerp_rgb`, helpers the layer generators call. They
+  are non-trivial (the u8-truncation banding trap, the degenerate-interval NaN guard), so
+  they are the human's to write. Nothing defined them, which is why the first uncommented
+  build failed with `cannot find function Rgba` and friends.
+
+**Tooling that caught the above, and the trap in it.** Verification is a throwaway copy in
+`/tmp` where markers are stripped and every sample line uncommented; the result must compile
+clean and pass all 9 tests. Measured: compiles clean, 9 passed / 0 failed.
+
+The trap, which cost several iterations and is worth keeping: a **sample note** and a
+**sample statement** cannot both be plain `// <text>` at 4-space indent, because the
+uncomment pass cannot tell them apart. Notes are written `// // note` and must uncomment to
+`//note` — **no space**. Emitting `// note` instead makes the output byte-identical to an
+unprocessed statement line, the second pass strips it too, and every note becomes a bare
+prose token (`splitmix64's finaliser: ...` in Rust). The failure surfaces as a parse error
+about English words, which reads like a mutation that broke the build rather than like a
+bug in the harness. Related, from the same session: a build error is a **void experiment**,
+not a green result — every check step asserts its own counts before the build is consulted.
+
+
 
 `Sky (0.10, 0.08)` / `HighClouds (0.20, 0.17)` / `LowClouds (0.30, 0.25)` /
 `Hills (0.50, 0.42)` / `Forest (0.70, 0.60)`, plus a `Foreground (1.30, 1.15)` plane
@@ -113,6 +149,10 @@ drawn **in front of** the tile layer. The x factors are the tutorial's own publi
 values; y is scaled to ~0.85x so both axes move. Six of the 7-layer cap. The
 foreground is excluded from `biome_backdrop_layers` because its factor exceeds the
 schema's `[0,1]` CHECK by design.
+
+**Do not confuse the 7-layer cap with the 9-block map.** The stack is 6 planes and stays
+within the documented 7-layer cap; the block map counts *functions @me writes*, which
+includes the two helpers and the manifest builder. They are unrelated numbers.
 
 ### The asset estate to remove (10 tracked PNGs + 3 `.import`, 12 MB on disk)
 
@@ -140,10 +180,14 @@ not in the PNG.
    **DONE** — `trunk` and `master` are pushed and level with their remotes. Branch
    deletion was offered to @me; not yet answered.
 5. Phase 1: `tools/gen-backdrop`. The non-trivial logic is @me's to write via the
-   `coding-assistant` skill, in 7 blocks (block map in the plan file §5). The
-   assistant writes scaffolding, the serde config, the assembly loop, and all 5 unit
-   tests. **The skill's editor channel is verified working**: `$NVIM` is set and a
-   non-terminal editor window exists (win 1002) beside the opencode terminal (win 1000).
+   `coding-assistant` skill, in **9 blocks over 10 functions** (block map in the plan file
+   §5; it was 7 over 8 until 2026-09-30 and the count was wrong — see §5). The assistant
+   writes scaffolding, the serde config, the assembly loop, and all 9 unit tests.
+   **The skill's editor channel is verified working**: `$NVIM` is set and a
+   non-terminal editor window exists beside the opencode terminal.
+   **Status: scaffolding committed, blocks 1-9 all still open.** `cargo check -p
+   gen-backdrop` reports exactly 10 `E0308` and zero `todo!()`; `grep -c 'TODO(human)'`
+   is 20. @me's editor is parked on `// TODO(human): begin block 1/9`.
 6. Phase 2: `git rm` the 10 old PNGs.
 7. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false`
    and `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a

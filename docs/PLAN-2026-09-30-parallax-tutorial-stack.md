@@ -158,15 +158,18 @@ Outputs: sky.png, clouds_high.png, clouds_low.png, hills.png, forest.png
          + manifest.json
 ```
 
-**Who writes this:** @me, via the `coding-assistant` skill, in 7 blocks. The
-non-trivial choices (the wrapping noise lattice, the alpha threshold, the heightfield)
+**Who writes this:** @me, via the `coding-assistant` skill, in 9 blocks over 10 functions.
+The non-trivial choices (the wrapping noise lattice, the alpha threshold, the heightfield)
 are the learning target; the scaffolding, the config plumbing, the assembly loop and all
 tests are the assistant's. See §5.
 
 **The one hard requirement:** seamlessness. A layer whose first and last column differ
 shows a visible join under `repeat_size`. The technique is a value-noise lattice that
 **wraps in x** at the texture width, so any texture sampled over `[0, width)` tiles
-exactly; fBm halves the period per octave so the wrap survives at every scale.
+exactly; fBm **doubles** the period per octave so the wrap survives at every scale.
+(Doubling, not halving: octave `o` samples at `2^o` frequency, so it must span `2^o` cells
+to keep the same spatial period. Halving also stays seamless, so no test distinguishes
+them — see the note in block 3/9.)
 
 Required unit tests, each shown to fail by mutation before it is trusted:
 
@@ -176,7 +179,14 @@ Required unit tests, each shown to fail by mutation before it is trusted:
 | `sky_has_no_alpha` | sky alpha is 255 everywhere | introduce a hole |
 | `cloud_layers_have_holes` | alpha histogram has populated and empty buckets | move the threshold out of range |
 | `factors_in_unit_range` | every factor in `[0,1]`, `factor_x > factor_y` | set a factor to 1.5 |
-| `deterministic` | same seed -> byte-identical PNGs | introduce RNG state |
+| `deterministic` | same seed -> byte-identical PNGs, and a different seed -> different bytes | introduce RNG state |
+
+Five are listed here as the Phase 1 minimum; nine shipped. The four added after
+falsification are `value_noise_stays_in_unit_range`, `fbm_stays_in_unit_range_and_wraps`,
+`validate_factors_rejects_bad_specs` and `relief_is_absolute_not_a_fraction`. The last one
+exists because `relief_px` was originally authored as a fraction of `height`, which
+collapses to zero at small sizes and silently makes the seed irrelevant — a defect only
+`deterministic`'s "a different seed must change the image" arm could catch.
 
 ### Phase 2 - remove the old art
 
@@ -263,22 +273,48 @@ offer to delete the branch.
 
 Per the `coding-assistant` skill, non-trivial logic is @me's to write; the assistant
 writes scaffolding, plumbing and all tests. Numbering is global, in dependency order.
-`M = 7`.
+`M = 9` blocks over **10** functions: block 9/9 spans `validate_factors` and
+`build_manifest`, and gets one `begin`/`end` marker pair per location, same block number.
+
+**Revised from `M = 7` on 2026-09-30.** The 7-block map was wrong because it counted only
+the layer generators and omitted the two helpers the generators call. `smoothstep` and
+`lerp_rgb` are non-trivial logic with their own intent (the u8-truncation trap, the
+degenerate-interval NaN guard), so they are blocks, not scaffolding. The count that matters
+for verification is **10 marker pairs / 10 E0308 holes / 10 function bodies**.
 
 | Block | Placement in `tools/gen-backdrop/src/main.rs` | What to write (not how) | Depends on |
 |---|---|---|---|
-| 1/7 | after the module consts | deterministic integer lattice hash -> `[0,1)`, no RNG state | - |
-| 2/7 | below 1/7 | value noise whose lattice **wraps** in x - the seam guarantee | 1/7 |
-| 3/7 | below 2/7 | fBm over that noise, halving period per octave so the wrap survives | 2/7 |
-| 4/7 | below 3/7 | per-row sky shading: vertical gradient, haze from fBm, one sun disc | 3/7 |
-| 5/7 | below 4/7 | cloud alpha = smoothstep over fBm, so the layer has genuine alpha holes | 3/7 |
-| 6/7 | below 5/7 | periodic silhouette column (heightfield fill + rim), shared by hills and forest | 3/7 |
-| 7/7 | in `run()`, before the write loop | validate factors are in `[0,1]` and `factor_x > factor_y`, then emit `manifest.json` | 4-6 |
+| 1/9 | after the module consts | deterministic integer lattice hash -> `[0,1)`, no RNG state | - |
+| 2/9 | below 1/9 | value noise whose lattice **wraps** in x - the seam guarantee | 1/9 |
+| 3/9 | below 2/9 | fBm over that noise, doubling period per octave so the wrap survives | 2/9 |
+| 4/9 | below 3/9 | widen-then-mix-then-narrow RGB lerp; u8 math truncates and bands | - |
+| 5/9 | below 4/9 | Hermite ramp `t*t*(3-2t)` with a degenerate-interval guard | - |
+| 6/9 | below 5/9 | sky plane: opaque everywhere, vertical gradient, fBm haze, one sun disc | 2/9 3/9 4/9 5/9 |
+| 7/9 | below 6/9 | cloud alpha = smoothstep over fBm, so the layer has genuine alpha holes | 2/9 3/9 4/9 5/9 |
+| 8/9 | below 7/9 | periodic silhouette column (heightfield fill + rim), shared by hills and forest | 2/9 3/9 4/9 |
+| 9/9 | after 8/9 | validate factors are in `(0,1]` and `factor_x > factor_y`, then emit `manifest.json` | 6/9 7/9 8/9 |
 
 The assistant writes: `Cargo.toml`, the `use` block, the `main`/`run` signatures, the
 serde config struct (mirroring `import-tiles`), the per-layer assembly loop that walks
-the config and calls 4/5/6, the journal lines, the PNG writer call, and all 5 unit
-tests.
+the config and calls 6/7/8, the journal lines, the PNG writer call, and all 9 unit tests.
+
+### 5.1 Block format and how it is verified
+
+Each open block is `begin marker` / INTENT doc comment / signature with an empty body /
+`end marker`, with the preferred implementation as commented-out code inside the body.
+
+- **Hole mechanism:** real return type, empty body -> `E0308`. Never `todo!()`, which
+  type-checks as `!` and would let the crate build with the logic missing.
+- **Markers:** `// TODO(human): begin block N/9` / `end block N/9`. The skill's own check is
+  that `grep -n "TODO(human)"` lists both ends of every open block; it must return **20**.
+- **Sample notes vs sample code:** a note belonging to the SAMPLE is written `// // note`
+  and uncomments to `// note`; a statement is `// code` and uncomments to `code`. The
+  distinction is load bearing - see the double-strip failure in
+  `docs/SESSION-CHECKPOINT.md`.
+- **Verification:** strip markers, uncomment every sample line, and require the result to
+  compile clean and pass all 9 tests. Run on a throwaway copy; the repo tree is never
+  written to. Measured result: compiles clean, 9 passed / 0 failed.
+
 
 **Environment prerequisite (verified 2026-09-30):** the editor-driving channel works, so
 the skill can run as written. `$NVIM` is set, and a non-terminal editor window exists
