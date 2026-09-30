@@ -7,4 +7,5 @@ members = [
     "crates/sstd-grpc",
     "tools/import-tiles",
     "tools/slice-layers",
+    "tools/gen-backdrop",
 ]
