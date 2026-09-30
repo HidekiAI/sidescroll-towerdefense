@@ -1,11 +1,133 @@
-# Session Checkpoint — Editor Core & Persistence (post-#67)
+# Session Checkpoint — Parallax Restack (#68)
 
 ## CURRENT STATE / NEXT MOVE
 
 > This block is the single authoritative resume point. It **supersedes** every
-> `## Active step` and `## Next move` heading further down, which are retained as the
-> historical record only. A cold-start session should read this block and stop; the
-> sections below it are an append-only log of past sessions, not a live plan.
+> `## Active step`, `## Next move` and `## SUPERSEDED` heading further down, which are
+> retained as the historical record only. A cold-start session should read this block
+> and stop; the sections below it are an append-only log of past sessions, not a live
+> plan.
+
+_Last updated: 2026-09-30_
+
+**Objective:** restack the #68 parallax background on the official
+[2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
+— replace the video-sliced art with self-generated layers, make the backdrop actually
+visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
+
+**State: research and design DONE. No code, no art, no runtime change yet.** Two
+branches are open with uncommitted-then-committed documentation; nothing is pushed.
+
+| repo | branch | what is on it |
+|---|---|---|
+| `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint |
+| `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `Home.md` row, `TODO.md` row TS71 |
+
+**Where the design lives:** the wiki TDD is the design of record. The code repo's
+`docs/PLAN-2026-09-30-parallax-tutorial-stack.md` is the session-local execution plan
+(finding detail, phase order, block map, risks). If they disagree, the TDD wins.
+
+### Do NOT redo these (measured or decided 2026-09-30)
+
+- **The Parallax2D tutorial ships NO downloadable assets.** Verified four ways: the
+  page and the raw `tutorials/2d/2d_parallax.rst` reference only screenshots plus one
+  `.webm`; the `tutorials/2d/img/` listing holds only those 15 images; the original
+  pull request (#9587, `Add 2D Parallax documentation page`) names no asset source; and
+  `godot-demo-projects/2d/` has no parallax demo. The page was added 2024-07-08 and no
+  revision ever carried an asset bundle. **Do not re-search for tutorial assets.**
+  The tutorial is the *mechanism* contract; the art is generated in-repo.
+- **No external/CC0 art pack.** @me's decision: SSTD is a deliberate LLM-co-developer
+  exercise, so external art dependencies and licence review stay out unless asked.
+- **Art style this pass: neutral, palette-agnostic placeholder.** The goal is to prove
+  the mechanism. Biome palettes are a later re-tint of the same layers.
+- **`tools/slice-layers` is KEPT**, documented as a one-off recovery tool. Its only
+  inputs are gitignored local-only MP4s, so a clean clone can never re-run it — that is
+  the reason it is not the normal path, not a reason to delete it.
+- **The screen geometry is derived, not a choice.** 60x33 tiles at 32px = a
+  **1920x1056** gameplay screen; `project.godot` viewport is 1920x1080. Layers author
+  1:1 at 1920 wide, so nothing scales and nothing blurs.
+- **Vertical coverage is overscan + a 240px camera-y clamp**, not a vertical
+  `repeat_size`, which would leave empty blocks above and below a horizontal-only stack.
+
+### Two defects found that the old GREEN probe could not see
+
+1. **`editor/scenes/main.tscn:809` sets `BackdropStrip` to `visible = false`.** The
+   parallax has not been rendering in the app. `probe_parallax_scroll.gd` still reports
+   GREEN and exits 0 because it reads static node properties and never checks
+   visibility. This is the concrete cause behind the long-standing "runtime rendering
+   unverified" open thread.
+2. **`editor/scenes/backdrop_preview.tscn` centers every `Sprite2D` on the `(0,0)`
+   crossing and sets no `repeat_size`.** That is precisely the positioning/sizing
+   mistake the tutorial's *Poor positioning* and *Poor sizing* sections document.
+
+### The model change (3 -> 5 layers + foreground)
+
+`Sky (0.10, 0.08)` / `HighClouds (0.20, 0.17)` / `LowClouds (0.30, 0.25)` /
+`Hills (0.50, 0.42)` / `Forest (0.70, 0.60)`, plus a `Foreground (1.30, 1.15)` plane
+drawn **in front of** the tile layer. The x factors are the tutorial's own published
+values; y is scaled to ~0.85x so both axes move. Six of the 7-layer cap. The
+foreground is excluded from `biome_backdrop_layers` because its factor exceeds the
+schema's `[0,1]` CHECK by design.
+
+### The asset estate to remove (10 tracked PNGs, ~13 MB)
+
+| What | Where |
+|---|---|
+| `layer_0/1/2.png`, `displacement.png` | `assets/backdrop_layers/` (root; **read by no code**, only the old wiki replay command did) |
+| same 3 PNGs + 3 `.import` | `editor/assets/backdrop_layers/` (engine-loaded copies) |
+| `layer_0/1/2_strip_x5.png` + 3 `.import` | `editor/assets/backdrop_layers/` (x5 collision strips, #76) |
+
+The x5 collision strips dying means the new `forest` layer is decorative. A collidable
+near band is a fresh image-to-tiles import, not a restoration — and worlds that already
+imported those cells keep their collision, because the cells live in the world package,
+not in the PNG.
+
+### Next move, in runnable order
+
+1. Commit the code-repo docs on `feat/parallax-tutorial-stack` (plan file, this
+   checkpoint, `tools/slice-layers/README.md`). The wiki revision is already committed on
+   `docs/parallax-tutorial-model`.
+2. Comment on issue #68 recording the design revision, the no-assets finding, and the
+   owner decisions. **#68 stays OPEN** — the code has not landed.
+3. Ask @me once for push permission covering both branches, then push both.
+4. Phase 1: `tools/gen-backdrop`. The non-trivial logic is @me's to write via the
+   `coding-assistant` skill, in 7 blocks (block map in the plan file §5). The
+   assistant writes scaffolding, the serde config, the assembly loop, and all 5 unit
+   tests. **The skill's editor channel is verified working**: `$NVIM` is set and a
+   non-terminal editor window exists (win 1002) beside the opencode terminal (win 1000).
+5. Phase 2: `git rm` the 10 old PNGs.
+6. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false`
+   and `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a
+   240px-clamped VScrollBar; drive `camera.position` from both bars in `simulator.gd`.
+7. Phase 4: repoint `tile_grid_display.gd`'s 6-entry `_layers` default stack.
+8. Phase 5: replace `probe_parallax_scroll.gd` with `test_parallax_backdrop.gd`.
+   **Spike first:** step the camera by `(+120, +40)`, `await process_frame` twice, read
+   each `Parallax2D.get_screen_offset()`. If the offsets are observable headless, assert
+   the both-axis drift; if not, degrade to a static contract and record which shipped.
+   Every assertion must be mutation-verified (the TDD §6 table lists the mutation for
+   each claim).
+9. Phase 6: gates, checkpoint, close #68 with the wiki page cited, file the legacy
+   `.json` layer round-trip gap (TDD §4.2) as a separate follow-up rather than bundling
+   it, `--ff-only` merge to `trunk`, push, offer to delete the branch.
+
+### Gate
+
+`cargo test -p sstd-core` (110) plus `gen-backdrop` once it exists, and all five
+GDScript suites. **Gate on the exit code**, never on the printed `failures=0` line
+(#80). No CI exists in this repo; nothing gates a push automatically.
+
+```bash
+cargo test -p sstd-core
+~/bin/godot4 --headless --path editor --script res://tests/test_screen_store.gd    # 187 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_image_to_map.gd    # 9 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_terrain_brush.gd  # 14 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_override_merge.gd  # 26 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_parallax_backdrop.gd  # new, phase 5
+```
+
+---
+
+## SUPERSEDED (2026-09-27) — agent-config consolidation + wiki link-rot sweep
 
 _Last updated: 2026-09-27_
 

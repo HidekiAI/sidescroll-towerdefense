@@ -184,15 +184,49 @@ Recorded 2026-09-06; ticketed and designed the same day.
   layered parallax is preferred; the scanline-era workaround (adding sprites on
   either side of a scanline to fake a hole) is explicitly the OLD technique and
   not the target. Even non-consumer GPUs handle depth-layered parallax fine today.
-- Status: **TICKETED + DESIGNED (2026-09-06).** GitHub issue #68
-  (`feat(f6): depth-layered parallax background`), OPEN — implementation pending.
-  Design authored BEFORE any code: wiki `TDD_Parallax-Background.md` (layer model
-  L0/L1/L2 per-axis factors, `Parallax2D` + Camera2D compositing, corridor-biome
-  `biome_backdrop_layers` schema, holes = alpha cutouts, scanline/fake-hole sprites
-  prohibited, <=7 layers, validation checklist) + `GDD_Art-Direction` Parallax
-  Background section (per-palette L0/L1/L2 stacks). Runtime rendering (Camera2D/
-  Parallax2D) does NOT exist yet — implementing #68 requires that runtime first.
-  This entry stays as the durable handoff lever for that implementation.
+- Status: **TICKETED + DESIGNED (2026-09-06); RESTACKED (2026-09-30).** GitHub issue
+  #68 (`feat(f6): depth-layered parallax background`), OPEN — implementation pending.
+  Design authored BEFORE any code: wiki `TDD_Parallax-Background.md` + the
+  `GDD_Art-Direction` Parallax Background section. This entry stays as the durable
+  handoff lever for that implementation.
+- **RESTACK (2026-09-30, still OPEN, no code yet).** The node contract now comes from
+  the official [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
+  (TDD §3.1). Findings that drove it:
+  - **The tutorial ships NO downloadable assets** — verified four ways (page + raw
+    `2d_parallax.rst` reference only screenshots and one `.webm`; the `tutorials/2d/img/`
+    listing holds only those images; the original pull request #9587 names no asset
+    source; `godot-demo-projects/2d/` has no parallax demo). **Do not re-search for
+    tutorial assets.** It is the mechanism contract only.
+  - **Art is self-generated**, not from an external/CC0 pack (@me's decision:
+    SSTD is a deliberate LLM-co-developer exercise, so external art dependencies and
+    licence review stay out unless asked). New crate `tools/gen-backdrop`, wrapping
+    value-noise lattice for seamlessness; first pass is a neutral, palette-agnostic
+    placeholder whose job is to prove the mechanism.
+  - **Model 3 -> 5 layers + foreground:** `Sky (0.10,0.08)` / `HighClouds (0.20,0.17)`
+    / `LowClouds (0.30,0.25)` / `Hills (0.50,0.42)` / `Forest (0.70,0.60)`, x factors
+    the tutorial's own published values, y ~0.85x for both-axis motion, plus a
+    `Foreground (1.30,1.15)` plane drawn IN FRONT of the tile layer. Six of the
+    7-layer cap. The foreground is excluded from `biome_backdrop_layers` because its
+    factor exceeds that schema's `[0,1]` CHECK by design.
+  - **Screen geometry is derived:** 60x33 tiles @ 32px = a 1920x1056 screen
+    (`project.godot` viewport 1920x1080), so layers author 1:1 at 1920 wide and nothing
+    scales. Vertical coverage is overscan + a 240px camera-y clamp, NOT a vertical
+    `repeat_size` (which leaves empty blocks above/below a horizontal-only stack).
+- **Two defects a GREEN probe could not see** (both still unfixed, code phase pending):
+  (1) `main.tscn` sets `BackdropStrip` to `visible = false`, so the parallax has never
+  rendered in the app, while `probe_parallax_scroll.gd` exits 0 because it reads static
+  properties and never instantiates the scene — the concrete cause behind the old
+  "runtime rendering unverified" note; (2) `backdrop_preview.tscn` centers every
+  `Sprite2D` on the `(0,0)` crossing with no `repeat_size`, which is exactly the
+  positioning/sizing mistake the tutorial documents.
+- **Retiring:** the 10 tracked sliced PNGs (~13 MB) in `assets/backdrop_layers/` (root
+  copy is read by NO code) and `editor/assets/backdrop_layers/`, including the
+  `*_strip_x5.png` collision strips. `tools/slice-layers` is KEPT as a documented
+  one-off (its MP4 inputs are gitignored/local-only, so a clean clone can never re-run
+  it — that is why it is not the normal path).
+- **Plan + evidence:** `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` (code repo),
+  `docs/SESSION-CHECKPOINT.md` CURRENT STATE, `tools/slice-layers/README.md`, wiki
+  `TODO.md` TS71, GDScript test `test_parallax_backdrop.gd` to replace the probe.
 
 ## gRPC Integration
 
@@ -372,7 +406,7 @@ All tunable gameplay constants must live in `sstd_config.sqlite3` via the popula
 - The native editor includes a built-in **PixelCanvas** for quick paint/touch-up and a **3×3 tiled preview** for seam checking.
 - **Hybrid workflow**: PNGs can be created in external tools (Godot IDE, Aseprite, Photoshop) and imported via the "Import PNG" button. The two-way PNG roundtrip means no lock-in.
 - PNG resolution matches the config tile size (default 32×32). External images are resampled with nearest-neighbor on import.
-- **Parallax backdrop layers** (issue #68): `tools/slice-layers` (workspace member, issue #74) recovers L0/L1/L2 RGBA layer PNGs from a rendered parallax video by measuring horizontal displacement between two frames ("flow, not ML" — depth models rejected as an extra dependency). Outputs land in `assets/backdrop_layers/`; seeded factors are emitted in the tool log (see checkpoint; L1 0.53 slightly above its TDD upper bound 0.5, accepted).
+- **Parallax backdrop layers** (issue #68): **retired 2026-09-30.** The old path was `tools/slice-layers` (issue #74), which recovered 3 RGBA layer PNGs from a rendered parallax video by measuring horizontal displacement ("flow, not ML"). Its input MP4s are gitignored and local-only, so a clean clone can never re-run it. The tool is kept with `tools/slice-layers/README.md` documenting that caveat, but it is **not** the path to layers: the replacement is a planned `tools/gen-backdrop` crate that generates the 5-layer stack in-repo with a wrapping value-noise lattice (seamless under `repeat_size`). No external/CC0 art pack is used. See the #68 restack entry above and `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`.
 - **Preview MP4s are local-only** (user directive 2026-09-13): source renders `assets/samples/preview-with-parallax*.mp4` and the 1 fps frame dir are `git rm --cached`'d + gitignored — they will NOT go to the repo even with LFS. The derived `assets/backdrop_layers/*.png` are the committed artifact; regeneration needs the local files (replay command on TDD_Parallax-Background §4.1).
 
 ## Editor Tooling & Validation Commands
