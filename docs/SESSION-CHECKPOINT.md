@@ -110,18 +110,42 @@ not in the PNG.
    `.json` layer round-trip gap (TDD §4.2) as a separate follow-up rather than bundling
    it, `--ff-only` merge to `trunk`, push, offer to delete the branch.
 
-### Gate
+### Gate — MEASURED 2026-09-30, and one suite is RED on the current runtime
 
-`cargo test -p sstd-core` (110) plus `gen-backdrop` once it exists, and all five
+`cargo test -p sstd-core` (110) plus `gen-backdrop` once it exists, and all the
 GDScript suites. **Gate on the exit code**, never on the printed `failures=0` line
 (#80). No CI exists in this repo; nothing gates a push automatically.
 
+**`~/bin/godot4` is 4.7.2.mono, not 4.4.1.** The symlink was repointed on
+2026-09-29 09:24; `~/bin/godot4.4` (4.4.1.stable) still exists alongside it. Every
+baseline number previously recorded in `.opencode/AGENTS.md` was measured on 4.4.1,
+so they are stale for the canonical command. Both runtimes measured, same tree:
+
+| suite | 4.4.1 (`godot4.4`) | 4.7.2 (`godot4`, current) |
+|---|---|---|
+| `test_screen_store` | exit 0, failures=0, 187 ok | **exit 1, failures=1**, 186 ok |
+| `test_image_to_map` | exit 0, failures=0, 9 ok | exit 0, failures=0, 9 ok |
+| `test_terrain_brush` | exit 0, failures=0, 14 ok | exit 0, failures=0, 14 ok |
+| `test_override_merge` | exit 0, failures=0, 26 ok | exit 0, failures=0, 26 ok |
+
+**Known red, filed as #85, NOT caused by this work and NOT to be fixed inside it:**
+`test_screen_store.gd:947` `world-shared tile stored exactly once`. It counts every
+zip entry matching `begins_with("tiles/")`, and Godot 4.7's `ZIPPacker` now emits a
+`tiles/` **directory entry** next to the two PNGs, so the count is 3 not 2. Verified by
+listing the actual entries on both runtimes. The behaviour under test is correct on
+both: 4 terrain references across 2 screens resolve to exactly 2 stored PNGs, and
+`load_world` returns both. `screens/` gained a directory entry too, so any other
+`screens/` count has the same coupling. So: a test bug surfaced by a toolchain change,
+not a product regression. Expect this one red until #85 lands — do not read it as a
+regression introduced by the parallax work, and do not "fix" it by loosening an
+assertion that is not the one at fault.
+
 ```bash
-cargo test -p sstd-core
-~/bin/godot4 --headless --path editor --script res://tests/test_screen_store.gd    # 187 ok
-~/bin/godot4 --headless --path editor --script res://tests/test_image_to_map.gd    # 9 ok
-~/bin/godot4 --headless --path editor --script res://tests/test_terrain_brush.gd  # 14 ok
-~/bin/godot4 --headless --path editor --script res://tests/test_override_merge.gd  # 26 ok
+cargo test -p sstd-core                                                        # 110
+~/bin/godot4 --headless --path editor --script res://tests/test_screen_store.gd   # exit 1 today (#85), 187 ok on 4.4.1
+~/bin/godot4 --headless --path editor --script res://tests/test_image_to_map.gd   # 9 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_terrain_brush.gd # 14 ok
+~/bin/godot4 --headless --path editor --script res://tests/test_override_merge.gd # 26 ok
 ~/bin/godot4 --headless --path editor --script res://tests/test_parallax_backdrop.gd  # new, phase 5
 ```
 

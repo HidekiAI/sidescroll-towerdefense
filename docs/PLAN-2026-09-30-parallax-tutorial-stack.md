@@ -244,6 +244,14 @@ $HOME/bin/godot4 --headless --path editor --script res://tests/test_parallax_bac
 
 Exit code is authoritative, never the printed `failures=0` line (issue #80).
 
+**Expect one pre-existing red, unrelated to this work (issue #85):**
+`test_screen_store` exits 1 on Godot 4.7.2 and 0 on 4.4.1. It counts every zip entry
+matching `begins_with("tiles/")`, and 4.7's `ZIPPacker` emits a `tiles/` directory entry
+beside the two PNGs. Measured 2026-09-30 — 4.4.1: 187 / 9 / 14 / 26 ok, all exit 0;
+4.7.2: 186 ok + 1 fail on `world-shared tile stored exactly once`, then 9 / 14 / 26 ok.
+Do not fold that fix into this change and do not read it as a regression from the parallax
+work. The new `test_parallax_backdrop.gd` must still exit 0.
+
 Then: wiki push on `master`, checkpoint `CURRENT STATE` block, **#68 closed** with the
 wiki page cited, a follow-up issue for the pre-existing legacy `.json` layer round-trip
 gap (TDD §4.2, deliberately not bundled in), `--ff-only` merge to `trunk`, push, then

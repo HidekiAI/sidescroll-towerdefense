@@ -411,7 +411,11 @@ All tunable gameplay constants must live in `sstd_config.sqlite3` via the popula
 
 ## Editor Tooling & Validation Commands
 
-- Godot binary: `$HOME/bin/godot4` (4.4.1.stable).
+- Godot binary: `$HOME/bin/godot4` — **4.7.2.stable.mono** as of 2026-09-29 09:24
+  (the symlink was repointed that day). `$HOME/bin/godot4.4` is still installed
+  (4.4.1.stable) if a 4.4 comparison is needed. **Every baseline number recorded before
+  2026-09-29 was measured on 4.4.1**, so they are stale for the canonical command — say
+  which runtime a number came from, or re-measure.
 - **Editor GDScript regression tests** (must pass after any editor change):
   ```bash
   $HOME/bin/godot4 --headless --path editor --script res://tests/test_screen_store.gd
@@ -661,6 +665,18 @@ contract change**, so it needs its own ticket — do not bundle it with a neighb
 - `test_screen_store.gd` (86 `await` sites) has **no** completion tracking, so it is
   exposed to the silent-truncation failure mode. Tracked as #81, unproven — do not "fix"
   it blind.
+- **KNOWN RED on 4.7.2 (issue #85), green on 4.4.1:** `test_screen_store.gd:947`
+  `world-shared tile stored exactly once` fails because it counts every zip entry matching
+  `begins_with("tiles/")`, and 4.7's `ZIPPacker` now emits a `tiles/` **directory entry**
+  beside the two PNGs — count 3, not 2. `screens/` gained one too. The behaviour under
+  test is correct on both runtimes (4 references across 2 screens -> exactly 2 stored PNGs;
+  `load_world` returns both), so this is a **test bug surfaced by the toolchain change**,
+  not a product regression. Do not read this red as a regression from whatever you just
+  changed, and do not "fix" it by loosening an assertion that is not the one at fault.
+- Assertions that count **zip entries** are coupled to `ZIPPacker`'s directory-entry
+  behaviour, which changed between 4.4 and 4.7. Prefer counting file entries (skip names
+  ending in `/`), and mutation-verify any such count: the current form cannot distinguish
+  "2 PNGs" from "2 PNGs + 1 directory entry".
 - Gate: `cargo test -p sstd-core` (110) plus `test_screen_store`, `test_image_to_map`,
   `test_terrain_brush`, `test_override_merge`, all under
   `$HOME/bin/godot4 --headless --path editor --script res://tests/<name>.gd`.
