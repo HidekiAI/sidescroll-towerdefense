@@ -69,7 +69,7 @@ values; y is scaled to ~0.85x so both axes move. Six of the 7-layer cap. The
 foreground is excluded from `biome_backdrop_layers` because its factor exceeds the
 schema's `[0,1]` CHECK by design.
 
-### The asset estate to remove (10 tracked PNGs, ~13 MB)
+### The asset estate to remove (10 tracked PNGs + 3 `.import`, 12 MB on disk)
 
 | What | Where |
 |---|---|

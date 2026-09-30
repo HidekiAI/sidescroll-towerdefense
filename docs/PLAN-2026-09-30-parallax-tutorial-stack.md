@@ -77,12 +77,12 @@ stack).
 
 | What | Where | Why it goes |
 |---|---|---|
-| `layer_0/1/2.png`, `displacement.png` | `assets/backdrop_layers/` | sliced from a gitignored local-only MP4; **no code reads the root copy**, only the wiki replay command does |
+| `layer_0/1/2.png`, `displacement.png` | `assets/backdrop_layers/` | sliced from a gitignored local-only MP4; **read by no code** (grep-verified 2026-09-30: the only non-doc hit outside `editor/` is `tools/slice-layers/src/main.rs:43`, which is its default *output* dir, not a read) |
 | same 3 PNGs + 3 `.import` | `editor/assets/backdrop_layers/` | the engine-loaded copies; superseded by generated art |
 | `layer_0/1/2_strip_x5.png` + 3 `.import` | `editor/assets/backdrop_layers/` | x5 collision strips for the tile-backed near band (#76); the new `forest` layer is decorative |
 | `displacement.png` diagnostic | `assets/backdrop_layers/` | diagnostic for the retired flow-recovery path |
 
-Roughly 13 MB of tracked PNGs across 10 files. `tools/slice-layers` is **kept** (owner
+12 MB on disk: 10 tracked PNGs plus 3 `.import` files, 13 tracked files in all. `tools/slice-layers` is **kept** (owner
 decision) with its caveat documented: its only inputs are `assets/samples/*.mp4` and
 the 1 fps frame directory, both gitignored, so a clean clone can never re-run it.
 

@@ -219,7 +219,8 @@ Recorded 2026-09-06; ticketed and designed the same day.
   "runtime rendering unverified" note; (2) `backdrop_preview.tscn` centers every
   `Sprite2D` on the `(0,0)` crossing with no `repeat_size`, which is exactly the
   positioning/sizing mistake the tutorial documents.
-- **Retiring:** the 10 tracked sliced PNGs (~13 MB) in `assets/backdrop_layers/` (root
+- **Retiring:** the 10 tracked sliced PNGs (12 MB on disk, plus 3 `.import`) in
+  `assets/backdrop_layers/` (root
   copy is read by NO code) and `editor/assets/backdrop_layers/`, including the
   `*_strip_x5.png` collision strips. `tools/slice-layers` is KEPT as a documented
   one-off (its MP4 inputs are gitignored/local-only, so a clean clone can never re-run
