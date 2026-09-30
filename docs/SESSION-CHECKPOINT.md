@@ -15,22 +15,58 @@ _Last updated: 2026-09-30_
 — replace the video-sliced art with self-generated layers, make the backdrop actually
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
-**State: research and design DONE, reviewed, merged and PUSHED. No code, no art, no
-runtime change yet.** Both branches were merged `--ff-only` onto their base branches and
-pushed on 2026-09-30, so the design is live on `trunk` and `master`.
+**State: design merged and PUSHED. Phase 1 scaffolding COMMITTED LOCALLY, NOT PUSHED.**
+Branch `feat/gen-backdrop-crate` (off `trunk`) holds one commit; the 7 generator blocks are
+still empty and awaiting @me. No art, no scene change, no runtime change yet.
 
 | repo | branch | what is on it |
 |---|---|---|
+| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 1 commit, unpushed) | `tools/gen-backdrop/` (crate + 7 blocks + 9 tests), workspace `Cargo.toml`, `Cargo.lock` |
 | `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
 | `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
 
-The two branch refs exist on the remotes:
-`https://github.com/HidekiAI/sidescroll-towerdefense/tree/feat/parallax-tutorial-stack`
-and `https://github.com/HidekiAI/sidescroll-towerdefense.wiki/tree/docs/parallax-tutorial-model`.
+Issue #68 stays **OPEN**. Issue **#85** is a separate filed bug — see the Gate section; it
+is unrelated to this work and must not be folded into it.
 
-Issue #68 has a design-revision comment and stays **OPEN** (no code landed). Issue **#85**
-was filed during the pre-push self-review — see the Gate section, it is unrelated to this
-work and must not be folded into it.
+### Phase 1 gate: 4 contracts the tests falsified, and 2 test gaps they exposed
+
+The 9 tests were mutation-verified in a throwaway scratch copy **outside the repo tree**,
+16 mutations. Scratch since deleted. Four of my own claims were wrong before the first
+mutation ran:
+
+- **x -> lattice mapping is `x * cells / (width - 1)`, not `/ width`.** `/ width` is a
+  continuous function but the last column lands *near* the wrap, so first and last column
+  are never byte-equal and the seam cannot be asserted at all. `(width - 1)` puts the last
+  column exactly on the first. M2 falsifies the `/ width` form.
+- **`relief_px` is absolute pixels, not a fraction of height.** Layers range 1320px to
+  320px, so a fraction gives one authored number a different silhouette per layer, and it
+  collapses to 0 at small sizes — which made the noise and therefore the **seed**
+  irrelevant, so `make_silhouette` returned a constant. M15 falsifies the fraction form.
+- **fBm's period DOUBLES per octave** (octave `o` samples at `2^o` frequency so it spans
+  `2^o` cells). Halving also stays seamless, so `fbm_stays_in_unit_range_and_wraps` is a
+  **seam** check, not a spectrum check. M5 stayed green and that is expected and documented.
+- **A cloud's vertical band must saturate at 1.0**, or no pixel reaches full opacity and
+  the plane reads as haze. M8 falsifies the non-saturating form.
+
+Two gaps in my own tests, both found by mutations that *stayed* green:
+
+- **M12** (disabling the `x <= y` check in `validate_factors`) stayed green because
+  `factors_in_unit_range` only ever feeds it the shipped stack, which is valid by
+  construction. Added `validate_factors_rejects_bad_specs`, which asserts the specific
+  error message for 4 invalid specs. M14/M16 now redden.
+- **M6** (relief as a fraction) stayed green at a large `relief_px`, because the fraction
+  form still varies with seed at that size. Added `relief_is_absolute_not_a_fraction`,
+  which measures skyline amplitude at two heights. M15 now reddens.
+- **M9** (hard-threshold clouds) stayed green even with the partial-alpha assertion,
+  because the band gradient supplies partial alpha on its own. The assertion was
+  **deleted**, not weakened, and `cloud_layers_have_holes` is now documented as a holes
+  check only. Do not cite it as a soft-edge check.
+
+**Methodology, worth keeping:** the mutation harness itself failed its first run and the
+failure had to be caught. A substitution produced a parse error, and the harness read the
+*absence* of `FAILED` in the output as a **pass**. It now requires each mutant to compile
+and to emit a result line before any result is read. A build error is a void experiment,
+not a green test.
 
 **Where the design lives:** the wiki TDD is the design of record. The code repo's
 `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` is the session-local execution plan
