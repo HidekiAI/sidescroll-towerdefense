@@ -747,6 +747,24 @@ contract change**, so it needs its own ticket — do not bundle it with a neighb
   `test_terrain_brush`, `test_override_merge`, all under
   `$HOME/bin/godot4 --headless --path editor --script res://tests/<name>.gd`.
 
+## Repo hygiene: `editor/addons/` is 516 MB of vendored addon and is NOT gitignored
+
+Verified 2026-10-01 by dry run (`git add -An editor/`), which staged
+`editor/addons/godot_ai/` and `editor/addons/ziva_agent/` — the latter is **516 MB**
+of CEF/`libcef.so` plus Chromium `.pak` locales, dropped in by a third-party tool, not
+authored here. There is **no `addon` rule in `.gitignore`**, so nothing stops it.
+
+- **NEVER `git add -A` or `git add .` in this repo.** Stage explicit paths. A blanket add
+  would commit ~516 MB of vendored binaries into git history, and history is where they
+  would live forever.
+- `editor/project.godot` also shows as modified, and that is **Godot 4.7.2 rewriting the
+  project file on open**, not authored change: `config/features` `4.4` -> `4.7` plus new
+  `[animation]` and `[dotnet]` sections. It is the same toolchain bump as the known-red
+  #85 below. It was deliberately left uncommitted rather than swept up into #68 work.
+- This is a **pre-existing condition, not a regression from any current work.** Do not
+  "fix" it as a drive-by inside an unrelated branch, and do not read the dirty
+  `git status` as leftover work of yours.
+
 ## Provider Switching
 
 The user switches between OpenCode and OpenRouter providers for LLM assistance. These
