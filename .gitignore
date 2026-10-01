@@ -38,6 +38,13 @@ editor/.godot/
 editor/config/
 editor/*.json
 
+# Third-party Godot addons installed by external tooling, never authored here.
+# Measured 2026-10-01: 795 files, 516 MB, of which 235 are binary (510 MB) --
+# 223 Chromium .pak data packs plus libcef.so, libvulkan.so.1, and the ziva_agent
+# / godot_ai shipped binaries. Committing these puts half a gigabyte of vendored
+# third-party blobs into git history permanently. Reinstall via the addon provider.
+editor/addons/
+
 # Runtime-generated stamp catalog exports (materialized by editor tests/prune runs)
 editor/assets/tiles/stamp_*.png
 editor/assets/tiles/stamp_*.png.import
