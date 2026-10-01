@@ -44,7 +44,7 @@ const MANIFEST_VERSION: &str = "1.0";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    match run(&args) {
+    match generate_layers_and_manifest(&args) {
         Ok(dir) => println!("gen-backdrop: done -> {}", dir.display()),
         Err(e) => {
             eprintln!("gen-backdrop: error: {}", e);
@@ -183,31 +183,27 @@ fn lattice_hash(cell_x: i64, cell_y: i64, seed: u64) -> f32 {
 ///
 /// Dividing by a round pixel divisor (say `col / 260.0`) does not work either: the wrap then
 /// lands at `260 * period` px, which is not the texture edge at all.
-// TODO(human): begin block 2/9
 fn value_noise(pos_x: f32, pos_y: f32, period: i64, seed: u64) -> f32 {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let clamped_period: i64 = if period < 1 { 1 } else { period };
-    // let cell_x0: i64 = pos_x.floor() as i64;
-    // let cell_y0: i64 = pos_y.floor() as i64;
-    // let frac_x: f32 = pos_x - pos_x.floor();
-    // let frac_y: f32 = pos_y - pos_y.floor();
-    // // Smoothstep the fractional part, not linear: zero slope at every lattice point.
-    // let smooth_x: f32 = frac_x * frac_x * (3.0 - 2.0 * frac_x);
-    // let smooth_y: f32 = frac_y * frac_y * (3.0 - 2.0 * frac_y);
-    // // The x axis wraps at `p`; the y axis does not. `i64 % p` is negative for negative
-    // // i, hence the two-step normalisation rather than a bare `%`.
-    // let wrap = |raw_cell: i64| -> i64 {
-    //     ((raw_cell % clamped_period) + clamped_period) % clamped_period
-    // };
-    // let hash_x0y0: f32 = lattice_hash(wrap(cell_x0), cell_y0, seed);
-    // let hash_x1y0: f32 = lattice_hash(wrap(cell_x0 + 1), cell_y0, seed);
-    // let hash_x0y1: f32 = lattice_hash(wrap(cell_x0), cell_y0 + 1, seed);
-    // let hash_x1y1: f32 = lattice_hash(wrap(cell_x0 + 1), cell_y0 + 1, seed);
-    // let row_y0: f32 = hash_x0y0 + (hash_x1y0 - hash_x0y0) * smooth_x;
-    // let row_y1: f32 = hash_x0y1 + (hash_x1y1 - hash_x0y1) * smooth_x;
-    // row_y0 + (row_y1 - row_y0) * smooth_y
+    let clamped_period: i64 = if period < 1 { 1 } else { period };
+    let cell_x0: i64 = pos_x.floor() as i64;
+    let cell_y0: i64 = pos_y.floor() as i64;
+    let frac_x: f32 = pos_x - pos_x.floor();
+    let frac_y: f32 = pos_y - pos_y.floor();
+    // Smoothstep the fractional part, not linear: zero slope at every lattice point.
+    let smooth_x: f32 = frac_x * frac_x * (3.0 - 2.0 * frac_x);
+    let smooth_y: f32 = frac_y * frac_y * (3.0 - 2.0 * frac_y);
+    // The x axis wraps at `p`; the y axis does not. `i64 % p` is negative for negative
+    // i, hence the two-step normalisation rather than a bare `%`.
+    let wrap =
+        |raw_cell: i64| -> i64 { ((raw_cell % clamped_period) + clamped_period) % clamped_period };
+    let hash_x0y0: f32 = lattice_hash(wrap(cell_x0), cell_y0, seed);
+    let hash_x1y0: f32 = lattice_hash(wrap(cell_x0 + 1), cell_y0, seed);
+    let hash_x0y1: f32 = lattice_hash(wrap(cell_x0), cell_y0 + 1, seed);
+    let hash_x1y1: f32 = lattice_hash(wrap(cell_x0 + 1), cell_y0 + 1, seed);
+    let row_y0: f32 = hash_x0y0 + (hash_x1y0 - hash_x0y0) * smooth_x;
+    let row_y1: f32 = hash_x0y1 + (hash_x1y1 - hash_x0y1) * smooth_x;
+    row_y0 + (row_y1 - row_y0) * smooth_y
 }
-// TODO(human): end block 2/9
 
 // ---------------------------------------------------------------------------
 // 3/9 - fractional Brownian motion
@@ -374,15 +370,21 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
 /// the transition is gradual rather than a hard cutout. A hard threshold would produce
 /// the stair-stepped edge this technique exists to avoid.
 ///
-/// The band is authored with vertical headroom so a camera-y clamp can move it without
-/// exposing its edge; the gradient inside the band keeps cloud thin at the top and dense
-/// at the bottom, which is what reads as distance.
+/// NO VERTICAL BAND GRADIENT, deliberately. An earlier draft multiplied alpha by a vertical
+/// ramp so the plane would have a guaranteed clear margin. It was dropped for two reasons:
+/// the ramp's prose and its own formula disagreed about which end was dense, and the margin
+/// only helps if it sits on the side the camera actually travels toward, which is not
+/// knowable until the scene places the planes. Alpha is therefore the bare smoothstep,
+/// which is exactly the recipe [TDD_Parallax-Background] specifies for this layer.
 ///
-/// THE BAND GRADIENT MUST SATURATE AT 1.0 over the lower part of the band, not scale the
-/// whole band. Multiplying alpha by a gradient that is still below 1 at the bottom means no
-/// pixel anywhere reaches alpha 255, so the layer reads as flat haze instead of cloud. The
-/// contract `cloud_layers_have_holes` asserts is that fully-opaque AND fully-clear pixels
-/// both exist, so a gradient that never reaches 1 is a failure, not a subtlety.
+/// ACCEPTED CONSEQUENCE: the bottom row is whatever the noise says, so the clamped camera-y
+/// travel budget (240 px) is the only thing keeping a vertical cut line off screen. That is a
+/// scene-level visual check, not a unit test, because nothing at this layer can observe it.
+///
+/// The contract `cloud_layers_have_holes` asserts is that fully-opaque AND fully-clear pixels
+/// both exist. With no band multiplier that rests entirely on `fbm` reaching both ends of
+/// `[alpha_edge_low, alpha_edge_high]`, which is why the two edges are a per-layer argument
+/// rather than hard-coded.
 // TODO(human): begin block 7/9
 fn make_clouds(
     width: u32,
@@ -400,14 +402,9 @@ fn make_clouds(
     // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
     // for row in 0..height {
     //     let row_frac: f32 = row as f32 / height.max(1) as f32;
-    //     // Saturates at 1.0 over the lower 55% of the band, so the cloud body reaches
-    //     // full opacity. A gradient still below 1 at the bottom makes the plane read as
-    //     // haze instead of cloud.
-    //     let band: f32 = ((0.78 - row_frac) / 0.30).clamp(0.0, 1.0);
     //     for col in 0..width {
     //         let density: f32 = fbm(col_to_cell(col), row_frac * 1.6, cells, 4, seed);
-    //         let alpha: f32 =
-    //             (smoothstep(alpha_edge_low, alpha_edge_high, density) * band).clamp(0.0, 1.0);
+    //         let alpha: f32 = smoothstep(alpha_edge_low, alpha_edge_high, density);
     //         let cloud_rgb: [u8; 3] = lerp_rgb(shade, body, alpha);
     //         img.put_pixel(
     //             col,
@@ -546,15 +543,15 @@ fn build_manifest(specs: &[LayerSpec], width: u32, overscan: u32, seed: u64) -> 
     //     seed,
     //     layers: specs
     //         .iter()
-    //         .map(|s| ManifestLayer {
-    //             name: s.name.to_string(),
-    //             file: s.file.to_string(),
-    //             scroll_scale_x: s.scroll_scale.0,
-    //             scroll_scale_y: s.scroll_scale.1,
+    //         .map(|spec| ManifestLayer {
+    //             name: spec.name.to_string(),
+    //             file: spec.file.to_string(),
+    //             scroll_scale_x: spec.scroll_scale.0,
+    //             scroll_scale_y: spec.scroll_scale.1,
     //             repeat_size_x: width,
     //             repeat_size_y: 0,
-    //             z_index: s.z_index,
-    //             height_px: s.height_px,
+    //             z_index: spec.z_index,
+    //             height_px: spec.height_px,
     //         })
     //         .collect(),
     // }
@@ -589,7 +586,7 @@ struct ManifestLayer {
 // ---------------------------------------------------------------------------
 
 /// Parses the CLI, builds every layer, writes the PNGs and the manifest.
-fn run(args: &[String]) -> Result<PathBuf, String> {
+fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
     let mut out_dir = PathBuf::from("editor/assets/backdrop_layers");
     let mut width: u32 = 1920;
     let mut overscan: u32 = 240;
@@ -642,7 +639,7 @@ fn run(args: &[String]) -> Result<PathBuf, String> {
     validate_factors(&specs)?;
 
     std::fs::create_dir_all(&out_dir)
-        .map_err(|e| format!("cannot create {}: {}", out_dir.display(), e))?;
+        .map_err(|err| format!("cannot create {}: {}", out_dir.display(), err))?;
 
     println!(
         "gen-backdrop: width={} overscan={} seed={} out={} layers={}",
@@ -687,9 +684,9 @@ fn run(args: &[String]) -> Result<PathBuf, String> {
         let path = out_dir.join(spec.file);
         image
             .save(&path)
-            .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+            .map_err(|err| format!("cannot write {}: {}", path.display(), err))?;
 
-        let opaque = image.pixels().filter(|p| p.0[3] == 255).count();
+        let opaque = image.pixels().filter(|rgba| rgba.0[3] == 255).count();
         let total = (width as usize) * (height as usize);
         println!(
             "gen-backdrop: layer={} file={} dims={}x{} scale=({:.2},{:.2}) z={} opaque={}/{} ({:.1}%)",
@@ -709,9 +706,9 @@ fn run(args: &[String]) -> Result<PathBuf, String> {
     let manifest = build_manifest(&specs, width, overscan, seed);
     let manifest_path = out_dir.join("manifest.json");
     let json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("cannot serialize manifest: {}", e))?;
+        .map_err(|err| format!("cannot serialize manifest: {}", err))?;
     std::fs::write(&manifest_path, format!("{}\n", json))
-        .map_err(|e| format!("cannot write {}: {}", manifest_path.display(), e))?;
+        .map_err(|err| format!("cannot write {}: {}", manifest_path.display(), err))?;
     println!(
         "gen-backdrop: manifest={} layers={}",
         manifest_path.display(),
@@ -787,8 +784,8 @@ mod tests {
 
     /// Every layer the crate emits, as (name, image) pairs.
     ///
-    /// Goes through the SAME `run()` dispatch table by name, so a layer added to
-    /// `layer_specs()` without a generator is caught here instead of at runtime.
+    /// Goes through the SAME `generate_layers_and_manifest()` dispatch table by name, so a
+    /// layer added to `layer_specs()` without a generator is caught here instead of at runtime.
     fn all_layers() -> Vec<(String, RgbaImage)> {
         vec![
             ("Sky".to_string(), make_sky(W, H, SEED)),
@@ -835,7 +832,7 @@ mod tests {
     #[test]
     fn sky_has_no_alpha() {
         let sky = make_sky(W, H, SEED);
-        let holes = sky.pixels().filter(|p| p.0[3] != 255).count();
+        let holes = sky.pixels().filter(|rgba| rgba.0[3] != 255).count();
         assert_eq!(
             holes, 0,
             "sky must be fully opaque, found {} hole pixels",
@@ -856,8 +853,8 @@ mod tests {
     fn cloud_layers_have_holes() {
         for (name, t0, t1) in [("HighClouds", 0.52f32, 0.68f32), ("LowClouds", 0.44, 0.60)] {
             let img = make_clouds(W, H, SEED, t0, t1);
-            let opaque = img.pixels().filter(|p| p.0[3] == 255).count();
-            let clear = img.pixels().filter(|p| p.0[3] == 0).count();
+            let opaque = img.pixels().filter(|rgba| rgba.0[3] == 255).count();
+            let clear = img.pixels().filter(|rgba| rgba.0[3] == 0).count();
             assert!(opaque > 0, "{}: no fully opaque pixels at all", name);
             assert!(clear > 0, "{}: no fully transparent pixels at all", name);
         }
@@ -953,10 +950,23 @@ mod tests {
     /// rejected everything for the wrong reason could not pass.
     #[test]
     fn validate_factors_rejects_bad_specs() {
-        fn bad(name: &'static str, scale_x: f32, scale_y: f32) -> LayerSpec {
+        /// Builds a spec whose only interesting field is the scroll scale, so each case
+        /// below varies exactly the input the validator is supposed to judge.
+        /// `file` is the one field `validate_factors` ignores, so it is derived from the
+        /// case name instead of left as a placeholder: a meaningless literal in a fixture
+        /// reads as though it were part of what is under test. The `panic` arm stops a new
+        /// case from silently inheriting another case's file name.
+        fn rejected_spec(name: &'static str, scale_x: f32, scale_y: f32) -> LayerSpec {
+            let file: &'static str = match name {
+                "Zero" => "zero.png",
+                "Neg" => "neg.png",
+                "Inverted" => "inverted.png",
+                "Runaway" => "runaway.png",
+                other => panic!("no fixture file name for case {}", other),
+            };
             LayerSpec {
                 name,
-                file: "x.png",
+                file,
                 scroll_scale: (scale_x, scale_y),
                 height_px: 64,
                 z_index: 0,
@@ -964,10 +974,18 @@ mod tests {
         }
 
         let cases: [(&str, LayerSpec, &str); 4] = [
-            ("zero x", bad("Zero", 0.0, 0.0), "out of range"),
-            ("negative y", bad("Neg", 0.5, -0.1), "positive"),
-            ("x below y", bad("Inverted", 0.4, 0.6), "must exceed"),
-            ("x too fast", bad("Runaway", 1.9, 1.0), "out of range"),
+            ("zero x", rejected_spec("Zero", 0.0, 0.0), "out of range"),
+            ("negative y", rejected_spec("Neg", 0.5, -0.1), "positive"),
+            (
+                "x below y",
+                rejected_spec("Inverted", 0.4, 0.6),
+                "must exceed",
+            ),
+            (
+                "x too fast",
+                rejected_spec("Runaway", 1.9, 1.0),
+                "out of range",
+            ),
         ];
         for (label, spec, expected) in cases {
             match validate_factors(&[spec]) {
@@ -1151,8 +1169,9 @@ mod tests {
     /// survives every octave.
     ///
     /// SCOPE: this is a seam check, not a spectrum check. It stays green whether the period
-    /// doubles or halves per octave (see 3/7), so it must not be cited as evidence that the
-    /// frequency ladder is right. The period is 64 so that four octaves cannot collapse to
+    /// doubles or halves per octave (see 3/9), so it must not be cited as evidence that the
+    /// frequency ladder is right -- `fbm_matches_its_documented_octave_formula` is the test
+    /// that covers the ladder. The period is 64 so that four octaves cannot collapse to
     /// a single wrapped cell under either scheme -- a period of 8 under halving reaches 1,
     /// where every x wraps identically and the assertion becomes vacuous.
     #[test]
@@ -1175,6 +1194,697 @@ mod tests {
                 value_at,
                 sample_x + period as f32,
                 value_shifted
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 2/9 - value noise
+    // -----------------------------------------------------------------------
+
+    /// VALUE NOISE X-PERIODICITY CONTRACT. The doc comment's central promise is that the
+    /// function repeats every `period` lattice cells in `x`, because `Parallax2D.repeat_size`
+    /// tiles a 1920 px plane forever and any discontinuity becomes a seam repeating across
+    /// the whole scene.
+    ///
+    /// WHY A DIRECT TEST, when `fbm_stays_in_unit_range_and_wraps` and `seam_is_invisible`
+    /// already observe periodicity: both of those look at the result THROUGH fBm or through
+    /// whole rendered planes. A wrong `period` still produces a seamless image, so neither
+    /// can tell "the period is 8 but should be 16" from "the octave ladder is wrong". Only
+    /// this test names the mechanism.
+    #[test]
+    fn value_noise_is_periodic_in_x() {
+        let period: i64 = 8;
+        for step in 0..48 {
+            let pos_x = step as f32 * 0.37;
+            let pos_y = step as f32 * 1.1;
+            let at_pos_x = value_noise(pos_x, pos_y, period, SEED);
+            let at_shifted = value_noise(pos_x + period as f32, pos_y, period, SEED);
+            assert!(
+                (at_pos_x - at_shifted).abs() < 1e-6,
+                "value_noise is not periodic in x at period {}: f({}) = {} but f({}) = {}",
+                period,
+                pos_x,
+                at_pos_x,
+                pos_x + period as f32,
+                at_shifted
+            );
+        }
+    }
+
+    /// VALUE NOISE NEGATIVE-CELL WRAP CONTRACT. The doc comment justifies the two-step
+    /// `((raw % p) + p) % p` by noting that Rust's `%` keeps the sign of the dividend, so a
+    /// bare `%` hands `lattice_hash` a NEGATIVE cell index for negative input. Nothing else
+    /// in the suite catches that: `lattice_hash` takes an `i64` happily and returns a
+    /// different, perfectly valid-looking value.
+    ///
+    /// WHY THE DOMAIN MUST GO NEGATIVE: stepping backwards from a positive `pos_x` never
+    /// produces a negative cell, so it cannot tell the two-step wrap from a bare `%`. At
+    /// `pos_x = -8.0` the cells are `-8` and `-7`, where a bare `%` yields `-7` and the
+    /// two-step yields `1`. The generator itself never calls with negative `pos_x`
+    /// (`col_to_cell` is non-negative for every column), so this pins documented robustness
+    /// rather than a live path -- but it is the behaviour the doc comment promises.
+    #[test]
+    fn value_noise_is_periodic_in_x_across_negative_cells() {
+        let period: i64 = 8;
+        for step in 0..48 {
+            let pos_x = -8.0 + step as f32 * 0.37;
+            let pos_y = step as f32 * 1.1;
+            let at_pos_x = value_noise(pos_x, pos_y, period, SEED);
+            let at_shifted = value_noise(pos_x + period as f32, pos_y, period, SEED);
+            assert!(
+                (at_pos_x - at_shifted).abs() < 1e-6,
+                "value_noise does not wrap negative cells: f({}) = {} but f({}) = {}, so the \
+                 two-step normalisation is missing and a bare `%` is indexing lattice_hash \
+                 with a negative cell",
+                pos_x,
+                at_pos_x,
+                pos_x + period as f32,
+                at_shifted
+            );
+        }
+    }
+
+    /// VALUE NOISE Y-NON-PERIODICITY CONTRACT. `y` is deliberately NOT periodic: vertical
+    /// coverage comes from overscan plus a clamped camera-y travel, never from a vertical
+    /// repeat. Nothing asserted that anywhere -- wrapping `y` along with `x` would have left
+    /// every other test green while making the plane tile vertically, which is exactly the
+    /// "empty blocks above and below" failure the TDD forbids.
+    ///
+    /// THRESHOLD, with the derivation corrected against measurement. For `lattice_hash` the
+    /// yardstick is exact: two INDEPENDENT uniform draws on `[0,1)` differ by 1/3 on average.
+    /// That figure does NOT transfer here. `value_noise(y)` and `value_noise(y + period)` are
+    /// 8 cells apart, but both are bilinearly interpolated, so the two outputs are CORRELATED
+    /// and the mean gap comes out smaller than the independent-draw figure would suggest.
+    ///
+    /// MEASURED: 0.25727 (seed 0), 0.26472 (1), 0.20498 (0x5eed), 0.24600 (u64::MAX). The
+    /// floor is 0.15, so the tightest seed clears it by 0.055 -- a real but not generous
+    /// margin, and narrower than the 1/3 argument implies. Wrapping `y` drives the mean to
+    /// exactly 0, so the test still separates cleanly (mutant VN-WRAPY confirms). Fixed seeds
+    /// and no RNG, so it cannot flake.
+    #[test]
+    fn value_noise_does_not_wrap_y() {
+        const MIN_MEAN_VERTICAL_DELTA: f32 = 0.15;
+        let period: i64 = 8;
+        for seed in [0u64, 1, 0x5eed, u64::MAX] {
+            let mut deltas: Vec<f32> = Vec::new();
+            for step in 0..96 {
+                let pos_x = step as f32 * 0.41;
+                let pos_y = step as f32 * 1.7;
+                let at_pos_y = value_noise(pos_x, pos_y, period, seed);
+                let at_shifted = value_noise(pos_x, pos_y + period as f32, period, seed);
+                deltas.push((at_pos_y - at_shifted).abs());
+            }
+            let mean_delta = deltas.iter().sum::<f32>() / deltas.len() as f32;
+            assert!(
+                mean_delta >= MIN_MEAN_VERTICAL_DELTA,
+                "seed {}: mean |delta| between y and y+{} is {:.5}, at or below the {:.2} \
+                 floor, so y is being wrapped too; vertical coverage must come from overscan, \
+                 not from a vertical repeat",
+                seed,
+                period,
+                mean_delta,
+                MIN_MEAN_VERTICAL_DELTA
+            );
+        }
+    }
+
+    /// VALUE NOISE SMOOTHSTEP CONTRACT. The doc comment says the fractional part is
+    /// smoothstepped rather than linearly interpolated, because linear leaves a slope
+    /// discontinuity at every lattice point and that shows up as visible creases in the sky
+    /// gradient. Nothing enforced it: a linear implementation is still in `[0,1]`, still
+    /// periodic and still seamless, so every other test in this module would pass.
+    ///
+    /// MEASUREMENT: the slope just inside a lattice point is compared against the slope at
+    /// the middle of the same cell, where the smoothstep derivative peaks at 1.5x linear.
+    /// Averaged over 128 (cell, row) pairs so one unlucky pair of hash values cannot decide
+    /// the result. MEASURED: edge slope 0.00087, mid-cell slope 0.87058, ratio 0.0010 against
+    /// the 0.25 ceiling -- a 250x margin. A linear ramp gives a ratio of 1.0.
+    #[test]
+    fn value_noise_smoothsteps_the_fraction_not_linear() {
+        const MAX_EDGE_TO_MID_RATIO: f32 = 0.25;
+        let period: i64 = 8;
+        let delta: f32 = 0.001;
+        let mut edge_slope_sum: f32 = 0.0;
+        let mut mid_slope_sum: f32 = 0.0;
+        let mut sample_count: f32 = 0.0;
+        for cell_x in 0..16i64 {
+            let cell_x_f32 = cell_x as f32;
+            for row_no in 0..8 {
+                let pos_y = row_no as f32 * 2.3;
+                let at_lattice = value_noise(cell_x_f32, pos_y, period, SEED);
+                let just_inside = value_noise(cell_x_f32 + delta, pos_y, period, SEED);
+                let mid_before = value_noise(cell_x_f32 + 0.5 - delta, pos_y, period, SEED);
+                let mid_after = value_noise(cell_x_f32 + 0.5 + delta, pos_y, period, SEED);
+                edge_slope_sum += (just_inside - at_lattice).abs() / delta;
+                mid_slope_sum += (mid_after - mid_before).abs() / delta;
+                sample_count += 1.0;
+            }
+        }
+        let mean_edge_slope = edge_slope_sum / sample_count;
+        let mean_mid_slope = mid_slope_sum / sample_count;
+
+        // Non-vacuity tripwire: without it a hash that returned a constant would give both
+        // slopes 0 and the ratio assertion below would hold for the wrong reason.
+        assert!(
+            mean_mid_slope > 0.0,
+            "non-vacuity guard: the mid-cell slope is exactly 0, so value_noise is constant \
+             and the ratio check below would pass for the wrong reason"
+        );
+        assert!(
+            mean_edge_slope < MAX_EDGE_TO_MID_RATIO * mean_mid_slope,
+            "mean slope just inside a lattice point is {:.5} against {:.5} mid-cell, a ratio \
+             of {:.3} above the {:.2} ceiling -- the fractional part is interpolated linearly, \
+             which leaves a slope discontinuity at every lattice point",
+            mean_edge_slope,
+            mean_mid_slope,
+            mean_edge_slope / mean_mid_slope,
+            MAX_EDGE_TO_MID_RATIO
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 3/9 - fractional Brownian motion
+    // -----------------------------------------------------------------------
+
+    /// fBm OCTAVE-LADDER CONTRACT. The block's own doc comment is emphatic that the period
+    /// MUST DOUBLE per octave, then concludes: "Neither is caught by a test here, so doubling
+    /// is a documented intent rather than an asserted contract." This closes that gap.
+    ///
+    /// The documented ladder is re-derived independently -- period `8 * 2^o`, frequency
+    /// `2^o`, amplitude `0.5^o`, per-octave seed offset `seed ^ (o * 0x9e3779b9)`,
+    /// normalised by the amplitude sum -- and compared. A mutant that halves the period,
+    /// changes the amplitude ratio, scales frequency by 1.5, or drops the per-octave seed
+    /// offset all produce a different number here.
+    ///
+    /// WHAT IT DOES NOT DO, stated plainly: it re-implements the formula, so an edit made to
+    /// the implementation AND to this test together stays green. It pins the ladder as
+    /// documented; it does not independently derive the correct ladder, because the right
+    /// period ratio is an art decision, not a computable one.
+    ///
+    /// The `octaves = 1` case doubles as an identity check: one normalised octave at
+    /// frequency 1 and unshifted seed must equal `value_noise` exactly, which pins octave 0
+    /// as the untransformed base.
+    #[test]
+    fn fbm_matches_its_documented_octave_formula() {
+        for step in 0..24 {
+            let pos_x = step as f32 * 1.7;
+            let pos_y = step as f32 * 0.9;
+            for octaves in 1u32..=4 {
+                let mut sum: f32 = 0.0;
+                let mut amplitude: f32 = 1.0;
+                let mut norm: f32 = 0.0;
+                let mut frequency: f32 = 1.0;
+                for octave in 0..octaves {
+                    let octave_period: i64 = 8i64.saturating_mul(1i64 << octave.min(20));
+                    sum += amplitude
+                        * value_noise(
+                            pos_x * frequency,
+                            pos_y * frequency,
+                            octave_period,
+                            SEED ^ (octave as u64).wrapping_mul(0x9e37_79b9),
+                        );
+                    norm += amplitude;
+                    amplitude *= 0.5;
+                    frequency *= 2.0;
+                }
+                let expected = sum / norm;
+                let actual = fbm(pos_x, pos_y, 8, octaves, SEED);
+                assert!(
+                    (actual - expected).abs() < 1e-6,
+                    "fbm({}, {}, octaves={}) = {} but the documented ladder gives {}. The \
+                     ladder is period*2^o, frequency*2^o, amplitude*0.5^o, and each octave \
+                     reseeded with ^ (o * 0x9e3779b9)",
+                    pos_x,
+                    pos_y,
+                    octaves,
+                    actual,
+                    expected
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 4/9 - colour lerp
+    // -----------------------------------------------------------------------
+
+    /// LERP ENDPOINT CONTRACT. `blend` 0 and 1 must return their inputs bit-exactly, not
+    /// approximately. This matters because the sky gradient calls `lerp_rgb` at `row_frac`
+    /// 0.0 and again just under 1.0, so a one-ulp endpoint error would appear as a flat or
+    /// clipped band at the very top and bottom of the sky.
+    #[test]
+    fn lerp_rgb_hits_its_endpoints_exactly() {
+        let from_rgb = [10u8, 20, 30];
+        let to_rgb = [200u8, 210, 220];
+        assert_eq!(lerp_rgb(from_rgb, to_rgb, 0.0), from_rgb);
+        assert_eq!(lerp_rgb(from_rgb, to_rgb, 1.0), to_rgb);
+        // The same holds outside the interval, because that is what clamping means.
+        assert_eq!(lerp_rgb(from_rgb, to_rgb, -7.0), from_rgb);
+        assert_eq!(lerp_rgb(from_rgb, to_rgb, 42.0), to_rgb);
+    }
+
+    /// LERP CLAMP CONTRACT. `blend` outside `[0,1]` must saturate, not wrap. Computing a
+    /// channel as `from + (to - from) * blend` while the accumulator is still `u8` wraps
+    /// around in release mode, so an overshoot produces a dark pixel instead of a bright one.
+    /// The reverse direction is the one that would pass below zero, so both are checked.
+    #[test]
+    fn lerp_rgb_clamps_blend_outside_unit_range() {
+        let dark_rgb = [10u8, 20, 30];
+        let light_rgb = [200u8, 210, 220];
+        assert_eq!(lerp_rgb(dark_rgb, light_rgb, -0.5), dark_rgb);
+        assert_eq!(lerp_rgb(dark_rgb, light_rgb, -1e9), dark_rgb);
+        assert_eq!(lerp_rgb(dark_rgb, light_rgb, 1.5), light_rgb);
+        assert_eq!(lerp_rgb(dark_rgb, light_rgb, 1e9), light_rgb);
+        assert_eq!(lerp_rgb(light_rgb, dark_rgb, 1.5), dark_rgb);
+        assert_eq!(lerp_rgb(light_rgb, dark_rgb, -0.5), light_rgb);
+    }
+
+    /// LERP FULL-RANGE CONTRACT -- the reason this is a function rather than inline
+    /// arithmetic. Blending a channel in `u8` quantises the ramp: if `blend` is itself
+    /// narrowed to an integer the whole 256-step ramp collapses to two values. Widening both
+    /// operands to `f32` and narrowing once at the end keeps every step reachable, which is
+    /// what makes the sky gradient smooth rather than banded.
+    ///
+    /// MEASURED against the reference implementation: 256 blends across a 0..255 channel
+    /// reach 256 distinct values. The floor is 250, leaving room for float rounding at
+    /// individual steps while still failing any implementation that quantises the ramp.
+    #[test]
+    fn lerp_rgb_keeps_the_full_channel_range() {
+        let black_rgb = [0u8; 3];
+        let white_rgb = [255u8; 3];
+        let mut reached: Vec<u8> = (0..256u32)
+            .map(|step| lerp_rgb(black_rgb, white_rgb, step as f32 / 255.0)[0])
+            .collect();
+        reached.sort_unstable();
+        reached.dedup();
+        assert!(
+            reached.len() >= 250,
+            "256 blends across a 0..255 channel reached only {} distinct values, so the ramp \
+             is being quantised; blending has to widen to f32 and narrow once at the end",
+            reached.len()
+        );
+        assert_eq!(reached.first(), Some(&0));
+        assert_eq!(reached.last(), Some(&255));
+    }
+
+    // -----------------------------------------------------------------------
+    // 5/9 - smoothstep
+    // -----------------------------------------------------------------------
+
+    /// SMOOTHSTEP ENDPOINT AND CLAMP CONTRACT. Exactly 0 at `edge0`, exactly 1 at `edge1`,
+    /// clamped outside. Every cloud threshold and the sun falloff depend on this: a
+    /// `smoothstep` that overshot its interval would push alpha above 1.0 and leave the
+    /// `(alpha * 255.0) as u8` cast to clip it, rather than the clamp doing it cleanly.
+    #[test]
+    fn smoothstep_reaches_its_edges_and_clamps() {
+        assert_eq!(smoothstep(0.0, 1.0, 0.0), 0.0);
+        assert_eq!(smoothstep(0.0, 1.0, 1.0), 1.0);
+        assert_eq!(smoothstep(0.0, 1.0, -5.0), 0.0);
+        assert_eq!(smoothstep(0.0, 1.0, 5.0), 1.0);
+        assert_eq!(smoothstep(10.0, 20.0, 10.0), 0.0);
+        assert_eq!(smoothstep(10.0, 20.0, 20.0), 1.0);
+        assert_eq!(smoothstep(-4.0, -2.0, -9.0), 0.0);
+        assert_eq!(smoothstep(-4.0, -2.0, 9.0), 1.0);
+    }
+
+    /// SMOOTHSTEP DEGENERATE-INTERVAL CONTRACT. The doc comment's stated reason for the
+    /// guard is that `sun_radius_px` derives from `height`, so at a small height the inner
+    /// and outer radii round to the same value; dividing by a zero-width interval yields NaN,
+    /// and a NaN alpha makes every downstream comparison false -- a silently wrong layer
+    /// rather than a crash.
+    ///
+    /// Asserted as "never NaN, and exactly 0 or 1", so it does not over-specify which side
+    /// of the interval wins.
+    #[test]
+    fn smoothstep_degenerate_interval_is_never_nan() {
+        for value in [-1000.0f32, 0.0, 4.999, 5.0, 5.001, 1000.0] {
+            let ramped = smoothstep(5.0, 5.0, value);
+            assert!(
+                !ramped.is_nan(),
+                "smoothstep(5, 5, {}) = NaN; a zero-width interval must short-circuit, \
+                 because a NaN alpha poisons every pixel comparison downstream",
+                value
+            );
+            assert!(
+                ramped == 0.0 || ramped == 1.0,
+                "smoothstep(5, 5, {}) = {}, expected exactly 0 or 1 from the degenerate guard, \
+                 not an interpolated value",
+                value,
+                ramped
+            );
+        }
+        assert_eq!(smoothstep(5.0, 5.0, 4.999), 0.0);
+        assert_eq!(smoothstep(5.0, 5.0, 5.0), 1.0);
+    }
+
+    /// SMOOTHSTEP ZERO-SLOPE CONTRACT, plus monotonicity. The Hermite curve block 2/9
+    /// applies to the noise lattice is reused here for cloud edges and the sun falloff, and
+    /// the reason to reuse it is that its derivative is zero at both ends: a linear ramp
+    /// would put a visible crease at every cloud boundary and an aliased rim on the sun.
+    ///
+    /// DISCRIMINATING FORM: a linear ramp returns EXACTLY 0.001 and 0.999 here, so strict
+    /// inequalities on the same side separate the two implementations.
+    #[test]
+    fn smoothstep_has_zero_slope_at_each_end() {
+        let just_above_low = smoothstep(0.0, 1.0, 0.001);
+        assert!(
+            just_above_low < 0.001,
+            "smoothstep(0, 1, 0.001) = {}; a linear ramp returns exactly 0.001, so matching \
+             it means the slope is not zero at the lower edge",
+            just_above_low
+        );
+        let just_below_high = smoothstep(0.0, 1.0, 0.999);
+        assert!(
+            just_below_high > 0.999,
+            "smoothstep(0, 1, 0.999) = {}; a linear ramp returns exactly 0.999, so matching \
+             it means the slope is not zero at the upper edge",
+            just_below_high
+        );
+
+        // Monotone and bounded across the whole interval: an implementation that overshoots
+        // makes alpha exceed 1.0 and leans on the u8 cast to clip it.
+        let mut previous = 0.0f32;
+        for step in 0..=100 {
+            let ramped = smoothstep(0.0, 1.0, step as f32 / 100.0);
+            assert!(
+                ramped >= previous && ramped <= 1.0,
+                "smoothstep is not monotone within [0,1]: at {} it returned {} after {}",
+                step as f32 / 100.0,
+                ramped,
+                previous
+            );
+            previous = ramped;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 6/9 - sky
+    // -----------------------------------------------------------------------
+
+    /// SKY GRADIENT DIRECTION CONTRACT. The palette runs dark at the top to light toward the
+    /// horizon, so the layer reads as sky rather than as a flat fill. Measured at column 0,
+    /// far from the sun disc at `width * 0.68`, so this sees the gradient alone.
+    ///
+    /// MEASURED at column 0, W=256 H=64: mean channel 152.00 at row 0 and 201.00 at row 63,
+    /// a gap of 49 against the 10 floor.
+    ///
+    /// DELIBERATELY NOT ASSERTED: that the gradient is normalised by height. The doc comment
+    /// claims "the same function is correct at any height", but the haze term samples
+    /// `row * 0.002` in absolute pixels and the sun radius scales with height, so two heights
+    /// are NOT pixel-identical at the same `row_frac`. That claim cannot be tested at this
+    /// layer without splitting the function, so it is recorded as a documentation fix rather
+    /// than papered over with a weak assertion here.
+    #[test]
+    fn sky_gradient_runs_dark_above_and_light_below() {
+        let sky = make_sky(W, H, SEED);
+        let channel_mean = |row: u32| -> f32 {
+            let column = sky.get_pixel(0, row).0;
+            (column[0] as f32 + column[1] as f32 + column[2] as f32) / 3.0
+        };
+        let top_mean = channel_mean(0);
+        let bottom_mean = channel_mean(H - 1);
+        assert!(
+            bottom_mean > top_mean + 10.0,
+            "sky mean channel went from {:.1} at row 0 to {:.1} at row {}; the gradient must \
+             run dark-above to light-below or the layer reads as a flat fill",
+            top_mean,
+            bottom_mean,
+            H - 1
+        );
+    }
+
+    /// SKY SOFT-DISC CONTRACT. The doc comment says the sun is "a radial falloff, not a hard
+    /// circle", because a hard circle aliases into a stair-stepped rim. Brightening is
+    /// measured along one horizontal ray at three radii, relative to an unlit column on the
+    /// same row so that row's base colour cancels out.
+    ///
+    /// HEIGHT 256, not the module's 64: the sun radius is `height * 0.06`, so at 64 px the
+    /// whole falloff spans under 4 px and the sample points are too close together to tell a
+    /// gradient from a step.
+    ///
+    /// MEASURED at H=256: centre +89, at 0.8 radii +64, at 1.25 radii +3, against bounds
+    /// >50, <80, >15 and <15. A hard-edged disc (mutant SKY-HARDDISC) reads +89 at every
+    /// point inside the radius and fails the <80 bound.
+    #[test]
+    fn sky_sun_disc_falls_off_softly() {
+        let sky_height: u32 = 256;
+        let sky = make_sky(W, sky_height, SEED);
+        let sun_center_x_px = W as f32 * 0.68;
+        let sun_center_y_px = sky_height as f32 * 0.24;
+        let sun_radius_px = sky_height as f32 * 0.06;
+        let row = sun_center_y_px.round() as u32;
+
+        let unlit = sky.get_pixel(4, row).0[0] as i32;
+        let brightening_at = |radius_fraction: f32| -> i32 {
+            let col = (sun_center_x_px + radius_fraction * sun_radius_px).round() as u32;
+            sky.get_pixel(col, row).0[0] as i32 - unlit
+        };
+
+        let at_centre = brightening_at(0.0);
+        let inside_rim = brightening_at(0.8);
+        let beyond_rim = brightening_at(1.25);
+
+        assert!(
+            at_centre > 50,
+            "sun centre is only {} brighter than an unlit column, so the disc is not drawn",
+            at_centre
+        );
+        assert!(
+            inside_rim < 80,
+            "still {} brighter at 0.8 sun radii against {} at the centre -- the falloff is a \
+             step, not a gradient, so the rim will alias",
+            inside_rim,
+            at_centre
+        );
+        assert!(
+            inside_rim > 15,
+            "only {} brighter at 0.8 sun radii; the falloff is a cliff rather than a ramp, so \
+             it does not soften the rim the way the Hermite curve intends",
+            inside_rim
+        );
+        assert!(
+            beyond_rim.abs() < 15,
+            "{} brighter at 1.25 sun radii, outside the disc; the falloff has not finished by \
+             the outer radius",
+            beyond_rim
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 7/9 - clouds
+    // -----------------------------------------------------------------------
+
+    /// CLOUD SOFT-EDGE CONTRACT. This closes a gap that `cloud_layers_have_holes` documents
+    /// against itself: that test's own comment records that mutation M9 -- replacing the
+    /// smoothstep with a hard threshold -- left it GREEN, because it only checks that the
+    /// fully-opaque and fully-clear buckets are both populated. A hard threshold satisfies
+    /// both buckets perfectly and produces a stair-stepped edge, which is the artefact this
+    /// whole technique exists to avoid.
+    ///
+    /// MEASURED at W=256 H=64: 17.4% of HighClouds pixels and 26.9% of LowClouds pixels have a
+    /// partial alpha, against the 2% floor -- roughly a 9x margin, and 0 for a hard threshold.
+    ///
+    /// So this asserts what M9 destroys: a meaningful population of PARTIAL alpha. The two
+    /// tests are complementary, not redundant.
+    #[test]
+    fn cloud_edges_are_gradual() {
+        for (name, edge_low, edge_high) in
+            [("HighClouds", 0.52f32, 0.68f32), ("LowClouds", 0.44, 0.60)]
+        {
+            let img = make_clouds(W, H, SEED, edge_low, edge_high);
+            let partial = img
+                .pixels()
+                .filter(|rgba| rgba.0[3] > 0 && rgba.0[3] < 255)
+                .count();
+            let total = img.width() as usize * img.height() as usize;
+            let fraction = partial as f32 / total as f32;
+            assert!(
+                fraction > 0.02,
+                "{}: only {:.4} of {} pixels have a partial alpha ({}/{}); a hard threshold \
+                 gives exactly 0, which is the stair-stepped edge this layer exists to avoid",
+                name,
+                fraction,
+                total,
+                partial,
+                total
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 8/9 - silhouettes
+    // -----------------------------------------------------------------------
+
+    /// SILHOUETTE FILL-DIRECTION CONTRACT. The doc comment's stated reason for filling
+    /// DOWNWARD from a heightfield rather than drawing shapes is that it keeps the alpha
+    /// channel "trivially predictable: fully opaque below the line, fully transparent above
+    /// it". That predictability is the whole reason the plane reads as a silhouette, and
+    /// nothing asserted the orientation -- an inverted fill still yields an opaque region,
+    /// just the wrong one, and would still satisfy `relief_is_absolute_not_a_fraction`.
+    #[test]
+    fn silhouette_is_opaque_below_the_skyline_and_clear_above() {
+        let img = make_silhouette(W, H, SEED, 0.5, 12.0);
+        for col in 0..W {
+            assert!(
+                (0..H).any(|row| img.get_pixel(col, row).0[3] == 255),
+                "col {} has no opaque pixel at all, so the plane is invisible",
+                col
+            );
+            assert_eq!(
+                img.get_pixel(col, 0).0[3],
+                0,
+                "col {}: the top row is opaque, but a silhouette must be clear above its \
+                 skyline",
+                col
+            );
+            assert_eq!(
+                img.get_pixel(col, H - 1).0[3],
+                255,
+                "col {}: the bottom row is not opaque, but a silhouette must be solid ground \
+                 below its skyline",
+                col
+            );
+        }
+    }
+
+    /// SILHOUETTE RIM CONTRACT. Two separate claims, both load bearing. The rim value is
+    /// darker than the body on every channel, and the rim sits ON the skyline -- a dark band
+    /// drawn in the middle of the ground would satisfy the first claim and leave the plane
+    /// with no readable edge at 1:1.
+    ///
+    /// The second claim is the discriminating one: because the rim is drawn in the three rows
+    /// immediately below `skyline_row`, the topmost opaque pixel in EVERY column must be the
+    /// rim colour. Checking whole columns rather than sampling one spot catches a rim that is
+    /// offset from the skyline.
+    #[test]
+    fn silhouette_rim_is_darker_than_its_body_and_sits_on_the_skyline() {
+        let img = make_silhouette(W, H, SEED, 0.5, 12.0);
+        let rim_rgba = Rgba([30u8, 38, 36, 255]);
+        let body_rgba = Rgba([46u8, 56, 52, 255]);
+        for channel in 0..3 {
+            assert!(
+                rim_rgba.0[channel] < body_rgba.0[channel],
+                "rim channel {} ({}) is not darker than body ({}), so the plane has no \
+                 readable edge where it meets the layer behind it",
+                channel,
+                rim_rgba.0[channel],
+                body_rgba.0[channel]
+            );
+        }
+        for col in 0..W {
+            let first_opaque = (0..H)
+                .find(|row| img.get_pixel(col, *row).0[3] == 255)
+                .expect("every column was asserted to have opaque ground");
+            assert_eq!(
+                *img.get_pixel(col, first_opaque),
+                rim_rgba,
+                "col {}: the topmost opaque pixel is not the rim, so the dark edge is not on \
+                 the skyline (first opaque row {})",
+                col,
+                first_opaque
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 9/9 - factor validation + manifest
+    // -----------------------------------------------------------------------
+
+    /// MANIFEST NO-VERTICAL-REPEAT CONTRACT. The doc comment says `repeat_size_y` is
+    /// hard-coded rather than passed in "because a vertical repeat is never correct here, and
+    /// encoding that as a literal means the decision cannot be flipped by a caller". A
+    /// hard-coded literal that no test reads is just a constant nobody checked, so this reads
+    /// it. `repeat_size_x` must equal the authored width for the same reason.
+    #[test]
+    fn manifest_hard_codes_repeat_size_y_to_zero() {
+        let specs = layer_specs();
+        let authored_width: u32 = 1920;
+        let manifest = build_manifest(&specs, authored_width, 240, SEED);
+        assert_eq!(manifest.layers.len(), specs.len());
+        for layer in &manifest.layers {
+            assert_eq!(
+                layer.repeat_size_y, 0,
+                "layer {} has a vertical repeat of {}; vertical coverage is overscan plus a \
+                 clamped camera-y travel, and a vertical repeat leaves empty blocks above and \
+                 below a horizontal-only stack",
+                layer.name, layer.repeat_size_y
+            );
+            assert_eq!(
+                layer.repeat_size_x, authored_width,
+                "layer {}: repeat_size_x is {} but the texture is {} px wide, so the tiles \
+                 would not line up and the seam would reappear",
+                layer.name, layer.repeat_size_x, authored_width
+            );
+        }
+    }
+
+    /// MANIFEST ON-DISK KEY CONTRACT. `manifest.json` is read by literal key name from the
+    /// scene and from the GDScript test, so a renamed or dropped key is a SILENT break: the
+    /// Rust side still compiles, the JSON still parses, and the consumer just gets `null`.
+    /// Asserting the struct's fields would be a round trip and could not catch a
+    /// `#[serde(rename)]` or a `skip_serializing_if`, so this asserts the serialised keys
+    /// themselves.
+    ///
+    /// Corollary of the round-trip rule: a writer and reader that move together stay green, so
+    /// the key strings below are literals rather than derived from the struct.
+    #[test]
+    fn manifest_json_keys_are_the_on_disk_contract() {
+        let specs = layer_specs();
+        let authored_width: u32 = 1920;
+        let overscan: u32 = 240;
+        let manifest = build_manifest(&specs, authored_width, overscan, SEED);
+        let serialised = serde_json::to_value(&manifest).expect("manifest serialises");
+        let top = serialised
+            .as_object()
+            .expect("manifest serialises to a JSON object");
+
+        for key in ["version", "width_px", "overscan_px", "seed", "layers"] {
+            assert!(
+                top.contains_key(key),
+                "manifest.json is missing the key {:?}; the scene and the GDScript test read \
+                 it by that literal name, so dropping it breaks them silently",
+                key
+            );
+        }
+        assert_eq!(top["version"].as_str(), Some(MANIFEST_VERSION));
+        assert_eq!(top["width_px"].as_u64(), Some(authored_width as u64));
+        assert_eq!(top["overscan_px"].as_u64(), Some(overscan as u64));
+        assert_eq!(top["seed"].as_u64(), Some(SEED));
+
+        let layers = top["layers"]
+            .as_array()
+            .expect("manifest.layers is a JSON array");
+        assert_eq!(layers.len(), specs.len());
+        for (layer_value, spec) in layers.iter().zip(specs.iter()) {
+            let layer = layer_value
+                .as_object()
+                .expect("each manifest layer is a JSON object");
+            for key in [
+                "name",
+                "file",
+                "scroll_scale_x",
+                "scroll_scale_y",
+                "repeat_size_x",
+                "repeat_size_y",
+                "z_index",
+                "height_px",
+            ] {
+                assert!(
+                    layer.contains_key(key),
+                    "manifest.json layer {:?} is missing the key {:?}",
+                    spec.name,
+                    key
+                );
+            }
+            assert_eq!(layer["name"].as_str(), Some(spec.name));
+            assert_eq!(
+                layer["file"].as_str(),
+                Some(spec.file),
+                "manifest.json layer {:?} names file {:?} but layer_specs says {:?}",
+                spec.name,
+                layer["file"].as_str(),
+                spec.file
             );
         }
     }
