@@ -747,23 +747,38 @@ contract change**, so it needs its own ticket — do not bundle it with a neighb
   `test_terrain_brush`, `test_override_merge`, all under
   `$HOME/bin/godot4 --headless --path editor --script res://tests/<name>.gd`.
 
-## Repo hygiene: `editor/addons/` is 516 MB of vendored addon and is NOT gitignored
+## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored on `chore/godot-4-7-upgrade`
 
-Verified 2026-10-01 by dry run (`git add -An editor/`), which staged
-`editor/addons/godot_ai/` and `editor/addons/ziva_agent/` — the latter is **516 MB**
-of CEF/`libcef.so` plus Chromium `.pak` locales, dropped in by a third-party tool, not
-authored here. There is **no `addon` rule in `.gitignore`**, so nothing stops it.
+Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of which
+**235 are binary (510 MB)** — 223 Chromium `.pak` data packs (same binary family as
+`.zip`), `libcef.so`, `libvulkan.so.1`, the `ziva_agent` shared object, and the
+`zivacode` / `rg` / `ffmpeg` executables. Only 560 files are text. It is a third-party
+addon (`ziva_agent`, `godot_ai`) dropped in by external tooling, not authored here.
 
-- **NEVER `git add -A` or `git add .` in this repo.** Stage explicit paths. A blanket add
-  would commit ~516 MB of vendored binaries into git history, and history is where they
-  would live forever.
-- `editor/project.godot` also shows as modified, and that is **Godot 4.7.2 rewriting the
-  project file on open**, not authored change: `config/features` `4.4` -> `4.7` plus new
-  `[animation]` and `[dotnet]` sections. It is the same toolchain bump as the known-red
-  #85 below. It was deliberately left uncommitted rather than swept up into #68 work.
-- This is a **pre-existing condition, not a regression from any current work.** Do not
-  "fix" it as a drive-by inside an unrelated branch, and do not read the dirty
-  `git status` as leftover work of yours.
+- **`editor/addons/` is gitignored**, on branch `chore/godot-4-7-upgrade` (not yet merged
+  into `trunk` or into `feat/gen-backdrop-crate`). **Until that branch lands, `git status`
+  on this branch WILL still show `?? editor/addons/` — expected, not lost work.** After it
+  lands, a `git add -An editor/` dry run stages no addon files; before it, all 795.
+- **NEVER `git add -A` / `git add .`** in this repo. A blanket add would put half a gigabyte
+  of vendored third-party blobs into git history permanently. `.gitignore` is a safety net
+  for an accident, not permission for one; the explicit-path habit is the real guard.
+- **`editor/project.godot` is committed** on the same branch. The diff is Godot 4.7.2
+  rewriting the project file on open — `config/features` `4.4` -> `4.7` plus new
+  `[animation]` and `[dotnet]` sections. Same toolchain bump as known-red #85. It pins the
+  project to the 4.7 feature level, matching the installed runtime, at the cost of a 4.4.1
+  open now warning or downgrading the file.
+- Both were a **pre-existing condition, not a regression from any #68 work**, and neither
+  belongs on the #68 feature branch. Do not read a dirty `git status` as leftover work of
+  yours, and do not "fix" either inside #68.
+
+**A counting method that lied, worth not repeating.** The first attempt to classify these
+files used `grep -q $'\x00'`, which reported `LICENSE.md` and `README.md` as binary. Bash
+strips the NUL out of the pattern, leaving an empty pattern that matches every line, so the
+test was vacuous — and vacuous is exactly what reads as a confident answer. The replacement
+counts NUL bytes per file. Its first binary control was 64 bytes, small enough that zero
+NULs came out likely by chance (about 78%), so that control was redone at 65536. Only then
+did the count cross-check exactly against `file --mime-encoding`: 235 binary, 560 text.
+**A control that can pass by luck is not a control.**
 
 ## Provider Switching
 
