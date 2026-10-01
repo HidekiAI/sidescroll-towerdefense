@@ -399,6 +399,53 @@ signature, so this costs nothing.
 
 ---
 
+## 6.1 Engineering note: `f32::floor()` is a libm CALL on the default target
+
+**Measured 2026-09-30, do not "optimise" this away and do not re-run the A/B.**
+
+`value_noise` calls `pos_x.floor()` four times per invocation (twice per axis — once for
+the cell, once for the fraction). On the default `x86-64` baseline that is **not** one
+rounding instruction. It is a libm function call:
+
+```
+callq    *floorf@GOTPCREL(%rip)     <- real call
+cvttss2si %xmm0, %rax
+ucomiss / cmovbeq / cmovnpq         <- Rust's saturating float->int cast, not floor's cost
+```
+
+The one-cycle instruction is `roundss`, which is **SSE4.1**. Rust's default `x86-64`
+baseline is **SSE2 only**, so LLVM cannot emit it. With `-C target-cpu=native` it becomes:
+
+```
+vroundss  $9, %xmm0, %xmm0, %xmm0    <- one instruction, no call
+```
+
+and `frac_of` compiles to exactly two instructions total (`vroundss` + `vsubss`).
+
+**Measured cost, throwaway copy, 6 PNGs at width 1920:**
+
+| build | wall time |
+|---|---|
+| debug, baseline (libm `callq`) | 7828 ms |
+| debug, `target-cpu=native` (`vroundss`) | 7514 ms |
+| **release, baseline** | **643 ms** |
+
+So the libm call is worth ~314 ms on a 7.8 s **debug** build (4%), and well under 30 ms of
+the 643 ms **release** build. Host is a Xeon E5-2630 v3, which does have `sse4_1`.
+
+**Decision: change nothing.**
+
+- No `-C target-cpu=native`. It buys tens of ms on a binary that runs once and whose PNGs
+  are committed to git, and it makes the artifact non-portable plus workspace-wide.
+- Do not restructure to compute `floor()` once per axis
+  (`frac_x = pos_x - cell_x0 as f32`). Arithmetically identical at these magnitudes, halves
+  an already invisible cost, and makes the line read as an optimisation instead of as the
+  definition of "fraction within the cell".
+
+Re-open only if this code ever moves from a one-shot generator into a per-frame path.
+
+---
+
 ## 7. References
 
 - Issue #68, #74 (retired MP4 path), #76 (image-to-tiles import), #80 (exit codes)

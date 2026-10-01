@@ -8,7 +8,7 @@
 > and stop; the sections below it are an append-only log of past sessions, not a live
 > plan.
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-10-01_
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
@@ -16,13 +16,38 @@ _Last updated: 2026-09-30_
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
 **State: design merged and PUSHED. Phase 1 scaffolding COMMITTED LOCALLY, NOT PUSHED.**
-Branch `feat/gen-backdrop-crate` (off `trunk`) holds 4 commits. **Block 1/9 is now filled
-by @me**; blocks 2-9 are still empty and awaiting @me. No art, no scene change, no runtime
-change yet.
+Branch `feat/gen-backdrop-crate` (off `trunk`) holds 5 commits. **Blocks 1/9 and 2/9 are
+filled by @me**; blocks 3-9 are still empty and awaiting @me. All **29 tests** are written
+(11 pre-existing + 2 direct `lattice_hash` + 16 covering blocks 3-9) and every one of the
+16 is mutation-verified. No art, no scene change, no runtime change yet.
+
+### NEXT MOVE
+
+1. Hand **block 3/9 (`fbm`)** to @me. It is the next empty block in the map. Its tests
+   (`fbm_stays_in_unit_range_and_wraps`, `fbm_matches_its_documented_octave_formula`)
+   already exist and are already falsifiable, so nothing needs writing first.
+2. Repeat per block 3 -> 9, gating each test diff.
+3. Once all 9 are filled: `cargo test -p gen-backdrop`, then `cargo run -p gen-backdrop` to
+   emit 6 PNGs + `manifest.json`; confirm `repeat_size_y == 0` on every layer.
+4. Phase 2 (`git rm` the 13 tracked backdrop PNGs / `.import`, 12 MB) -> Phase 3 (rebuild
+   `backdrop_preview.tscn` from `manifest.json`, flip `BackdropStrip` to `visible = true`,
+   add the 240px `BackdropScrollV`, drive `camera.position`) -> Phase 4 (repoint
+   `tile_grid_display.gd` `_layers`) -> Phase 5 (`test_parallax_backdrop.gd`, spike first).
+5. Phase 6: gates, checkpoint, close #68 citing the wiki page, file the legacy `.json`
+   layer round-trip gap (TDD §4.2) as a separate follow-up, ask for push permission,
+   `--ff-only` merge, offer branch deletion.
+6. **The wiki is FROZEN** until @me signs off on the implementations.
+
+**Two wiki-vs-code discrepancies found, deferred to sign-off** — do not fix yet:
+`TDD_Parallax-Background.md:243` says fBm *"halves the period per octave"*; the
+implementation **doubles** it (`period << o` paired with `freq *= 2.0`, so the spatial
+period stays exactly `period`) and the repo is internally consistent on doubling. That wiki
+line is wrong. `:249` says `clouds_low` is a *"lower frequency"* sibling; both cloud layers
+use `cells = 8` and differ by threshold (`0.52/0.68` vs `0.44/0.60`) and derived seed.
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 4 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 11 tests; block 1 filled), workspace `Cargo.toml`, `Cargo.lock` |
+| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 5 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 29 tests; blocks 1-2 filled), workspace `Cargo.toml`, `Cargo.lock` |
 | `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
 | `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
 
@@ -63,7 +88,14 @@ a `0` rather than a silent skip. Two lessons from that, both worth keeping:
 **`cargo check -p gen-backdrop` does NOT compile the test module.** The whole `#[cfg(test)]`
 module sits behind a cfg, so a plain check reported a clean 9-error bill while the test
 module held an unresolved `h`. Always use `cargo check -p gen-backdrop --tests`. This is now
-asserted in `sample-check.sh` step 0 (9 E0308 expected, 0 non-hole errors).
+asserted in `sample-check.sh` step 0 (8 E0308 expected, 0 non-hole errors).
+
+**Two of the 18 new tests initially failed to COMPILE, and the harness caught it.**
+`ImageBuffer::columns()` does not exist in `image` 0.25, and the `#[cfg(test)]` module is
+invisible to a bare `cargo check`. Both silhouettes tests used `columns().enumerate()`;
+both were rewritten as `for col in 0..W` + `get_pixel`. **A test that does not compile is
+a void experiment, not a passing one** — `sample-check.sh` step 0 exists precisely to make
+that failure loud.
 
 **2 new tests, both mutation-verified: `lattice_hash_is_in_unit_range` and
 `lattice_hash_decorrelates_adjacent_cells`.** `lattice_hash` previously had no direct test —
@@ -87,8 +119,84 @@ sky and clouds — every other assertion satisfied — yet locally smooth. Thres
 derived, not guessed: E|X-Y| = 1/3 for uniform draws, and no plausible hash lands between
 0.15 and 1/3. Fixed seeds, no RNG, so it cannot flake.
 
+### The 16 tests for blocks 3-9: written red-first, then mutation-verified (2026-10-01)
+
+@me's ordering directive was **write ALL tests first, for all blocks, not just the next
+one**. So the 16 tests covering `fbm`, `lerp_rgb`, `smoothstep`, `make_sky`, `make_clouds`,
+`make_silhouette` and `build_manifest` were written against empty bodies (so genuinely
+red-first) and then verified against the reference samples in a throwaway copy.
+
+**Process deviation to record:** the 2 direct `lattice_hash` tests could NOT be
+red-first — @me had already filled block 1/9 before they were written. The substitute is
+mutation verification after the fact, which is weaker: it proves the test bites but not
+that the test came first. Every other test in the file is red-first.
+
+**Falsification battery: 19 mutants, all 16 tests confirmed.** 14 of the 19 mutants turned
+**exactly one** test red, which is the direct evidence that none of these tests is
+redundant with another.
+
+| mutant | the one test it turns red |
+|---|---|
+| `VN-LINEAR` interpolate the fraction linearly | `value_noise_smoothsteps_the_fraction_not_linear` |
+| `VN-NOWRAP` x does not wrap at all | `value_noise_is_periodic_in_x` (+3) |
+| `VN-BAREPCT` bare `%`, so negative cells go negative | `value_noise_is_periodic_in_x_across_negative_cells` |
+| `VN-WRAPY` y wraps too | `value_noise_does_not_wrap_y` |
+| `FBM-HALVE` period halves per octave | `fbm_matches_its_documented_octave_formula` |
+| `FBM-AMP` amplitude ratio 0.7 | `fbm_matches_its_documented_octave_formula` |
+| `FBM-FREQ` frequency ratio 1.5 | `fbm_matches_its_documented_octave_formula` (+2) |
+| `LERP-U8` narrow blend to an integer | `lerp_rgb_keeps_the_full_channel_range` (+1) |
+| `LERP-NOCLAMP` drop the clamp, rely on the saturating `as u8` | `lerp_rgb_clamps_blend_outside_unit_range` (+1) |
+| `LERP-INVERT` invert blend | `lerp_rgb_hits_its_endpoints_exactly` (+4) |
+| `SS-NOGUARD` remove the degenerate-interval guard | `smoothstep_degenerate_interval_is_never_nan` |
+| `SS-LINEAR` linear ramp, no Hermite curve | `smoothstep_has_zero_slope_at_each_end` |
+| `SS-NOCLAMP` remove ramp_t's clamp | `smoothstep_reaches_its_edges_and_clamps` (+2) |
+| `SKY-FLIP` gradient inverted | `sky_gradient_runs_dark_above_and_light_below` |
+| `SKY-HARDDISC` hard-edged sun circle | `sky_sun_disc_falls_off_softly` |
+| `CLOUD-HARD` hard threshold, no smoothstep | `cloud_edges_are_gradual` |
+| `SIL-FLIP` fill inverted | `silhouette_is_opaque_below_the_skyline_and_clear_above` |
+| `SIL-RIMOFF` rim drawn at mid-height, not on the skyline | `silhouette_rim_is_darker_than_its_body_and_sits_on_the_skyline` |
+| `MANIFEST-VREPEAT` `repeat_size_y = width` | `manifest_hard_codes_repeat_size_y_to_zero` |
+| `MANIFEST-RENAME` `#[serde(rename = "repeatSizeY")]` | `manifest_json_keys_are_the_on_disk_contract` |
+
+`CLOUD-HARD` closes the **M9 gap** left open by the earlier session: `cloud_layers_have_holes`
+stays green under a hard threshold (it is a holes check, correctly documented), so
+`cloud_edges_are_gradual` now asserts the partial-alpha population the old suite could not.
+
+**`MANIFEST-RENAME` closes a round-trip blind spot.** `manifest_json_keys_are_the_on_disk_contract`
+serialises and deserialises, so it agrees with any key the writer produces — a rename of
+both sides together stays green. That test therefore asserts the **literal** key strings, and
+the mutant that only renames one side reddens it. A persisted artifact name is a
+backward-compat contract, so the literal is the point.
+
+**Thresholds: measured, not predicted.** Every numeric bound was measured before it was
+written into a doc comment, and two of my predictions were wrong:
+
+| quantity | measured | bound | margin |
+|---|---|---|---|
+| HighClouds partial-alpha fraction | 0.17401 | `> 0.02` | ~9x |
+| LowClouds partial-alpha fraction | 0.26917 | `> 0.02` | ~13x |
+| sun brightening at centre / 0.8r / 1.25r | +89 / +64 / +3 | `>50`, `<80`, `>15`, `<15` | 16 at the tightest |
+| sky mean channel top -> bottom (H=64) | 152.00 -> 201.00 | gap `> 10` | 39 |
+| `value_noise` y-vs-y+period mean delta, 4 seeds | 0.25727 / 0.26472 / 0.20498 / 0.24600 | `> 0.15` | **0.055 at the tightest** |
+| value-noise edge/mid-cell slope ratio | 0.0010 | `< 0.25` | 250x |
+| `lerp_rgb` distinct red values over 256 blends | 256 | `>= 250` | 6 |
+
+**The correction worth keeping:** the `1/3` derivation is for INDEPENDENT uniform draws, so
+it does **not** transfer to `value_noise(y)` vs `value_noise(y + period)`. Those two outputs
+are 8 cells apart but both bilinearly interpolated, so they are CORRELATED and the mean gap
+is smaller than `1/3` — measured 0.205-0.265, not ~0.333. The 0.15 floor still sits in the
+empty gap (wrapping drives the mean to exactly 0) but by 0.055, not by the comfortable
+margin the `1/3` argument implies. The doc comment now carries the measured range and says
+so explicitly. The same pattern hit `value_noise_smoothsteps_the_fraction_not_linear`, where
+the predicted ratio was ~0.01 and the measured value is 0.0010.
+
+**`fbm_matches_its_documented_octave_formula` re-implements the formula it checks** — @me
+accepted this limitation explicitly. A simultaneous edit to implementation *and* test stays
+green. It is kept because the three independent mutants above show it pins the constants,
+not because it is independent.
+
 **Tooling rebuilt** (all in `/tmp/user/1000/opencode/`, outside the repo tree):
-`sample-check.sh` (repo-shape assertions -> ranged uncomment -> compile -> 11 tests),
+`sample-check.sh` (repo-shape assertions -> ranged uncomment -> compile -> 29 tests),
 `uncomment.pl` (uncomments ONLY inside marker ranges — a blanket pass would have destroyed
 block 1's now-live comments), `mutate.sh <fn> <body> [expected_failing_test]` (asserts the
 mutant parses BEFORE reading the result, because an unparseable mutation reads as "the

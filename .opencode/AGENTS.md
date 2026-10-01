@@ -228,19 +228,29 @@ Recorded 2026-09-06; ticketed and designed the same day.
 - **Plan + evidence:** `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` (code repo),
   `docs/SESSION-CHECKPOINT.md` CURRENT STATE, `tools/slice-layers/README.md`, wiki
   `TODO.md` TS71, GDScript test `test_parallax_backdrop.gd` to replace the probe.
-- **Phase 1 scaffold state (2026-09-30):** `tools/gen-backdrop` exists on
-  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 4 commits). Its non-trivial logic is @me's
+- **Phase 1 scaffold state (2026-10-01):** `tools/gen-backdrop` exists on
+  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 5 commits). Its non-trivial logic is @me's
   to write via the `coding-assistant` skill, held open as **9 `TODO(human)` blocks over 10
-  functions** in `src/main.rs`. **Block 1/9 (`lattice_hash`) is now FILLED by @me**; blocks
-  2-9 are empty. So the counts are no longer constants: `grep -c 'TODO(human)'` is **18**
-  (was 20) and the E0308 count is **9** (was 10) — each filled block removes one marker pair
-  and one hole. `sample-check.sh` asserts the live counts rather than fixed ones, so a
-  filled block fails the harness loudly instead of silently skewing it. Zero `todo!()`, ever.
-  Five things a successor session must not get wrong:
+  functions** in `src/main.rs`. **Blocks 1/9 (`lattice_hash`) and 2/9 (`value_noise`) are
+  FILLED by @me**; blocks 3-9 are empty. So the counts are no longer constants:
+  `grep -c 'TODO(human)'` is **16** (was 20) and the E0308 count is **8** (was 10) — each
+  filled block removes one marker pair and one hole. `sample-check.sh` asserts the live
+  counts rather than fixed ones, so a filled block fails the harness loudly instead of
+  silently skewing it. Zero `todo!()`, ever.
+  **Test count is 29** (11 pre-existing + 2 direct `lattice_hash` + 16 covering blocks
+  3-9). All 16 of the later ones were written RED-FIRST against empty bodies, then
+  mutation-verified by a **19-mutant battery in which all 16 are confirmed**; **14 of the
+  19 mutants turn EXACTLY ONE test red**, which is the evidence none is redundant with
+  another. The 2 `lattice_hash` tests are the exception and CANNOT be red-first — @me
+  filled block 1 before they existed, so they rest on after-the-fact mutation verification
+  alone. Do not restate them as red-first.
+  Six things a successor session must not get wrong:
   - **ALWAYS `cargo check -p gen-backdrop --tests`, never without `--tests`.** The whole
     `#[cfg(test)]` module is behind a cfg, so a plain `cargo check` does not compile it at
     all and reports a clean 9-hole bill while the test module holds unresolved names. This
-    gap hid a broken rename for a full round. Expect **9 E0308 and 0 non-hole errors**.
+    gap hid a broken rename for a full round. Expect **8 E0308 and 0 non-hole errors**.
+    It is also how the two `image` 0.25 `ImageBuffer::columns()` compile errors were caught
+    — a test that does not compile is a **void experiment**, not a passing one.
   - **Uncommenting must be RANGE-SCOPED to the marker ranges.** Once a block is filled its
     comments are LIVE prose, and a blanket `s{^    // (?!/)}` over the file turns that prose
     into bare Rust tokens. `uncomment.pl` derives ranges from the markers, so a filled block
@@ -250,23 +260,39 @@ Recorded 2026-09-06; ticketed and designed the same day.
     second uncomment pass strips it again, and every note becomes a bare prose token. This
     is the trap in the verification harness; see the checkpoint section for the full story.
   - **Sample correctness is proven, not assumed:** strip markers, uncomment every sample
-    line, and require compiles-clean + 11/11 tests. Do that on a throwaway copy in
+    line, and require compiles-clean + 29/29 tests. Do that on a throwaway copy in
     `/tmp/user/1000/opencode/`; the repo tree is never written to. A build error is a **void
     experiment**, not a green result.
-  - **New unit tests are mutation-verified** with `mutate.sh <fn> <body_file> [expected_fail>`,
-    which asserts the mutant PARSES before consulting the result. An unparseable mutation
-    reads as "the guard is vacuous" when the experiment never ran. Both `lattice_hash` tests
-    are proved by mutants; the `sine` mutant (in range, seed-sensitive, seamless, valid
-    sky/clouds — locally smooth) fails ONLY the decorrelation test, which is what shows that
-    test is not redundant.
+  - **New unit tests are mutation-verified** with `sweep.sh <label> <perl_expr> [expected_fail]`
+    (substitution-based, because `mutate.sh` takes a whole replacement body and is only
+    practical for small functions). It asserts the substitution FIRED and the mutant PARSES
+    before consulting the result — a non-firing or unparseable mutation reads as "the guard
+    is vacuous" when the experiment never ran. Two mutants have already been caught and
+    discarded that way: one used `height` where only `width` was in scope, and one renamed
+    only half of a two-site closure body. For `lattice_hash`, the `sine` mutant (in range,
+    seed-sensitive, seamless, valid sky/clouds — locally smooth) fails ONLY the
+    decorrelation test, which is what shows that test is not redundant.
+  - **Numeric thresholds in test doc comments are MEASURED, never predicted.** Two of my
+    predictions were falsified before shipping. The `1/3` independent-uniform-draw figure
+    does **not** transfer to `value_noise(y)` vs `value_noise(y + period)`: both are
+    bilinearly interpolated, so they are CORRELATED and the mean gap is smaller — measured
+    0.205-0.265, not ~0.333, leaving only 0.055 of margin over the 0.15 floor at the
+    tightest seed. And the value-noise edge/mid-cell slope ratio is 0.0010, not the ~0.01
+    predicted. Full measured table in the checkpoint. **When a threshold is chosen, measure
+    it and put the number in the comment.**
   - **Naming, both user directives recorded 2026-09-30 in `~/scripts/LLM/rules/default.md`:**
     no bare `x`/`y` (name the coordinate space — `cell_x`/`col`/`scale_x`), and no
     meaningless short locals (`s1`, `p`, `c`, `n`, `h`, `v`, `a`, `b`, `t` are all banned;
-    `xorshift_1`, `sky_rgb`, `density`, `blend` are the replacements). `lhs`/`left_hand_side`
-    was explicitly REJECTED: it names an equation role, and these are two lattice
-    coordinates, so it carries less information than `x`/`y`. Full table: plan doc §5.2.
-    Block 1's own `s1/m1/s2/m2/s3` were renamed to `xorshift_1/multiply_1/...` to match the
-    comment sitting directly above them.
+    `xorshift_1`, `sky_rgb`, `density`, `blend` are the replacements). The second directive
+    covers **closure params and locally-introduced function names too**, not just
+    parameters, so `|s|`, `|e|` and `|p|` had to go as well. `lhs`/`left_hand_side` was
+    explicitly REJECTED: it names an equation role, and these are two lattice coordinates,
+    so it carries less information than `x`/`y`. Full table: plan doc §5.2. Block 1's own
+    `s1/m1/s2/m2/s3` were renamed to `xorshift_1/multiply_1/...` to match the comment
+    sitting directly above them. **A commented-out SAMPLE is code one uncomment away, so it
+    is held to the same naming as the real function it replaces** — a sample naming `|s|`
+    where the live code names `spec` would silently regress the rename the moment @me
+    uncomments it.
 
 ## gRPC Integration
 
