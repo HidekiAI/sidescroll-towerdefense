@@ -519,30 +519,27 @@ fn validate_factors(specs: &[LayerSpec]) -> Result<(), String> {
 /// `repeat_size_y` is hard-coded 0 rather than passed in, because a vertical repeat is
 /// never correct here, and encoding that as a literal means the decision cannot be flipped
 /// by a caller.
-// TODO(human): begin block 9/9 (second function, same block)
 fn build_manifest(specs: &[LayerSpec], width: u32, overscan: u32, seed: u64) -> Manifest {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // Manifest {
-    //     version: MANIFEST_VERSION.to_string(),
-    //     width_px: width,
-    //     overscan_px: overscan,
-    //     seed,
-    //     layers: specs
-    //         .iter()
-    //         .map(|spec| ManifestLayer {
-    //             name: spec.name.to_string(),
-    //             file: spec.file.to_string(),
-    //             scroll_scale_x: spec.scroll_scale.0,
-    //             scroll_scale_y: spec.scroll_scale.1,
-    //             repeat_size_x: width,
-    //             repeat_size_y: 0,
-    //             z_index: spec.z_index,
-    //             height_px: spec.height_px,
-    //         })
-    //         .collect(),
-    // }
+    Manifest {
+        version: MANIFEST_VERSION.to_string(),
+        width_px: width,
+        overscan_px: overscan,
+        seed,
+        layers: specs
+            .iter()
+            .map(|spec| ManifestLayer {
+                name: spec.name.to_string(),
+                file: spec.file.to_string(),
+                scroll_scale_x: spec.scroll_scale.0,
+                scroll_scale_y: spec.scroll_scale.1,
+                repeat_size_x: width,
+                repeat_size_y: 0,
+                z_index: spec.z_index,
+                height_px: spec.height_px,
+            })
+            .collect(),
+    }
 }
-// TODO(human): end block 9/9 (second function, same block)
 
 /// Serialized form of `manifest.json`.
 #[derive(Serialize)]
