@@ -267,17 +267,14 @@ fn fbm(pos_x: f32, pos_y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
 ///
 /// Clamping `blend` is deliberate: a caller passing a value slightly outside `[0, 1]` from a
 /// noisy expression should not wrap around to the far end of the ramp.
-// TODO(human): begin block 4/9
 fn lerp_rgb(from_rgb: [u8; 3], to_rgb: [u8; 3], blend: f32) -> [u8; 3] {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let blend: f32 = blend.clamp(0.0, 1.0);
-    // [
-    //     (from_rgb[0] as f32 + (to_rgb[0] as f32 - from_rgb[0] as f32) * blend) as u8,
-    //     (from_rgb[1] as f32 + (to_rgb[1] as f32 - from_rgb[1] as f32) * blend) as u8,
-    //     (from_rgb[2] as f32 + (to_rgb[2] as f32 - from_rgb[2] as f32) * blend) as u8,
-    // ]
+    let blend: f32 = blend.clamp(0.0, 1.0);
+    [
+        (from_rgb[0] as f32 + (to_rgb[0] as f32 - from_rgb[0] as f32) * blend) as u8,
+        (from_rgb[1] as f32 + (to_rgb[1] as f32 - from_rgb[1] as f32) * blend) as u8,
+        (from_rgb[2] as f32 + (to_rgb[2] as f32 - from_rgb[2] as f32) * blend) as u8,
+    ]
 }
-// TODO(human): end block 4/9
 
 // ---------------------------------------------------------------------------
 // 5/9 - smoothstep
@@ -287,23 +284,20 @@ fn lerp_rgb(from_rgb: [u8; 3], to_rgb: [u8; 3], blend: f32) -> [u8; 3] {
 ///
 /// INTENT (permanent): this is what makes a cloud edge gradual rather than a cutout, and
 /// what makes the sun disc fall off softly instead of having an aliased rim. It is the
-/// same `t*t*(3-2t)` curve block 2/9 applies to the noise lattice, reused here because
+/// same `t*t*(3-2t)` curve value_noise applies to the noise lattice, reused here because
 /// both jobs are "ease between two values with zero slope at each end".
 ///
 /// The degenerate-interval guard matters for the sky: `sun_r` is derived from `height`,
 /// and at a small height the inner and outer radii can round to the same value. Dividing
 /// by a zero-width interval would produce NaN, and a NaN alpha poisons every downstream
 /// pixel comparison in the test suite.
-// TODO(human): begin block 5/9
 fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // if (edge1 - edge0).abs() < f32::EPSILON {
-    //     return if value < edge0 { 0.0 } else { 1.0 };
-    // }
-    // let ramp_t: f32 = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    // ramp_t * ramp_t * (3.0 - 2.0 * ramp_t)
+    if (edge1 - edge0).abs() < f32::EPSILON {
+        return if value < edge0 { 0.0 } else { 1.0 };
+    }
+    let ramp_t: f32 = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    ramp_t * ramp_t * (3.0 - 2.0 * ramp_t)
 }
-// TODO(human): end block 5/9
 
 // ---------------------------------------------------------------------------
 // 6/9 - sky
@@ -319,47 +313,46 @@ fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
 /// function is correct at any height; the sun disc is a radial falloff, not a hard circle,
 /// so it has no aliased edge at 1:1 scale.
 ///
-/// The haze term MUST go through the 2/9 caller contract (`col * cells / (width - 1)`) or the
-/// sky seams, and the sun disc alone cannot hide it.
-// TODO(human): begin block 6/9
+/// The haze term MUST map columns to lattice coordinates as `col * cells / (width - 1)`,
+/// which lands the last column exactly on the period boundary so it wraps onto column 0.
+/// Any other mapping breaks the tiling and seams the sky, and the sun disc cannot hide it.
 fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let mut img: RgbaImage = RgbaImage::new(width, height);
-    // let top: [u8; 3] = [138, 152, 172];
-    // let mid: [u8; 3] = [166, 178, 192];
-    // let low: [u8; 3] = [196, 204, 210];
-    // let cells: i64 = 6;
-    // // 2/9 caller contract: `cells` cells across the width, dividing by (width - 1) so
-    // // the last column wraps exactly onto the first.
-    // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // let sun_center_x_px: f32 = width as f32 * 0.68;
-    // let sun_center_y_px: f32 = height as f32 * 0.24;
-    // let sun_radius_px: f32 = height as f32 * 0.06;
-    // for row in 0..height {
-    //     let row_frac: f32 = row as f32 / height.max(1) as f32;
-    //     let base: [u8; 3] = if row_frac < 0.55 {
-    //         lerp_rgb(top, mid, row_frac / 0.55)
-    //     } else {
-    //         lerp_rgb(mid, low, (row_frac - 0.55) / 0.45)
-    //     };
-    //     for col in 0..width {
-    //         let haze: f32 = fbm(col_to_cell(col), row as f32 * 0.002, cells, 3, seed) - 0.5;
-    //         let sun_offset_x_px: f32 = col as f32 - sun_center_x_px;
-    //         let sun_offset_y_px: f32 = row as f32 - sun_center_y_px;
-    //         let dist_px: f32 =
-    //             (sun_offset_x_px * sun_offset_x_px + sun_offset_y_px * sun_offset_y_px).sqrt();
-    //         let disc: f32 = 1.0 - smoothstep(sun_radius_px * 0.65, sun_radius_px, dist_px);
-    //         let mut sky_rgb: [u8; 3] = lerp_rgb(base, [255, 250, 238], disc * 0.85);
-    //         let haze_shift: f32 = (haze * 14.0).clamp(-20.0, 20.0);
-    //         for channel in 0..3 {
-    //             sky_rgb[channel] = (sky_rgb[channel] as f32 + haze_shift).clamp(0.0, 255.0) as u8;
-    //         }
-    //         img.put_pixel(col, row, Rgba([sky_rgb[0], sky_rgb[1], sky_rgb[2], 255]));
-    //     }
-    // }
-    // img
+    let mut img: RgbaImage = RgbaImage::new(width, height);
+    let top: [u8; 3] = [138, 152, 172];
+    let mid: [u8; 3] = [166, 178, 192];
+    let low: [u8; 3] = [196, 204, 210];
+    let cells: i64 = 6;
+    // Map columns to lattice coordinates: `cells` cells across the width, dividing by
+    // (width - 1) so the last column lands on the period boundary and wraps onto the
+    // first. Any other divisor breaks the tiling and seams the sky.
+    let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    let sun_center_x_px: f32 = width as f32 * 0.68;
+    let sun_center_y_px: f32 = height as f32 * 0.24;
+    let sun_radius_px: f32 = height as f32 * 0.06;
+    for row in 0..height {
+        let row_frac: f32 = row as f32 / height.max(1) as f32;
+        let base: [u8; 3] = if row_frac < 0.55 {
+            lerp_rgb(top, mid, row_frac / 0.55)
+        } else {
+            lerp_rgb(mid, low, (row_frac - 0.55) / 0.45)
+        };
+        for col in 0..width {
+            let haze: f32 = fbm(col_to_cell(col), row as f32 * 0.002, cells, 3, seed) - 0.5;
+            let sun_offset_x_px: f32 = col as f32 - sun_center_x_px;
+            let sun_offset_y_px: f32 = row as f32 - sun_center_y_px;
+            let dist_px: f32 =
+                (sun_offset_x_px * sun_offset_x_px + sun_offset_y_px * sun_offset_y_px).sqrt();
+            let disc: f32 = 1.0 - smoothstep(sun_radius_px * 0.65, sun_radius_px, dist_px);
+            let mut sky_rgb: [u8; 3] = lerp_rgb(base, [255, 250, 238], disc * 0.85);
+            let haze_shift: f32 = (haze * 14.0).clamp(-20.0, 20.0);
+            for channel in 0..3 {
+                sky_rgb[channel] = (sky_rgb[channel] as f32 + haze_shift).clamp(0.0, 255.0) as u8;
+            }
+            img.put_pixel(col, row, Rgba([sky_rgb[0], sky_rgb[1], sky_rgb[2], 255]));
+        }
+    }
+    img
 }
-// TODO(human): end block 6/9
 
 // ---------------------------------------------------------------------------
 // 7/9 - clouds
@@ -387,7 +380,6 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
 /// both exist. With no band multiplier that rests entirely on `fbm` reaching both ends of
 /// `[alpha_edge_low, alpha_edge_high]`, which is why the two edges are a per-layer argument
 /// rather than hard-coded.
-// TODO(human): begin block 7/9
 fn make_clouds(
     width: u32,
     height: u32,
@@ -395,34 +387,32 @@ fn make_clouds(
     alpha_edge_low: f32,
     alpha_edge_high: f32,
 ) -> RgbaImage {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let mut img: RgbaImage = RgbaImage::new(width, height);
-    // let cells: i64 = 8;
-    // let body: [u8; 3] = [236, 238, 240];
-    // let shade: [u8; 3] = [206, 210, 216];
-    // // 2/9 caller contract, same as 6/9.
-    // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // for row in 0..height {
-    //     let row_frac: f32 = row as f32 / height.max(1) as f32;
-    //     for col in 0..width {
-    //         let density: f32 = fbm(col_to_cell(col), row_frac * 1.6, cells, 4, seed);
-    //         let alpha: f32 = smoothstep(alpha_edge_low, alpha_edge_high, density);
-    //         let cloud_rgb: [u8; 3] = lerp_rgb(shade, body, alpha);
-    //         img.put_pixel(
-    //             col,
-    //             row,
-    //             Rgba([
-    //                 cloud_rgb[0],
-    //                 cloud_rgb[1],
-    //                 cloud_rgb[2],
-    //                 (alpha * 255.0).round() as u8,
-    //             ])
-    //         );
-    //     }
-    // }
-    // img
+    let mut img: RgbaImage = RgbaImage::new(width, height);
+    let cells: i64 = 8;
+    let body: [u8; 3] = [236, 238, 240];
+    let shade: [u8; 3] = [206, 210, 216];
+    // Same column-to-lattice mapping make_sky uses: col * cells / (width - 1).
+    let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    for row in 0..height {
+        let row_frac: f32 = row as f32 / height.max(1) as f32;
+        for col in 0..width {
+            let density: f32 = fbm(col_to_cell(col), row_frac * 1.6, cells, 4, seed);
+            let alpha: f32 = smoothstep(alpha_edge_low, alpha_edge_high, density);
+            let cloud_rgb: [u8; 3] = lerp_rgb(shade, body, alpha);
+            img.put_pixel(
+                col,
+                row,
+                Rgba([
+                    cloud_rgb[0],
+                    cloud_rgb[1],
+                    cloud_rgb[2],
+                    (alpha * 255.0).round() as u8,
+                ]),
+            );
+        }
+    }
+    img
 }
-// TODO(human): end block 7/9
 
 // ---------------------------------------------------------------------------
 // 8/9 - silhouettes
@@ -432,9 +422,9 @@ fn make_clouds(
 /// along the skyline itself.
 ///
 /// INTENT (permanent): the skyline is a heightfield sampled from fBm, so it inherits the
-/// x-wrap from block 2/9 and therefore tiles. Filling DOWNWARD from the skyline rather
-/// than drawing shapes keeps the alpha channel trivially predictable: fully opaque below
-/// the line, fully transparent above it, which is what makes the layer readable as a
+/// x-wrap that value_noise applies and therefore tiles. Filling DOWNWARD from the skyline
+/// rather than drawing shapes keeps the alpha channel trivially predictable: fully opaque
+/// below the line, fully transparent above it, which is what makes the layer readable as a
 /// silhouette rather than as a cloud.
 ///
 /// The rim is drawn a few pixels along the line in a darker value so the plane has a
@@ -446,7 +436,6 @@ fn make_clouds(
 /// same authored number; and a fraction collapses to zero at small sizes, which silently
 /// makes the noise -- and therefore the seed -- irrelevant. `deterministic` asserts that
 /// changing the seed changes the image, and that assertion is what caught this.
-// TODO(human): begin block 8/9
 fn make_silhouette(
     width: u32,
     height: u32,
@@ -454,33 +443,31 @@ fn make_silhouette(
     baseline_frac: f32,
     relief_px: f32,
 ) -> RgbaImage {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let mut img: RgbaImage = RgbaImage::new(width, height);
-    // let cells: i64 = 5;
-    // let body: [u8; 3] = [46, 56, 52];
-    // let rim: [u8; 3] = [30, 38, 36];
-    // // 2/9 caller contract, same as 6/9 and 7/9.
-    // let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // let baseline_row: i32 = (baseline_frac * height as f32).round() as i32;
-    // for col in 0..width {
-    //     let skyline_noise: f32 = fbm(col_to_cell(col), 0.0, cells, 4, seed);
-    //     // relief_px is ABSOLUTE pixels, so amplitude does not vary with layer height.
-    //     let skyline_row: i32 = baseline_row - (skyline_noise * relief_px).round() as i32;
-    //     for row in 0..height {
-    //         let row_i: i32 = row as i32;
-    //         let px: Rgba<u8> = if row_i < skyline_row {
-    //             Rgba([0, 0, 0, 0])
-    //         } else if row_i < skyline_row + 3 {
-    //             Rgba([rim[0], rim[1], rim[2], 255])
-    //         } else {
-    //             Rgba([body[0], body[1], body[2], 255])
-    //         };
-    //         img.put_pixel(col, row, px);
-    //     }
-    // }
-    // img
+    let mut img: RgbaImage = RgbaImage::new(width, height);
+    let cells: i64 = 5;
+    let body: [u8; 3] = [46, 56, 52];
+    let rim: [u8; 3] = [30, 38, 36];
+    // Same column-to-lattice mapping make_sky and make_clouds use.
+    let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
+    let baseline_row: i32 = (baseline_frac * height as f32).round() as i32;
+    for col in 0..width {
+        let skyline_noise: f32 = fbm(col_to_cell(col), 0.0, cells, 4, seed);
+        // relief_px is ABSOLUTE pixels, so amplitude does not vary with layer height.
+        let skyline_row: i32 = baseline_row - (skyline_noise * relief_px).round() as i32;
+        for row in 0..height {
+            let row_i: i32 = row as i32;
+            let px: Rgba<u8> = if row_i < skyline_row {
+                Rgba([0, 0, 0, 0])
+            } else if row_i < skyline_row + 3 {
+                Rgba([rim[0], rim[1], rim[2], 255])
+            } else {
+                Rgba([body[0], body[1], body[2], 255])
+            };
+            img.put_pixel(col, row, px);
+        }
+    }
+    img
 }
-// TODO(human): end block 8/9
 
 // ---------------------------------------------------------------------------
 // 9/9 - factor validation + manifest
@@ -497,33 +484,30 @@ fn make_silhouette(
 ///
 /// Validating here rather than in the scene means a bad factor fails at generation time,
 /// where the manifest is written, instead of silently at runtime.
-// TODO(human): begin block 9/9
 fn validate_factors(specs: &[LayerSpec]) -> Result<(), String> {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // for spec in specs {
-    //     let (scale_x, scale_y) = spec.scroll_scale;
-    //     if !(scale_x > 0.0 && scale_x <= 1.5) {
-    //         return Err(format!(
-    //             "layer {}: scroll_scale.x {} out of range",
-    //             spec.name, scale_x
-    //         ));
-    //     }
-    //     if !(scale_y > 0.0) {
-    //         return Err(format!(
-    //             "layer {}: scroll_scale.y {} must be positive",
-    //             spec.name, scale_y
-    //         ));
-    //     }
-    //     if scale_x <= scale_y {
-    //         return Err(format!(
-    //             "layer {}: scroll_scale.x {} must exceed y {}",
-    //             spec.name, scale_x, scale_y
-    //         ));
-    //     }
-    // }
-    // Ok(())
+    for spec in specs {
+        let (scale_x, scale_y) = spec.scroll_scale;
+        if !(scale_x > 0.0 && scale_x <= 1.5) {
+            return Err(format!(
+                "layer {}: scroll_scale.x {} out of range",
+                spec.name, scale_x
+            ));
+        }
+        if !(scale_y > 0.0) {
+            return Err(format!(
+                "layer {}: scroll_scale.y {} must be positive",
+                spec.name, scale_y
+            ));
+        }
+        if scale_x <= scale_y {
+            return Err(format!(
+                "layer {}: scroll_scale.x {} must exceed y {}",
+                spec.name, scale_x, scale_y
+            ));
+        }
+    }
+    Ok(())
 }
-// TODO(human): end block 9/9
 
 /// Builds the `manifest.json` payload: the node contract for every layer, in one place.
 ///
@@ -652,9 +636,9 @@ fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
         specs.len()
     );
 
-    /// One generator call per layer. Each layer's own noise seed is derived from the run
-    /// seed and its index, so changing the stack's order or length cannot silently alter
-    /// an unrelated layer's texture.
+    // One generator call per layer. Each layer's own noise seed is derived from the run
+    // seed and its index, so changing the stack's order or length cannot silently alter
+    // an unrelated layer's texture.
     for (index, spec) in specs.iter().enumerate() {
         let layer_seed = seed
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
@@ -1171,7 +1155,8 @@ mod tests {
     /// survives every octave.
     ///
     /// SCOPE: this is a seam check, not a spectrum check. It stays green whether the period
-    /// doubles or halves per octave (see 3/9), so it must not be cited as evidence that the
+    /// doubles or halves per octave (see the fBm octave ladder), so it must not be cited as
+    /// evidence that the
     /// frequency ladder is right -- `fbm_matches_its_documented_octave_formula` is the test
     /// that covers the ladder. The period is 64 so that four octaves cannot collapse to
     /// a single wrapped cell under either scheme -- a period of 8 under halving reaches 1,
@@ -1540,7 +1525,7 @@ mod tests {
         assert_eq!(smoothstep(5.0, 5.0, 5.0), 1.0);
     }
 
-    /// SMOOTHSTEP ZERO-SLOPE CONTRACT, plus monotonicity. The Hermite curve block 2/9
+    /// SMOOTHSTEP ZERO-SLOPE CONTRACT, plus monotonicity. The Hermite curve value_noise
     /// applies to the noise lattice is reused here for cloud edges and the sun falloff, and
     /// the reason to reuse it is that its derivative is zero at both ends: a linear ramp
     /// would put a visible crease at every cloud boundary and an aliased rim on the sun.
