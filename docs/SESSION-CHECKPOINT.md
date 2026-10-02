@@ -15,11 +15,68 @@ _Last updated: 2026-10-02_
 — replace the video-sliced art with self-generated layers, make the backdrop actually
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
-**State: design merged and PUSHED. Phase 1 CODE COMPLETE — COMMITTED LOCALLY, NOT PUSHED.**
-Branch `feat/gen-backdrop-crate` (off `trunk`) holds **14 commits, all local and
-unpushed**. **@me has filled all 9 blocks / 10 functions. `tools/gen-backdrop` is DONE:**
-0 `TODO(human)` markers, 0 E0308 holes, 0 `todo!()`. No scene change and no runtime change
-yet — the generator runs, but nothing in the game consumes its output.
+**State: Phase 1 AND Phase 3 COMPLETE AND PUSHED TO `trunk`. Phases 2, 4 and 6 outstanding.**
+
+| phase | what it is | state |
+|---|---|---|
+| 1 | `tools/gen-backdrop` generator | **DONE, merged to `trunk`** — 29/29 tests, 6 PNGs + manifest |
+| 2 | retire the old sliced PNGs | **NOT DONE** — blocked, see below |
+| 3 | scene rebuild + runtime + test | **DONE, merged to `trunk`** — `test_parallax_backdrop.gd` green |
+| 4 | repoint `tile_grid_display.gd` `_layers` | **OUT OF SCOPE by decision** — filed as #87 |
+| 6 | final gates, close #68 | pending |
+
+Phase 3 landed on `feat/parallax-restack`, pushed, and merged `--ff-only` into `trunk`
+(`b495570..ba2cbb4`). The backdrop is now **visible** (`BackdropStrip` was carrying
+`visible = false`, which is why nothing rendered), the six generated layers replace the
+sliced strips, and **both axes move**: `BackdropScroll` drives `camera.position.x`,
+`BackdropScrollV` drives `.y`, each writing only its own axis of one shared `Vector2`.
+
+**Phase 2 is deliberately NOT done, and must not be done casually.** Deleting the 13 old
+tracked files (~15 MB) leaves the map editor's `_layers` pointing at files that no longer
+exist, because that array references the same art. That is issue **#87**. Until #87 is
+worked, `git rm` trades an ugly-but-visible editor backdrop for a silently empty one.
+
+**`tile_grid_display.gd` `_layers` is NOT the parallax — do not "fix" it as though it
+were.** Verified by grep: the only occurrence of "parallax" in that file is the word
+inside a comment at line 18. `_draw()` renders each layer as one fixed full-grid
+`draw_texture_rect(tex, Rect2(0, 0, grid_w * tile_size, grid_h * tile_size))` with no
+`scroll_scale`, no camera and no offset. It is the **map editor's static backdrop stack**,
+with a LayerBox UI (`map_editor.gd:205-242`) and a save/restore path
+(`map_editor.gd:1252` → `set_layers(restored)`). Repointing its defaults would NOT fix maps
+already on disk, because the layer list is read back out of saved map files — that is why
+#87 is a migration and not a one-line change. `_BACKDROP_PATHS` (`tile_grid_display.gd:13-17`)
+is dead code: defined, read by nothing.
+
+**The two asset directories are NOT duplicates**, and were treated as one set by mistake
+in the original plan. Repo-root `assets/backdrop_layers/` holds 4 files (the slicer's
+source art, including `displacement.png`, no `.import` sidecars); `editor/assets/backdrop_layers/`
+holds the results plus Godot `.import` sidecars and is the only one Godot loads.
+
+**Phase 3 test: `editor/tests/test_parallax_backdrop.gd`, green, 13/13 mutants killed.**
+
+Two measurement findings that shaped it, both worth keeping:
+
+- **`Parallax2D.get_screen_offset()` is NOT a drift signal.** It returned `(88, 39)`
+  identically for Sky and Foreground — identical values for two layers with different
+  `scroll_scale` prove it is viewport-derived. Asserting on it would pass equally for a
+  working and a completely broken parallax. Use `position`, step-to-step.
+- **Absolute `position` is unreadable on x**: it carries a ~2028px common constant from the
+  repeat wrap. Two successive EQUAL camera steps cancel it. Measured form is
+  `step * (1 - scroll_scale)` per axis; two independent samples agreed exactly.
+
+That second point also produced the one genuine test hole: a first draft derived expected
+drift as `step * (1 - layer.scroll_scale)`, so the expectation read the value under test
+and `SCALE-SWAP-XY` / `FG-SCALE-FLAT` refuted it. All twelve scale literals are now pinned
+before anything is derived from them. Two further mutants (`TEX-SWAP-HILLS`,
+`DROP-VSCROLLBAR`) were **void experiments**, not refutations — perl aborted on a path and
+on an empty replacement, so the files were never modified and the suite passed on unmodified
+code. The mutator now checks perl's exit code and byte-identity before scoring.
+
+**Known, deliberately not fixed (out of scope for #68):** `simulator.gd` guards a missing
+strip but not a missing scrollbar, so dropping one node segfaults on the signal connect.
+The suite still fails correctly; the crash is teardown after an already-failed run.
+
+Wiki is FROZEN pending sign-off on the implementations. Issues #68, #85, #86, #87 all open.
 
 **Live block state, measured 2026-10-02 (not copied from the previous run):**
 
