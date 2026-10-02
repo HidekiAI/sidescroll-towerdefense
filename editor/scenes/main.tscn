@@ -817,19 +817,31 @@ visible = true
 layout_mode = 2
 metadata/_tab_index = 4
 
-; Both bars need explicit anchors. Declared with layout_mode = 1 and no anchors,
-; BackdropScroll laid out as a zero-size sliver at the parent's top-left corner and
-; was never visible or grabbable; BackdropScrollV had right/bottom anchors but no
-; height. Anchored to the parent's bottom edge and right edge respectively, each
-; reserving its own thickness via a negative offset so neither covers the strip.
+; Both bars need explicit anchors. Measured with a real window at 1920x1080:
+; declared with layout_mode = 1 and no anchors, BackdropScroll collapsed to
+; P:(-4, 982) S:(8, 16) — EIGHT pixels wide, which is why it could not be grabbed or
+; scrolled. Anchored to the parent's bottom edge, spanning it horizontally.
+;
+; Only anchor_bottom is pinned, NOT anchor_top, so the bar can be positioned by a
+; single top offset instead of stretching between two anchors. grow_vertical = 1 is
+; GROW_DIRECTION_BEGIN and is REQUIRED here, not cosmetic: with grow_vertical = 0
+; Godot grew the bar downward from the bottom anchor and placed it at P:(0, -16),
+; 16px above the tab, so it rendered off the top edge and could not be grabbed.
 [node name="BackdropScroll" type="HScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
 anchor_top = 1.0
+anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = 0.0
 offset_top = -16.0
+offset_right = -16.0
+offset_bottom = 0.0
 grow_horizontal = 2
+grow_vertical = 0
 
+; The vertical bar stops short of the bottom edge by its own thickness, so it never
+; sits under the horizontal bar in the corner.
 [node name="BackdropScrollV" type="VScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
