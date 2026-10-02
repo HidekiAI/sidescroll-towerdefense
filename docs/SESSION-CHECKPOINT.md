@@ -15,26 +15,38 @@ _Last updated: 2026-10-02_
 — replace the video-sliced art with self-generated layers, make the backdrop actually
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
-**State: design merged and PUSHED. Phase 1 nearly done — scaffolding COMMITTED LOCALLY,
-NOT PUSHED.** Branch `feat/gen-backdrop-crate` (off `trunk`) holds **11 commits, all
-local and unpushed**. **@me has filled blocks 1-8 plus the first function of block 9
-(`validate_factors`). Exactly ONE function remains: `build_manifest` at `main.rs:523`.**
-No art, no scene change, no runtime change yet.
+**State: design merged and PUSHED. Phase 1 CODE COMPLETE — COMMITTED LOCALLY, NOT PUSHED.**
+Branch `feat/gen-backdrop-crate` (off `trunk`) holds **14 commits, all local and
+unpushed**. **@me has filled all 9 blocks / 10 functions. `tools/gen-backdrop` is DONE:**
+0 `TODO(human)` markers, 0 E0308 holes, 0 `todo!()`. No scene change and no runtime change
+yet — the generator runs, but nothing in the game consumes its output.
 
 **Live block state, measured 2026-10-02 (not copied from the previous run):**
 
 | quantity | value |
 |---|---|
-| `TODO(human)` markers | **2** (1 `begin`, 1 `end`) — down from 20 |
-| `// SAMPLE:` headers | **1** |
+| `TODO(human)` markers | **0** (was 20) |
+| `// SAMPLE:` headers | **0** |
 | sample notes (`// // `) | **0** |
-| E0308 holes (`cargo check -p gen-backdrop --tests`) | **1**, with **0 non-hole errors** |
-| tests | **29 passed / 0 failed** |
+| E0308 holes (`cargo check -p gen-backdrop --tests`) | **0**, with **0 non-hole errors and 0 warnings** |
+| tests | **29 passed / 0 failed** in the repo tree itself |
+| generator output | 6 PNGs + `manifest.json` at 1920 wide; `repeat_size_y == 0` on all 6 |
 
-Each filled function removes one marker pair and one hole, so these counts fall by 2 per
-fill. **`sample-check.sh` FAILS loudly when they drift** — that is the harness working,
-not a regression; it is what caught the `validate_factors` fill. Update every `EXPECT_*`
-from measurement.
+`cargo check -p gen-backdrop --tests` now compiles the `#[cfg(test)]` module for the first
+time — until this fill, every build stopped at a deliberate hole, which is why the whole
+verification cycle ran against the uncommented copy in `/tmp` instead of the repo.
+
+**Two visual risks MEASURED on the emitted PNGs on 2026-10-02** (numerically, not by eye —
+I cannot view images, so both were checked as pixel counts):
+
+- **Seam, all six layers: 0 differing rows between the first and last column.** The suite
+  only ever asserted this for the sky, so the cloud and silhouette planes — the ones whose
+  edges actually show — were unchecked for the one property that makes a wrapping repeat
+  invisible. **This is a real coverage gap that measurement closed, not a test.** If a
+  cloud plane's seam ever breaks, nothing in the suite will catch it.
+- **Cut line, cloud planes: bottom row ~97% partial alpha**, not a hard edge, because the
+  band gradient was dropped in favour of a bare `smoothstep` over the noise. The 240px
+  clamped camera-y budget therefore has margin, though it remains the only guard.
 
 **Test coverage is complete for all 10 functions, and falsifiability is now complete
 too.** Counts derived by mapping call sites in the `#[cfg(test)]` module to their owning
@@ -68,27 +80,26 @@ re-reading `scale_x`, a copy-paste of the rule above it.
 
 ### NEXT MOVE
 
-1. **@me writes `build_manifest` (`main.rs:523`) — the last function.** Its 2 tests already
-   exist and are already mutation-confirmed, so nothing needs writing first:
-   `manifest_hard_codes_repeat_size_y_to_zero` and `manifest_json_keys_are_the_on_disk_contract`.
-   After the fill: `grep -c 'TODO(human)'` -> 0, E0308 -> 0, and the repo's own
-   `cargo test -p gen-backdrop` will compile for the first time.
-2. `cargo test -p gen-backdrop`, then `cargo run -p gen-backdrop` to emit 6 PNGs +
-   `manifest.json`. **Confirm `repeat_size_y == 0` on every layer** — that field is
-   hard-coded to 0 inside the function, deliberately not a parameter, so no caller can
-   flip it. Then open each PNG and look for a vertical cut line at the bottom of a cloud
-   plane: the band gradient was dropped, so the bottom row is whatever the noise says and
-   the 240px clamped camera-y budget is the only guard.
-3. Phase 2 (`git rm` the 13 tracked backdrop PNGs / `.import`, 12 MB) -> Phase 3 (rebuild
-   `backdrop_preview.tscn` from `manifest.json` with `centered = false` and
+1. **Phase 1 is done. Nothing to hand @me.** The next step is Phase 2, but it is the first
+   step in this plan that deletes committed files, so confirm before starting: `git rm` the
+   13 tracked backdrop PNGs / `.import` files (12 MB) in `assets/backdrop_layers/` and
+   `editor/assets/backdrop_layers/`, including the `*_strip_x5.png` collision strips.
+   `tools/slice-layers` stays as a documented one-off.
+2. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false` and
    `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a 240px-clamped
-   `BackdropScrollV`; drive `camera.position` from both bars in `simulator.gd`) -> Phase 4
-   (repoint `tile_grid_display.gd`'s `_layers`) -> Phase 5 (`test_parallax_backdrop.gd`,
-   spike first).
-4. Phase 5 **spike before asserting**: step the camera by `(+120, +40)`, `await
-   process_frame` twice, read each `Parallax2D.get_screen_offset()`. If the offsets are
-   observable headless, assert the both-axis drift within 0.5px; if not, degrade to a
-   static contract and **record which one shipped**. Replace `probe_parallax_scroll.gd`.
+   `BackdropScrollV`; drive `camera.position` from both bars in `simulator.gd`. **Copy the 6
+   emitted PNGs to `editor/assets/backdrop_layers/` and let Godot import them.**
+3. Phase 4: repoint `tile_grid_display.gd`'s 4-entry `_layers` to the 6-layer stack
+   (5 behind + the Foreground front placeholder at `z_order = 10`, whose `path` is `""`).
+   Decide there whether Foreground points at `foreground.png` or stays empty — that is
+   discrepancy 5 below, and it needs a call, not a default.
+4. Phase 5: `test_parallax_backdrop.gd`, **spike before asserting**. Step the camera by
+   `(+120, +40)`, `await process_frame` twice, read each `Parallax2D.get_screen_offset()`.
+   If the offsets are observable headless, assert the both-axis drift within 0.5px; if not,
+   degrade to a static contract and **record which one shipped**. Replace
+   `probe_parallax_scroll.gd`. **Also add a cloud-plane seam assertion** — the seam
+   measurement above proves today's art is fine but pins nothing, so the next seed or the
+   next algorithm change could break it silently.
 5. Phase 6: gates, checkpoint, close #68 citing the wiki page, file the legacy `.json`
    layer round-trip gap (TDD §4.2) as a separate follow-up, ask for push permission,
    `--ff-only` merge, offer branch deletion.
@@ -135,7 +146,7 @@ divergence to decide — not a licence to "just make the code match" now.
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 11 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 29 tests; 9 of 10 functions filled), workspace `Cargo.toml`, `Cargo.lock` |
+| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 14 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 29 tests; ALL filled, 0 markers, 0 holes), workspace `Cargo.toml`, `Cargo.lock` |
 | `sidescroll-towerdefense` | `chore/godot-4-7-upgrade` (local only, 1 commit, unpushed) | `editor/project.godot` (4.7 feature level) + the `editor/addons/` gitignore; **still needs landing**, so `git status` on the feature branch will keep showing `?? editor/addons/` |
 | `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
 | `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |

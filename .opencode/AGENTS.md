@@ -228,16 +228,16 @@ Recorded 2026-09-06; ticketed and designed the same day.
 - **Plan + evidence:** `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` (code repo),
   `docs/SESSION-CHECKPOINT.md` CURRENT STATE, `tools/slice-layers/README.md`, wiki
   `TODO.md` TS71, GDScript test `test_parallax_backdrop.gd` to replace the probe.
-- **Phase 1 scaffold state (2026-10-02):** `tools/gen-backdrop` exists on
-  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 11 commits). Its non-trivial logic is @me's
-  to write via the `coding-assistant` skill, held open as **9 `TODO(human)` blocks over 10
-  functions** in `src/main.rs`. **9 of the 10 functions are FILLED by @me** (`lattice_hash`,
-  `value_noise`, `fbm`, `lerp_rgb`, `smoothstep`, `make_sky`, `make_clouds`,
-  `make_silhouette`, `validate_factors`); **exactly ONE remains: `build_manifest`.** So the
-  counts are no longer constants: `grep -c 'TODO(human)'` is **2** (was 20) and the E0308
-  count is **1** (was 10) — each filled function removes one marker pair and one hole.
-  `sample-check.sh` asserts the live counts rather than fixed ones, so a filled block
-  fails the harness loudly instead of silently skewing it. Zero `todo!()`, ever.
+- **Phase 1 COMPLETE (2026-10-02):** `tools/gen-backdrop` on `feat/gen-backdrop-crate`
+  (LOCAL, UNPUSHED — 14 commits). **All 9 `TODO(human)` blocks over 10 functions are
+  FILLED by @me**, so the crate has **0 markers, 0 SAMPLE headers, 0 E0308 holes, 0
+  `todo!()`**, and `cargo test -p gen-backdrop` compiles the `#[cfg(test)]` module for the
+  first time — until this, every build stopped at a deliberate hole, which is why the whole
+  verification cycle ran against the uncommented copy in `/tmp` rather than the repo.
+  `cargo run -p gen-backdrop` emits 6 PNGs + `manifest.json` at 1920 wide with
+  `repeat_size_y == 0` on all six. **No scene or runtime change yet** — nothing in the
+  game consumes the output. Phase 2 (`git rm` the 13 old PNGs) is the next step and is the
+  first one that deletes committed files.
   **Test count is 29** (9 pre-existing from the original scaffold + 20 written since, of
   which 2 are direct `lattice_hash` tests and 18 cover blocks 3-9). **These counts were
   WRONG in two places until 2026-10-02** — an earlier version of this file and of the
@@ -259,11 +259,13 @@ Recorded 2026-09-06; ticketed and designed the same day.
   `lattice_hash_is_in_unit_range` red, `LATTICE-YDROP` turns `lattice_hash_decorrelates_adjacent_cells`
   red — the latter is a copy-paste-class defect that drops the `cell_y` term, so the hash varies
   on x only, which is precisely what the vertical assertion exists to catch.)
-  **Block state as of 2026-10-02: 9 of 10 functions FILLED by @me; only `build_manifest`
-  remains**, hence **1 open marker pair / 1 E0308 hole / 1 SAMPLE header**.
-  `EXPECT_*` currently: 1 pair, 1 SAMPLE, **0 notes**, 29 tests, 1 E0308. The note count
-  went 4 -> 0 because the two `// // ` notes lived in blocks 7 and 8, and a filled
-  block's notes are live prose rather than sample lines.
+  **Block state as of 2026-10-02: ALL 10 functions FILLED by @me, 0 markers / 0 SAMPLEs /
+  0 notes / 0 E0308.** The note count went 4 -> 0 because the two `// // ` notes lived
+  in blocks 7 and 8, and a filled block's notes are live prose rather than sample lines.
+  **`sample-check.sh` is now obsolete for shape-checking** (it asserts marker counts and
+  expects open blocks) and its `EXPECT_*` are 0-pairs / 0-SAMPLE / 0-E0308; the repo's own
+  `cargo test -p gen-backdrop` supersedes it. Keep `uncomment.pl`/`sweep.sh` only if a new
+  block is ever opened.
   **When @me fills a block, `sample-check.sh` FAILS on marker counts until they are
   updated.** That is the harness working, not a regression — it is what stopped a silent
   skew when block 3/9 landed. Update every `EXPECT_*` from measurement, never from the
@@ -272,9 +274,9 @@ Recorded 2026-09-06; ticketed and designed the same day.
   - **ALWAYS `cargo check -p gen-backdrop --tests`, never without `--tests`.** The whole
     `#[cfg(test)]` module is behind a cfg, so a plain `cargo check` does not compile it at
     all and reports a clean hole count while the test module holds unresolved names. This
-    gap hid a broken rename for a full round. Expect **1 E0308 and 0 non-hole errors**
-    while `build_manifest` is open — i.e. the only error in the build is that one
-    deliberate hole. It is also how the two `image` 0.25 `ImageBuffer::columns()` compile
+    gap hid a broken rename for a full round. It is now expecting **0 E0308 and 0
+    non-hole errors**, which is a weaker but still useful tripwire: any hole means a block
+    was reopened. It is also how the two `image` 0.25 `ImageBuffer::columns()` compile
     errors were caught — a test that does not compile is a **void experiment**, not a
     passing one.
   - **Uncommenting must be RANGE-SCOPED to the marker ranges.** Once a block is filled its
