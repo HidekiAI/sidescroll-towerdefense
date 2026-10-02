@@ -230,26 +230,28 @@ fn value_noise(pos_x: f32, pos_y: f32, period: i64, seed: u64) -> f32 {
 ///
 /// Return in `[0, 1]`, not the raw sum, so callers can threshold it against a meaningful
 /// fraction.
-// TODO(human): begin block 3/9
 fn fbm(pos_x: f32, pos_y: f32, period: i64, octaves: u32, seed: u64) -> f32 {
-    // SAMPLE: uncomment every line of this body to make it live, which also clears the E0308.
-    // let mut sum: f32 = 0.0;
-    // let mut amp: f32 = 1.0;
-    // let mut norm: f32 = 0.0;
-    // let mut freq: f32 = 1.0;
-    // for o in 0..octaves.max(1) {
-    //     // DOUBLES per octave: octave o samples at 2^o frequency, so it spans 2^o cells
-    //     // and keeps the same spatial period as octave 0.
-    //     let per: i64 = period.saturating_mul(1i64 << o.min(20));
-    //     sum += amp
-    //         * value_noise(pos_x * freq, pos_y * freq, per, seed ^ (o as u64).wrapping_mul(0x9e37_79b9));
-    //     norm += amp;
-    //     amp *= 0.5;
-    //     freq *= 2.0;
-    // }
-    // sum / norm
+    let mut sum: f32 = 0.0;
+    let mut amp: f32 = 1.0;
+    let mut norm: f32 = 0.0;
+    let mut freq: f32 = 1.0;
+    for o in 0..octaves.max(1) {
+        // DOUBLES per octave: octave o samples at 2^o frequency, so it spans 2^o cells
+        // and keeps the same spatial period as octave 0.
+        let per: i64 = period.saturating_mul(1i64 << o.min(20));
+        sum += amp
+            * value_noise(
+                pos_x * freq,
+                pos_y * freq,
+                per,
+                seed ^ (o as u64).wrapping_mul(0x9e37_79b9),
+            );
+        norm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    sum / norm
 }
-// TODO(human): end block 3/9
 
 // ---------------------------------------------------------------------------
 // 4/9 - colour lerp
