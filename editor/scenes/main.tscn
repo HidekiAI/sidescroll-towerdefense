@@ -806,10 +806,20 @@ Under: —"
 script = ExtResource("10")
 
 [node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator"]
-visible = false
+visible = true
 layout_mode = 2
 metadata/_tab_index = 4
 
 [node name="BackdropScroll" type="HScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
+
+[node name="BackdropScrollV" type="VScrollBar" parent="TabContainer/Simulator"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -16.0
+grow_vertical = 0

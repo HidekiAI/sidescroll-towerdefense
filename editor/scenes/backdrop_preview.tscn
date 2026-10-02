@@ -1,8 +1,28 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=7 format=3]
 
-[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_0_strip_x5.png" id="1"]
-[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_1_strip_x5.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/backdrop_layers/layer_2_strip_x5.png" id="3"]
+; ref #68 — Backdrop strip: the parallax stack of the 2D Parallax tutorial.
+; Every scroll_scale, z_index, height_px and repeat_size below is transcribed from
+; assets/backdrop_layers/manifest.json, which the Rust generator emits. That file is
+; the single source of truth; this scene is a hand-maintained transcription of it.
+;
+; Two conventions carry the whole scene:
+;   centered = false  -> a Sprite2D draws from its `position` as its top-left corner,
+;                        which is what makes Parallax2D's horizontal repeat tile
+;                        seamlessly instead of straddling the origin.
+;   repeat_size_x = 1920 (y = 0) -> the layer tiles every authored width, so the
+;                        camera can pan forever and no seam appears. repeat_size_y = 0
+;                        disables vertical repeat: these bands have a fixed height.
+;
+; Vertical placement: the sky band is the full 1320px design height and sits at
+; world y = 0. Every other band is bottom-aligned to the same baseline, so
+; baseline_world_y = SKY_HEIGHT_PX - layer_height_px.
+
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/sky.png" id="1"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/clouds_high.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/clouds_low.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/hills.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/forest.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/backdrop_layers/foreground.png" id="6"]
 
 [node name="BackdropPreview" type="Node2D"]
 
@@ -10,23 +30,62 @@
 
 [node name="Backdrops" type="Node2D" parent="."]
 
-[node name="L0_far" type="Parallax2D" parent="Backdrops"]
+[node name="Sky" type="Parallax2D" parent="Backdrops"]
 z_index = 0
-scroll_scale = Vector2(0.15, 0.13)
+scroll_scale = Vector2(0.1, 0.08)
+repeat_size = Vector2(1920, 0)
 
-[node name="Sprite" type="Sprite2D" parent="Backdrops/L0_far"]
+[node name="Sprite" type="Sprite2D" parent="Backdrops/Sky"]
+position = Vector2(0, 0)
+centered = false
 texture = ExtResource("1")
 
-[node name="L1_mid" type="Parallax2D" parent="Backdrops"]
+[node name="HighClouds" type="Parallax2D" parent="Backdrops"]
 z_index = 1
-scroll_scale = Vector2(0.53, 0.45)
+scroll_scale = Vector2(0.2, 0.17)
+repeat_size = Vector2(1920, 0)
 
-[node name="Sprite" type="Sprite2D" parent="Backdrops/L1_mid"]
+[node name="Sprite" type="Sprite2D" parent="Backdrops/HighClouds"]
+position = Vector2(0, 1000)
+centered = false
 texture = ExtResource("2")
 
-[node name="L2_near" type="Parallax2D" parent="Backdrops"]
+[node name="LowClouds" type="Parallax2D" parent="Backdrops"]
 z_index = 2
-scroll_scale = Vector2(0.9, 0.76)
+scroll_scale = Vector2(0.3, 0.25)
+repeat_size = Vector2(1920, 0)
 
-[node name="Sprite" type="Sprite2D" parent="Backdrops/L2_near"]
+[node name="Sprite" type="Sprite2D" parent="Backdrops/LowClouds"]
+position = Vector2(0, 1000)
+centered = false
 texture = ExtResource("3")
+
+[node name="Hills" type="Parallax2D" parent="Backdrops"]
+z_index = 3
+scroll_scale = Vector2(0.5, 0.42)
+repeat_size = Vector2(1920, 0)
+
+[node name="Sprite" type="Sprite2D" parent="Backdrops/Hills"]
+position = Vector2(0, 936)
+centered = false
+texture = ExtResource("4")
+
+[node name="Forest" type="Parallax2D" parent="Backdrops"]
+z_index = 4
+scroll_scale = Vector2(0.7, 0.6)
+repeat_size = Vector2(1920, 0)
+
+[node name="Sprite" type="Sprite2D" parent="Backdrops/Forest"]
+position = Vector2(0, 1000)
+centered = false
+texture = ExtResource("5")
+
+[node name="Foreground" type="Parallax2D" parent="Backdrops"]
+z_index = 10
+scroll_scale = Vector2(1.3, 1.15)
+repeat_size = Vector2(1920, 0)
+
+[node name="Sprite" type="Sprite2D" parent="Backdrops/Foreground"]
+position = Vector2(0, 1000)
+centered = false
+texture = ExtResource("6")
