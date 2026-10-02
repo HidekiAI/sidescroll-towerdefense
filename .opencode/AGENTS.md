@@ -231,24 +231,40 @@ Recorded 2026-09-06; ticketed and designed the same day.
 - **Phase 1 scaffold state (2026-10-01):** `tools/gen-backdrop` exists on
   `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 5 commits). Its non-trivial logic is @me's
   to write via the `coding-assistant` skill, held open as **9 `TODO(human)` blocks over 10
-  functions** in `src/main.rs`. **Blocks 1/9 (`lattice_hash`) and 2/9 (`value_noise`) are
-  FILLED by @me**; blocks 3-9 are empty. So the counts are no longer constants:
-  `grep -c 'TODO(human)'` is **16** (was 20) and the E0308 count is **8** (was 10) — each
+  functions** in `src/main.rs`. **Blocks 1/9 (`lattice_hash`), 2/9 (`value_noise`) and 3/9 (`fbm`) are
+  FILLED by @me**; blocks 4-9 are empty. So the counts are no longer constants:
+  `grep -c 'TODO(human)'` is **14** (was 20) and the E0308 count is **7** (was 10) — each
   filled block removes one marker pair and one hole. `sample-check.sh` asserts the live
   counts rather than fixed ones, so a filled block fails the harness loudly instead of
   silently skewing it. Zero `todo!()`, ever.
-  **Test count is 29** (11 pre-existing + 2 direct `lattice_hash` + 16 covering blocks
-  3-9). All 16 of the later ones were written RED-FIRST against empty bodies, then
-  mutation-verified by a **19-mutant battery in which all 16 are confirmed**; **14 of the
+  **Test count is 29** (9 pre-existing from the original scaffold + 20 written since, of
+  which 2 are direct `lattice_hash` tests and 18 cover blocks 3-9). **These counts were
+  WRONG in two places until 2026-10-02** — an earlier version of this file and of the
+  checkpoint said "11 pre-existing + 2 + 16", which was asserted rather than counted. The
+  numbers above now come from `cargo test -- --list` diffed against commit `9f4deda`. If a
+  test count is ever restated, re-derive it that way.
+  Coverage is complete for all 10 functions: `lattice_hash` 2, `value_noise` 5, `fbm` 2,
+  `lerp_rgb` 3, `smoothstep` 3, `make_sky` 3, `make_clouds` 2, `make_silhouette` 3,
+  `validate_factors` 2, `build_manifest` 2, plus `deterministic` and `seam_is_invisible`
+  which are cross-cutting. Note the layer tests are named after the ART (`sky_*`, `cloud_*`,
+  `silhouette_*`, `manifest_*`), not after the function, so grepping for `fn make_sky` finds
+  no test and looks like a coverage gap that is not there.
+  All 18 of the later ones were written RED-FIRST against empty bodies, then
+  mutation-verified by a **19-mutant battery in which all 18 are confirmed**; **14 of the
   19 mutants turn EXACTLY ONE test red**, which is the evidence none is redundant with
   another. The 2 `lattice_hash` tests are the exception and CANNOT be red-first — @me
   filled block 1 before they existed, so they rest on after-the-fact mutation verification
   alone. Do not restate them as red-first.
+  **When @me fills a block, `sample-check.sh` FAILS on marker counts until they are
+  updated.** That is the harness working, not a regression — it is what stopped a silent
+  skew when block 3/9 landed. Update every `EXPECT_*` from measurement, never from the
+  previous run's value. After the 3/9 fill: 7 pairs, 14 markers, 7 SAMPLEs, 4 notes,
+  7 E0308, 29 tests.
   Six things a successor session must not get wrong:
   - **ALWAYS `cargo check -p gen-backdrop --tests`, never without `--tests`.** The whole
     `#[cfg(test)]` module is behind a cfg, so a plain `cargo check` does not compile it at
-    all and reports a clean 9-hole bill while the test module holds unresolved names. This
-    gap hid a broken rename for a full round. Expect **8 E0308 and 0 non-hole errors**.
+    all and reports a clean 7-hole bill while the test module holds unresolved names. This
+    gap hid a broken rename for a full round. Expect **7 E0308 and 0 non-hole errors**.
     It is also how the two `image` 0.25 `ImageBuffer::columns()` compile errors were caught
     — a test that does not compile is a **void experiment**, not a passing one.
   - **Uncommenting must be RANGE-SCOPED to the marker ranges.** Once a block is filled its

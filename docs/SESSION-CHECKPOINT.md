@@ -16,17 +16,31 @@ _Last updated: 2026-10-01_
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
 **State: design merged and PUSHED. Phase 1 scaffolding COMMITTED LOCALLY, NOT PUSHED.**
-Branch `feat/gen-backdrop-crate` (off `trunk`) holds 5 commits. **Blocks 1/9 and 2/9 are
-filled by @me**; blocks 3-9 are still empty and awaiting @me. All **29 tests** are written
-(11 pre-existing + 2 direct `lattice_hash` + 16 covering blocks 3-9) and every one of the
-16 is mutation-verified. No art, no scene change, no runtime change yet.
+Branch `feat/gen-backdrop-crate` (off `trunk`) holds 9 commits. **Blocks 1/9, 2/9 and 3/9
+are filled by @me**; blocks 4-9 are still empty and awaiting @me. All **29 tests** are
+written — 9 pre-existing from the original scaffold plus 20 written since, of which 2 are
+direct `lattice_hash` tests and 18 cover blocks 3-9 — and every one of those 18 is
+mutation-verified. No art, no scene change, no runtime change yet.
+
+**Coverage is complete for all 10 functions, verified against `cargo test -- --list` and
+not from memory:** `lattice_hash` 2, `value_noise` 5, `fbm` 2, `lerp_rgb` 3, `smoothstep`
+3, `make_sky` 3, `make_clouds` 2, `make_silhouette` 3, `validate_factors` 2,
+`build_manifest` 2, plus `deterministic` and `seam_is_invisible` which are cross-cutting.
+**Every one of the 7 still-open blocks already has its tests written and passing against
+the reference sample, so nothing needs writing before the next hand-over.**
 
 ### NEXT MOVE
 
-1. Hand **block 3/9 (`fbm`)** to @me. It is the next empty block in the map. Its tests
-   (`fbm_stays_in_unit_range_and_wraps`, `fbm_matches_its_documented_octave_formula`)
-   already exist and are already falsifiable, so nothing needs writing first.
-2. Repeat per block 3 -> 9, gating each test diff.
+1. Hand **block 4/9 (`lerp_rgb`)** to @me. It is the next empty block in the map. Its 3
+   tests (`lerp_rgb_hits_its_endpoints_exactly`, `lerp_rgb_clamps_blend_outside_unit_range`,
+   `lerp_rgb_keeps_the_full_channel_range`) already exist and are already falsifiable, so
+   nothing needs writing first. It is the block with the u8-truncation banding trap, so
+   expect the SAMPLE's clamp to be the thing under discussion.
+2. Repeat per block 4 -> 9, gating each test diff.
+3. **After each fill, `sample-check.sh` will FAIL on marker counts until updated.** That is
+   the harness working, not a regression. Measured values after the 3/9 fill: 7 pairs,
+   14 markers, 7 SAMPLEs, 4 notes, 7 E0308, 29 tests. Update from measurement, never
+   from the previous run's expectation.
 3. Once all 9 are filled: `cargo test -p gen-backdrop`, then `cargo run -p gen-backdrop` to
    emit 6 PNGs + `manifest.json`; confirm `repeat_size_y == 0` on every layer.
 4. Phase 2 (`git rm` the 13 tracked backdrop PNGs / `.import`, 12 MB) -> Phase 3 (rebuild
@@ -88,7 +102,7 @@ a `0` rather than a silent skip. Two lessons from that, both worth keeping:
 **`cargo check -p gen-backdrop` does NOT compile the test module.** The whole `#[cfg(test)]`
 module sits behind a cfg, so a plain check reported a clean 9-error bill while the test
 module held an unresolved `h`. Always use `cargo check -p gen-backdrop --tests`. This is now
-asserted in `sample-check.sh` step 0 (8 E0308 expected, 0 non-hole errors).
+asserted in `sample-check.sh` step 0 (7 E0308 expected, 0 non-hole errors).
 
 **Two of the 18 new tests initially failed to COMPILE, and the harness caught it.**
 `ImageBuffer::columns()` does not exist in `image` 0.25, and the `#[cfg(test)]` module is
