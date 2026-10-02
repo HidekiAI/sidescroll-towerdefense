@@ -29,6 +29,20 @@
 [node name="Camera2D" type="Camera2D" parent="."]
 
 [node name="Backdrops" type="Node2D" parent="."]
+; The camera keeps ANCHOR_MODE_DRAG_CENTER (the default), so the visible world is
+; centred on camera.position: at (0,0) that is x -960..960, y -540..540 for the
+; 1920x1080 viewport. Rather than move the camera (the scrollbars write
+; camera.position directly), this parent offset puts the design's top-left corner at
+; the view's top-left corner: design x=0 lands at world -960, and design y=1320, the
+; baseline every band is bottom-aligned to, lands at world y=540, the view bottom.
+; The sky band is 1320px tall but the viewport is only 1080, so the sky cannot fit
+; whole and is deliberately over-tall. This offset therefore pins the BASELINE
+; (design y=1320, where every other band is bottom-aligned) to the view BOTTOM:
+; 540 - 1320 = -780. The top 240px of sky sits above the view, which is correct for
+; a sky, and the camera's 240px vertical travel stays inside covered sky.
+; An earlier draft omitted this offset and rendered only the sky's upper gradient
+; with the rest of the stack below the fold.
+position = Vector2(-960, -780)
 
 [node name="Sky" type="Parallax2D" parent="Backdrops"]
 z_index = 0

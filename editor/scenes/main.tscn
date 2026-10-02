@@ -802,7 +802,14 @@ Tile (-, -)  World (-, -)
 Brush: —
 Under: —"
 
+; layout_mode = 2 is what makes this Control fill the tab. Every other tab root
+; declares it (TerrainEditor, EntityEditor, ...). Without it this Control fell back
+; to mode 0, which sizes from position/size alone, and collapsed to a 189x33
+; minimum-size sliver. That single omission caused all three reported symptoms at
+; once: a cropped strip that showed only sky, apparent off-centre framing, and
+; scrollbars too small to grab.
 [node name="Simulator" type="Control" parent="TabContainer"]
+layout_mode = 2
 script = ExtResource("10")
 
 [node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator"]
@@ -810,16 +817,25 @@ visible = true
 layout_mode = 2
 metadata/_tab_index = 4
 
+; Both bars need explicit anchors. Declared with layout_mode = 1 and no anchors,
+; BackdropScroll laid out as a zero-size sliver at the parent's top-left corner and
+; was never visible or grabbable; BackdropScrollV had right/bottom anchors but no
+; height. Anchored to the parent's bottom edge and right edge respectively, each
+; reserving its own thickness via a negative offset so neither covers the strip.
 [node name="BackdropScroll" type="HScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -16.0
+grow_horizontal = 2
 
 [node name="BackdropScrollV" type="VScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
-anchors_preset = -1
 anchor_left = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = -16.0
+offset_bottom = -16.0
 grow_vertical = 0
