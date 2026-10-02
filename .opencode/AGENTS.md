@@ -228,15 +228,16 @@ Recorded 2026-09-06; ticketed and designed the same day.
 - **Plan + evidence:** `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` (code repo),
   `docs/SESSION-CHECKPOINT.md` CURRENT STATE, `tools/slice-layers/README.md`, wiki
   `TODO.md` TS71, GDScript test `test_parallax_backdrop.gd` to replace the probe.
-- **Phase 1 scaffold state (2026-10-01):** `tools/gen-backdrop` exists on
-  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 5 commits). Its non-trivial logic is @me's
+- **Phase 1 scaffold state (2026-10-02):** `tools/gen-backdrop` exists on
+  `feat/gen-backdrop-crate` (LOCAL, UNPUSHED — 11 commits). Its non-trivial logic is @me's
   to write via the `coding-assistant` skill, held open as **9 `TODO(human)` blocks over 10
-  functions** in `src/main.rs`. **Blocks 1/9 (`lattice_hash`), 2/9 (`value_noise`) and 3/9 (`fbm`) are
-  FILLED by @me**; blocks 4-9 are empty. So the counts are no longer constants:
-  `grep -c 'TODO(human)'` is **14** (was 20) and the E0308 count is **7** (was 10) — each
-  filled block removes one marker pair and one hole. `sample-check.sh` asserts the live
-  counts rather than fixed ones, so a filled block fails the harness loudly instead of
-  silently skewing it. Zero `todo!()`, ever.
+  functions** in `src/main.rs`. **9 of the 10 functions are FILLED by @me** (`lattice_hash`,
+  `value_noise`, `fbm`, `lerp_rgb`, `smoothstep`, `make_sky`, `make_clouds`,
+  `make_silhouette`, `validate_factors`); **exactly ONE remains: `build_manifest`.** So the
+  counts are no longer constants: `grep -c 'TODO(human)'` is **2** (was 20) and the E0308
+  count is **1** (was 10) — each filled function removes one marker pair and one hole.
+  `sample-check.sh` asserts the live counts rather than fixed ones, so a filled block
+  fails the harness loudly instead of silently skewing it. Zero `todo!()`, ever.
   **Test count is 29** (9 pre-existing from the original scaffold + 20 written since, of
   which 2 are direct `lattice_hash` tests and 18 cover blocks 3-9). **These counts were
   WRONG in two places until 2026-10-02** — an earlier version of this file and of the
@@ -250,23 +251,32 @@ Recorded 2026-09-06; ticketed and designed the same day.
   `silhouette_*`, `manifest_*`), not after the function, so grepping for `fn make_sky` finds
   no test and looks like a coverage gap that is not there.
   All 18 of the later ones were written RED-FIRST against empty bodies, then
-  mutation-verified by a **19-mutant battery in which all 18 are confirmed**; **14 of the
-  19 mutants turn EXACTLY ONE test red**, which is the evidence none is redundant with
-  another. The 2 `lattice_hash` tests are the exception and CANNOT be red-first — @me
-  filled block 1 before they existed, so they rest on after-the-fact mutation verification
-  alone. Do not restate them as red-first.
+  mutation-verified by a **24-mutant battery in which all 24 are confirmed, 0 void and 0
+  refuted**; **16 of the 24 mutants turn EXACTLY ONE test red**, which is the evidence none is
+  redundant with another. The 2 `lattice_hash` tests are the exception and CANNOT be red-first —
+  @me filled block 1 before they existed, so they rest on after-the-fact mutation verification
+  alone. Do not restate them as red-first. (They are verified now: `LATTICE-DIV` turns
+  `lattice_hash_is_in_unit_range` red, `LATTICE-YDROP` turns `lattice_hash_decorrelates_adjacent_cells`
+  red — the latter is a copy-paste-class defect that drops the `cell_y` term, so the hash varies
+  on x only, which is precisely what the vertical assertion exists to catch.)
+  **Block state as of 2026-10-02: 9 of 10 functions FILLED by @me; only `build_manifest`
+  remains**, hence **1 open marker pair / 1 E0308 hole / 1 SAMPLE header**.
+  `EXPECT_*` currently: 1 pair, 1 SAMPLE, **0 notes**, 29 tests, 1 E0308. The note count
+  went 4 -> 0 because the two `// // ` notes lived in blocks 7 and 8, and a filled
+  block's notes are live prose rather than sample lines.
   **When @me fills a block, `sample-check.sh` FAILS on marker counts until they are
   updated.** That is the harness working, not a regression — it is what stopped a silent
   skew when block 3/9 landed. Update every `EXPECT_*` from measurement, never from the
-  previous run's value. After the 3/9 fill: 7 pairs, 14 markers, 7 SAMPLEs, 4 notes,
-  7 E0308, 29 tests.
+  previous run's value.
   Six things a successor session must not get wrong:
   - **ALWAYS `cargo check -p gen-backdrop --tests`, never without `--tests`.** The whole
     `#[cfg(test)]` module is behind a cfg, so a plain `cargo check` does not compile it at
-    all and reports a clean 7-hole bill while the test module holds unresolved names. This
-    gap hid a broken rename for a full round. Expect **7 E0308 and 0 non-hole errors**.
-    It is also how the two `image` 0.25 `ImageBuffer::columns()` compile errors were caught
-    — a test that does not compile is a **void experiment**, not a passing one.
+    all and reports a clean hole count while the test module holds unresolved names. This
+    gap hid a broken rename for a full round. Expect **1 E0308 and 0 non-hole errors**
+    while `build_manifest` is open — i.e. the only error in the build is that one
+    deliberate hole. It is also how the two `image` 0.25 `ImageBuffer::columns()` compile
+    errors were caught — a test that does not compile is a **void experiment**, not a
+    passing one.
   - **Uncommenting must be RANGE-SCOPED to the marker ranges.** Once a block is filled its
     comments are LIVE prose, and a blanket `s{^    // (?!/)}` over the file turns that prose
     into bare Rust tokens. `uncomment.pl` derives ranges from the markers, so a filled block
@@ -309,6 +319,24 @@ Recorded 2026-09-06; ticketed and designed the same day.
     is held to the same naming as the real function it replaces** — a sample naming `|s|`
     where the live code names `spec` would silently regress the rename the moment @me
     uncomments it.
+  - **Never reference code by an opaque label, in a comment or in prose (user directive
+    2026-10-02).** `block 2/9`, `the 2/9 caller contract`, `same as 6/9` are banned. A reader
+    landing on the line cannot resolve `2/9` to anything without counting back through the
+    file, and the notation reads as a fraction or a date. Name the function instead: "the same
+    column-to-lattice mapping `make_sky` uses", "the Hermite curve `value_noise` applies to the
+    noise lattice", "the fBm octave ladder". The `N/9` notation is a **harness label** — it is
+    what `sample-check.sh` and the `EXPECT_*` counts key on — and it survives only in the
+    `TODO(human): begin/end block N/9` markers and the `// N/9 - name` section headers, where
+    the function name already sits beside it.
+  - **ALWAYS state the unit-test count for a function when handing @me a block (user directive
+    2026-10-02).** @me got tired of asking "does this have unit-tests?" for every block. Every
+    block handoff MUST lead with the number and the test names, e.g. "block 9/9 `validate_factors`
+    — 2 tests: `factors_in_unit_range`, `validate_factors_rejects_bad_specs`". Say **0 tests**
+    just as loudly, because that is the case @me needs to know about. Derive the count by
+    measurement (`awk` over the `#[cfg(test)]` module, mapping call sites to their owning `fn`),
+    never from the coverage table in this file — that table went stale the moment a fill landed.
+    Also state the **falsifiability** count separately: N tests exist, but only M have a confirmed
+    mutant in `mutations.sh` that turns them red. N and M being different is the interesting fact.
 
 ## gRPC Integration
 

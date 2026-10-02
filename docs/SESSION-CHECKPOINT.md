@@ -8,65 +8,142 @@
 > and stop; the sections below it are an append-only log of past sessions, not a live
 > plan.
 
-_Last updated: 2026-10-01_
+_Last updated: 2026-10-02_
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
 — replace the video-sliced art with self-generated layers, make the backdrop actually
 visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
 
-**State: design merged and PUSHED. Phase 1 scaffolding COMMITTED LOCALLY, NOT PUSHED.**
-Branch `feat/gen-backdrop-crate` (off `trunk`) holds 9 commits. **Blocks 1/9, 2/9 and 3/9
-are filled by @me**; blocks 4-9 are still empty and awaiting @me. All **29 tests** are
-written — 9 pre-existing from the original scaffold plus 20 written since, of which 2 are
-direct `lattice_hash` tests and 18 cover blocks 3-9 — and every one of those 18 is
-mutation-verified. No art, no scene change, no runtime change yet.
+**State: design merged and PUSHED. Phase 1 nearly done — scaffolding COMMITTED LOCALLY,
+NOT PUSHED.** Branch `feat/gen-backdrop-crate` (off `trunk`) holds **11 commits, all
+local and unpushed**. **@me has filled blocks 1-8 plus the first function of block 9
+(`validate_factors`). Exactly ONE function remains: `build_manifest` at `main.rs:523`.**
+No art, no scene change, no runtime change yet.
 
-**Coverage is complete for all 10 functions, verified against `cargo test -- --list` and
-not from memory:** `lattice_hash` 2, `value_noise` 5, `fbm` 2, `lerp_rgb` 3, `smoothstep`
-3, `make_sky` 3, `make_clouds` 2, `make_silhouette` 3, `validate_factors` 2,
-`build_manifest` 2, plus `deterministic` and `seam_is_invisible` which are cross-cutting.
-**Every one of the 7 still-open blocks already has its tests written and passing against
-the reference sample, so nothing needs writing before the next hand-over.**
+**Live block state, measured 2026-10-02 (not copied from the previous run):**
+
+| quantity | value |
+|---|---|
+| `TODO(human)` markers | **2** (1 `begin`, 1 `end`) — down from 20 |
+| `// SAMPLE:` headers | **1** |
+| sample notes (`// // `) | **0** |
+| E0308 holes (`cargo check -p gen-backdrop --tests`) | **1**, with **0 non-hole errors** |
+| tests | **29 passed / 0 failed** |
+
+Each filled function removes one marker pair and one hole, so these counts fall by 2 per
+fill. **`sample-check.sh` FAILS loudly when they drift** — that is the harness working,
+not a regression; it is what caught the `validate_factors` fill. Update every `EXPECT_*`
+from measurement.
+
+**Test coverage is complete for all 10 functions, and falsifiability is now complete
+too.** Counts derived by mapping call sites in the `#[cfg(test)]` module to their owning
+`fn` — never from memory, and never from a table that a later fill invalidates:
+
+| function | tests | mutants confirming |
+|---|---|---|
+| `lattice_hash` | 2 | 2 (`LATTICE-DIV`, `LATTICE-YDROP`) |
+| `value_noise` | 5 | 4 |
+| `fbm` | 2 | 1 |
+| `lerp_rgb` | 3 | 3 |
+| `smoothstep` | 3 | 3 |
+| `make_sky` | 3 | 2 |
+| `make_clouds` | 2 | 1 |
+| `make_silhouette` | 3 | 2 |
+| `validate_factors` | 2 | 2 (`VF-CAP10`, `VF-WRONGVAR`) |
+| `build_manifest` | 2 | 2 (`MANIFEST-VREPEAT`, `MANIFEST-RENAME`) |
+
+`generate_layers_and_manifest` has **0 direct unit tests** — expected, it writes files to
+disk and is exercised end to end in step 4 below. `deterministic` and `seam_is_invisible`
+are cross-cutting and call nothing unique.
+
+**Falsification battery: 24 mutants, ALL confirmed, 0 void, 0 refuted. 16 of the 24 turn
+EXACTLY ONE test red**, which is the evidence none is redundant with another. Four were
+added 2026-10-02 to close the two functions that had zero confirmed mutants
+(`lattice_hash` and `validate_factors`), so every function above now has at least one.
+`LATTICE-YDROP` is the good one: it drops the `cell_y` term so the hash varies on x only,
+which is exactly the defect `lattice_hash_decorrelates_adjacent_cells` asserts the
+vertical leg exists to catch. `VF-WRONGVAR` is the same shape — the y-positivity check
+re-reading `scale_x`, a copy-paste of the rule above it.
 
 ### NEXT MOVE
 
-1. Hand **block 4/9 (`lerp_rgb`)** to @me. It is the next empty block in the map. Its 3
-   tests (`lerp_rgb_hits_its_endpoints_exactly`, `lerp_rgb_clamps_blend_outside_unit_range`,
-   `lerp_rgb_keeps_the_full_channel_range`) already exist and are already falsifiable, so
-   nothing needs writing first. It is the block with the u8-truncation banding trap, so
-   expect the SAMPLE's clamp to be the thing under discussion.
-2. Repeat per block 4 -> 9, gating each test diff.
-3. **After each fill, `sample-check.sh` will FAIL on marker counts until updated.** That is
-   the harness working, not a regression. Measured values after the 3/9 fill: 7 pairs,
-   14 markers, 7 SAMPLEs, 4 notes, 7 E0308, 29 tests. Update from measurement, never
-   from the previous run's expectation.
-3. Once all 9 are filled: `cargo test -p gen-backdrop`, then `cargo run -p gen-backdrop` to
-   emit 6 PNGs + `manifest.json`; confirm `repeat_size_y == 0` on every layer.
-4. Phase 2 (`git rm` the 13 tracked backdrop PNGs / `.import`, 12 MB) -> Phase 3 (rebuild
-   `backdrop_preview.tscn` from `manifest.json`, flip `BackdropStrip` to `visible = true`,
-   add the 240px `BackdropScrollV`, drive `camera.position`) -> Phase 4 (repoint
-   `tile_grid_display.gd` `_layers`) -> Phase 5 (`test_parallax_backdrop.gd`, spike first).
+1. **@me writes `build_manifest` (`main.rs:523`) — the last function.** Its 2 tests already
+   exist and are already mutation-confirmed, so nothing needs writing first:
+   `manifest_hard_codes_repeat_size_y_to_zero` and `manifest_json_keys_are_the_on_disk_contract`.
+   After the fill: `grep -c 'TODO(human)'` -> 0, E0308 -> 0, and the repo's own
+   `cargo test -p gen-backdrop` will compile for the first time.
+2. `cargo test -p gen-backdrop`, then `cargo run -p gen-backdrop` to emit 6 PNGs +
+   `manifest.json`. **Confirm `repeat_size_y == 0` on every layer** — that field is
+   hard-coded to 0 inside the function, deliberately not a parameter, so no caller can
+   flip it. Then open each PNG and look for a vertical cut line at the bottom of a cloud
+   plane: the band gradient was dropped, so the bottom row is whatever the noise says and
+   the 240px clamped camera-y budget is the only guard.
+3. Phase 2 (`git rm` the 13 tracked backdrop PNGs / `.import`, 12 MB) -> Phase 3 (rebuild
+   `backdrop_preview.tscn` from `manifest.json` with `centered = false` and
+   `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a 240px-clamped
+   `BackdropScrollV`; drive `camera.position` from both bars in `simulator.gd`) -> Phase 4
+   (repoint `tile_grid_display.gd`'s `_layers`) -> Phase 5 (`test_parallax_backdrop.gd`,
+   spike first).
+4. Phase 5 **spike before asserting**: step the camera by `(+120, +40)`, `await
+   process_frame` twice, read each `Parallax2D.get_screen_offset()`. If the offsets are
+   observable headless, assert the both-axis drift within 0.5px; if not, degrade to a
+   static contract and **record which one shipped**. Replace `probe_parallax_scroll.gd`.
 5. Phase 6: gates, checkpoint, close #68 citing the wiki page, file the legacy `.json`
    layer round-trip gap (TDD §4.2) as a separate follow-up, ask for push permission,
    `--ff-only` merge, offer branch deletion.
-6. **The wiki is FROZEN** until @me signs off on the implementations.
+6. **The wiki is FROZEN** until @me signs off on the implementations. Every discrepancy
+   in the list below is recorded here instead, so nothing is silently lost.
 
-**Two wiki-vs-code discrepancies found, deferred to sign-off** — do not fix yet:
-`TDD_Parallax-Background.md:243` says fBm *"halves the period per octave"*; the
-implementation **doubles** it (`period << o` paired with `freq *= 2.0`, so the spatial
-period stays exactly `period`) and the repo is internally consistent on doubling. That wiki
-line is wrong. `:249` says `clouds_low` is a *"lower frequency"* sibling; both cloud layers
-use `cells = 8` and differ by threshold (`0.52/0.68` vs `0.44/0.60`) and derived seed.
+### SIX wiki-vs-code discrepancies — all deferred to sign-off, none to be fixed yet
+
+All six verified against the current post-fill code on 2026-10-02. The first two were
+known; **the last four are new, surfaced by an independent scope audit of the plan against
+the block samples, and re-confirmed by hand afterwards.** Note the wiki is the design of
+record, so each is either a wrong wiki line to correct at sign-off or a real code/doc
+divergence to decide — not a licence to "just make the code match" now.
+
+1. **fBm period direction.** `TDD_Parallax-Background.md:243` says fBm *"halves the period
+   per octave"*; the implementation **doubles** it (`period << o` paired with
+   `freq *= 2.0`, so the spatial period stays exactly `period`). The plan, the block doc
+   and `fbm_matches_its_documented_octave_formula` all agree on doubling. That wiki line
+   is wrong.
+2. **`clouds_low` frequency.** `TDD:249` and the plan's §3 both call it a *"lower
+   frequency"* sibling; both cloud layers use `cells = 8` (`main.rs`) and differ only by
+   threshold (`0.52/0.68` vs `0.44/0.60`) and derived seed.
+3. **Forest recipe (NEW).** `TDD:252` specifies forest as *"periodic canopy blob union
+   over an opaque ground band"*. The code dispatches Forest to the **same heightfield
+   `make_silhouette`** as Hills, and `canopy`/`blob` appear nowhere in `main.rs` except one
+   unrelated INTENT comment. This one is worse than a wrong sentence: `TDD` says biome
+   palettes arrive later by *"re-tinting these same layers"*, and **a re-tint cannot turn a
+   heightfield into canopy blobs.** Decide before sign-off — amend the two docs to the
+   heightfield recipe, or implement blobs.
+4. **Sky haze octaves (NEW).** `TDD:248` says the sky is *"one octave of fBm haze"*;
+   `make_sky` calls `fbm` with **3** octaves. Mitigating, and worth weighing: one octave of
+   `fbm()` **is** `value_noise`, so "one octave of fBm" may be loose phrasing rather than a
+   broken contract. Recorded either way because nobody had flagged it.
+5. **`foreground.png` has no documented consumer (NEW).** The code emits **6** PNGs;
+   `TDD:236` lists **5** plus the manifest, and the plan's §5 output list also says 5. The
+   editor's `Foreground` entry at `tile_grid_display.gd:23` has `path: ""`, so nothing
+   reads the file. Also note `Hills`, `Forest` and `Foreground` are now **three layers
+   sharing one algorithm with two numbers differing**, which no document states.
+6. **`--overscan` is plumbed but sizes nothing (NEW).** It is parsed, logged, and passed
+   to `build_manifest`, but the `height_px` values in the layer table are hard-coded
+   literals (1320 / 320 / 384) and `TDD:161`'s *"authored overscan px taller than its
+   visible band"* never reaches the texture size. `TDD:166`'s *"320 + headroom"* is
+   ambiguous against a stored 320. Make it effective or drop it from the usage block.
 
 | repo | branch | what is on it |
 |---|---|---|
-| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 5 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 29 tests; blocks 1-2 filled), workspace `Cargo.toml`, `Cargo.lock` |
+| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 11 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 29 tests; 9 of 10 functions filled), workspace `Cargo.toml`, `Cargo.lock` |
+| `sidescroll-towerdefense` | `chore/godot-4-7-upgrade` (local only, 1 commit, unpushed) | `editor/project.godot` (4.7 feature level) + the `editor/addons/` gitignore; **still needs landing**, so `git status` on the feature branch will keep showing `?? editor/addons/` |
 | `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
 | `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
 
 Issue #68 stays **OPEN**. Issue **#85** is a separate filed bug — see the Gate section; it
-is unrelated to this work and must not be folded into it.
+is unrelated to this work and must not be folded into it. Issue **#86** (generators
+hard-code their palettes and take no style parameters) is open and is the ticket that
+would close discrepancy 5's palette half.
 
 ### Block 1 filled, naming sweep, and 2 direct `lattice_hash` tests
 
@@ -102,7 +179,8 @@ a `0` rather than a silent skip. Two lessons from that, both worth keeping:
 **`cargo check -p gen-backdrop` does NOT compile the test module.** The whole `#[cfg(test)]`
 module sits behind a cfg, so a plain check reported a clean 9-error bill while the test
 module held an unresolved `h`. Always use `cargo check -p gen-backdrop --tests`. This is now
-asserted in `sample-check.sh` step 0 (7 E0308 expected, 0 non-hole errors).
+asserted in `sample-check.sh` step 0 (**7** E0308 expected as of the 3/9 fill; the live
+count is in CURRENT STATE above — now **1**).
 
 **Two of the 18 new tests initially failed to COMPILE, and the harness caught it.**
 `ImageBuffer::columns()` does not exist in `image` 0.25, and the `#[cfg(test)]` module is
