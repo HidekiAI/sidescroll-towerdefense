@@ -66,6 +66,29 @@ struct LayerSpec {
     z_index: i32,
 }
 
+/// One layer's entry in `manifest.json`.
+#[derive(Serialize)]
+struct ManifestLayer {
+    name: String,
+    file: String,
+    scroll_scale_x: f32,
+    scroll_scale_y: f32,
+    repeat_size_x: u32,
+    repeat_size_y: u32,
+    z_index: i32,
+    height_px: u32,
+}
+
+/// Serialized form of `manifest.json`.
+#[derive(Serialize)]
+struct Manifest {
+    version: String,
+    width_px: u32,
+    overscan_px: u32,
+    seed: u64,
+    layers: Vec<ManifestLayer>,
+}
+
 /// The full stack. Six planes: five backdrop layers plus a foreground drawn IN FRONT of
 /// the tile layer. That is six of the seven-layer cap.
 ///
@@ -539,29 +562,6 @@ fn build_manifest(specs: &[LayerSpec], width: u32, overscan: u32, seed: u64) -> 
             })
             .collect(),
     }
-}
-
-/// Serialized form of `manifest.json`.
-#[derive(Serialize)]
-struct Manifest {
-    version: String,
-    width_px: u32,
-    overscan_px: u32,
-    seed: u64,
-    layers: Vec<ManifestLayer>,
-}
-
-/// One layer's entry in `manifest.json`.
-#[derive(Serialize)]
-struct ManifestLayer {
-    name: String,
-    file: String,
-    scroll_scale_x: f32,
-    scroll_scale_y: f32,
-    repeat_size_x: u32,
-    repeat_size_y: u32,
-    z_index: i32,
-    height_px: u32,
 }
 
 // ---------------------------------------------------------------------------
