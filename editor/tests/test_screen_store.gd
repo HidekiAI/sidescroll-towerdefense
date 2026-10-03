@@ -937,9 +937,12 @@ func _test_world_archive_roundtrip() -> void:
     var z := ZIPReader.new()
     z.open(tmp_zip)
     var files: PackedStringArray = z.get_files()
+    # #85: count FILE entries only. Godot 4.7's ZIPPacker now emits a `tiles/`
+    # directory entry beside the two PNGs, so begins_with("tiles/") alone is 3.
+    # Skipping names that end in "/" keeps the count toolchain-independent.
     var tile_count := 0
     for f in files:
-        if f.begins_with("tiles/"):
+        if f.begins_with("tiles/") and not f.ends_with("/"):
             tile_count += 1
     z.close()
     check(files.has("manifest.json"), "manifest.json present")
