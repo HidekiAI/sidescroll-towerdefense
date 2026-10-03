@@ -44,6 +44,32 @@ func _ready() -> void:
     # stops there instead of letting the camera pan past the art.
     _scroll_v.max_value = 240.0
     _scroll_v.min_value = 0.0
+    _size_layer_repeats(strip)
+
+# Sizes every layer's horizontal repeat run to cover the full scrub.
+#
+# Measured with a real window: left at Godot's default of 1, horizontal scrubbing showed
+# NOTHING. The tab was 100% bare background at camera x=1600, and 89-92% bare out to
+# x=6400, while x=0 was only 6% bare. repeat_times = 1 draws a single copy plus enough
+# to fill the VIEWPORT, so as soon as the camera pans past that copy there is no art left
+# to draw. This is the reason the strip could be grabbed but not usefully scrolled.
+#
+# Derived from the scrub range rather than hard-coded, because the scrub and the repeat
+# count are two halves of one constraint and hard-coding them lets them drift apart
+# unnoticed -- which is what happened. Tiles = ceil(scrub / repeat_size.x) + 1, the +1
+# covering one viewport width past the end of the scrub.
+#
+# After this, the bare-background percentage is a flat 1% across the whole range
+# (measured at x = 0, 1600, 3200, 4800, 6400).
+func _size_layer_repeats(strip: Node2D) -> void:
+    var backdrops := strip.get_node_or_null("Backdrops") as Node2D
+    if backdrops == null:
+        return
+    for layer in backdrops.get_children():
+        var parallax := layer as Parallax2D
+        if parallax.repeat_size.x <= 0.0:
+            continue
+        parallax.repeat_times = ceili(_scroll_x.max_value / parallax.repeat_size.x) + 1
 
 # Puts the art flush with the tab's left and bottom edges, measured rather than
 # hard-coded.
