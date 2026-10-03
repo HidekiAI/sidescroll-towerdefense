@@ -172,32 +172,48 @@ calibrated through a displaced canvas. Specifically void —
    before Phase 2's `git rm` of the 13 old tracked PNGs.
 8. Phase 6: final gates, close #68, `--ff-only` merge, offer branch deletion.
 
-### Parallel thread — #94 minimap (GDD written, two decisions open)
+### Parallel thread — #94 minimap (GDD merged, zoom ladder settled)
 
-Wiki branch `docs/minimap-gdd`. `GDD_World-Layout.md` gained a *Minimap (Side-Scrolling
-Defense Zones)* section plus `GameDesign/assets/minimap_schematic.{svg,png}` (a labelled
-**MOCKUP** — no minimap exists to screenshot; drawn in screen units so it survives any scale).
+Wiki `master` at `ace6738`. `GDD_World-Layout.md` carries a *Minimap (Side-Scrolling Defense
+Zones)* section plus `GameDesign/assets/minimap_schematic.{svg,png}` (a labelled **MOCKUP** —
+no minimap exists to screenshot; drawn in screen units so it survives any scale).
 
-Settled: scrolls rather than scales; one `screen_y` row across full map width; entities as
-dots (blue ally, red enemy, grey neutral); **M** key and a Minimap button; overlay with the
-game live.
+Settled: scrolls rather than scales; the map's **full vertical extent** across full map width;
+entities as dots (blue ally, red enemy, grey neutral); **M** key and a Minimap button; overlay
+with the game live; **exactly three zoom levels, 2x apart**.
 
-**Two open decisions, both of which the spec itself surfaced:**
+**The zoom ladder, settled 2026-10-03.** One screen occupies `1920/d` x `1056/d` panel px, so
+`screens_shown = (panel_w * d) / 1920`. Recommended panel **480 x 264** gives a **1 / 2 / 4**
+screens-wide ladder at `d = 4 / 8 / 16`. Two consequences, both verified by computation:
 
-- **The scroll may be unreachable.** `GDD_World-Layout` says maps span 2–3 screens. At every
-  candidate scale a 2–3 screen map fits inside a full-width window, so `min(map, window)`
-  always picks the map and the window never scrolls. Scale and window width cannot be
-  decided separately — narrow the window deliberately, or drop the scrolling for a static
-  strip.
+- The **scroll-unreachable problem is solved**. A 3-screen map is 720 panel px against a
+  480 px window at normal zoom, so the window really scrolls. That was the question the GDD
+  carried as open and could not answer; it is deleted from the wiki page, not left dangling.
+- **Scaling is uniform on both axes**, and the panel *height* is what enforces it:
+  `panel_h` must be a multiple of `1056 / d_zoom_in` = 264. Levels then divide evenly at
+  264/132/66 px. Panel height is the one dimension that is not free.
+
+Extent changed from "exactly one `screen_y` row" to the map's full height, because
+`GDD_Combat-Mechanics` Blueprint 2 is `4 Screens Wide: 1 High ---> 2 High ---> 1 High`. One
+`min(map, window)` rule per axis covers both. The EvE/ZvZ rule from `TDD_World-Editor` is
+carried into the section: minimap contents must come from the owning client's own viewport
+coverage, never server-global truth.
+
+**Three items still open in the wiki, deliberately:**
+
+- **Panel size** — 480 x 264 is a *recommendation*, not a decision. Widening it changes only
+  the window width, never the ladder's ratio or the uniform-scale rule.
+- **Zoom input binding** — wheel risks the live game behind the overlay consuming it; keys
+  risk colliding with combat hotkeys. Neither chosen.
 - **The Alarm tower conflict.** `GDD_Gameplay.Towers` gives Alarm its *entire* effect:
   "Reveals enemy position on minimap". Always-visible red enemy dots nullify it. A
   resolution is proposed and **marked unapproved**: reveal extends from the view rectangle to
-  the whole row, so Alarm keeps a real effect. Changing that promise is a change to
+  the whole window, so Alarm keeps a real effect. Changing that promise is a change to
   `GDD_Gameplay.Towers`, not to `GDD_World-Layout`.
 
 Also: the viewport is 1080 px tall and a screen is 1056 px, so the view **straddles the next
-`screen_y` row by 24 px** — 2.3%, invisible at minimap scale. The shown row is defined by the
-top edge of the viewport, stated as a rule rather than drawn as a cue.
+`screen_y` row by 24 px** — 2.3%, invisible at minimap scale. The straddled row is defined by
+the top edge of the viewport, stated as a rule rather than drawn as a cue.
 
 Name collision to resolve before implementation: the editor already has a `class_name
 ScreenMinimap` (`editor/scripts/screen_minimap.gd`, used by `map_editor.gd`,
@@ -228,10 +244,11 @@ files.
 - **`chore/godot-4-7-upgrade`** (1 commit, local, unpushed) awaiting a landing decision; it
   carries the gitignore keeping `editor/addons/` out.
 - **Wiki freeze**: lifted for `TDD_Parallax-Depth.md` only, then for the minimap section of
-  `GDD_World-Layout.md` + its `Home.md` index row. **Nothing else in the wiki may be edited.**
-  Two wiki branches, neither merged:
-  - `docs/parallax-signed-depth` — `cd51730`, signed `z_depth` spec (#91).
-  - `docs/minimap-gdd` — `d858ce8`, the minimap GDD (#94).
+  `GDD_World-Layout.md` + its `Home.md` index row, then for the minimap zoom ladder in the
+  same section + `minimap_schematic.{svg,png}`. **Nothing else in the wiki may be edited.**
+  The first two are merged to `master` (`7e461f8`) and their branches deleted. One wiki branch
+  is open, unmerged, awaiting push permission:
+  - `docs/minimap-zoom-ladder` — `ace6738`, the three-level zoom ladder (#94).
 - Wiki's six recorded discrepancies untouched (FROZEN pending @me's agreement).
 - Issues filed today: **#90** celestial body, **#91** signed depth (real sub-issue of #90),
   **#92** four stale `Camera2D` comments + one superseded design plan, **#93**
