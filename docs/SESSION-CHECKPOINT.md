@@ -14,9 +14,7 @@ _Last updated: 2026-10-03 (gate iteration 4 applied, same day)_
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: #89 is DESIGNED, GATED and MEASURED. No production code written yet. The plan of
-record has cleared four gate iterations; the last scored 76/100 with all ten deficiencies
-applied. Phase 2 still blocked on #87. Phase 6 pending.**
+**State: #89 is DESIGNED, GATED and MEASURED. No production code written yet. #85 (Godot 4.7 zip directory entry) is FIXED in trunk and verified green on 4.7.2 (test_screen_store exits 0). Phase 2 still blocked on #87. Phase 6 pending.**
 
 ### The fix, in one line
 
