@@ -5,581 +5,119 @@
 > This block is the single authoritative resume point. It **supersedes** every
 > `## Active step`, `## Next move` and `## SUPERSEDED` heading further down, which are
 > retained as the historical record only. A cold-start session should read this block
-> and stop; the sections below it are an append-only log of past sessions, not a live
-> plan.
+> and stop.
 
-_Last updated: 2026-10-02_
+_Last updated: 2026-10-03_
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
-— replace the video-sliced art with self-generated layers, make the backdrop actually
-visible, and prove both-axis motion with a test that cannot pass for the wrong reason.
-
-**State: Phase 1 AND Phase 3 COMPLETE AND PUSHED TO `trunk`. Phases 2, 4 and 6 outstanding.**
-
-| phase | what it is | state |
-|---|---|---|
-| 1 | `tools/gen-backdrop` generator | **DONE, merged to `trunk`** — 29/29 tests, 6 PNGs + manifest |
-| 2 | retire the old sliced PNGs | **NOT DONE** — blocked, see below |
-| 3 | scene rebuild + runtime + test | **DONE, merged to `trunk`** — `test_parallax_backdrop.gd` green |
-| 4 | repoint `tile_grid_display.gd` `_layers` | **OUT OF SCOPE by decision** — filed as #87 |
-| 6 | final gates, close #68 | pending |
-
-Phase 3 landed on `feat/parallax-restack`, pushed, and merged `--ff-only` into `trunk`
-(`b495570..ba2cbb4`). The backdrop is now **visible** (`BackdropStrip` was carrying
-`visible = false`, which is why nothing rendered), the six generated layers replace the
-sliced strips, and **both axes move**: `BackdropScroll` drives `camera.position.x`,
-`BackdropScrollV` drives `.y`, each writing only its own axis of one shared `Vector2`.
-
-**Phase 2 is deliberately NOT done, and must not be done casually.** Deleting the 13 old
-tracked files (~15 MB) leaves the map editor's `_layers` pointing at files that no longer
-exist, because that array references the same art. That is issue **#87**. Until #87 is
-worked, `git rm` trades an ugly-but-visible editor backdrop for a silently empty one.
-
-**`tile_grid_display.gd` `_layers` is NOT the parallax — do not "fix" it as though it
-were.** Verified by grep: the only occurrence of "parallax" in that file is the word
-inside a comment at line 18. `_draw()` renders each layer as one fixed full-grid
-`draw_texture_rect(tex, Rect2(0, 0, grid_w * tile_size, grid_h * tile_size))` with no
-`scroll_scale`, no camera and no offset. It is the **map editor's static backdrop stack**,
-with a LayerBox UI (`map_editor.gd:205-242`) and a save/restore path
-(`map_editor.gd:1252` → `set_layers(restored)`). Repointing its defaults would NOT fix maps
-already on disk, because the layer list is read back out of saved map files — that is why
-#87 is a migration and not a one-line change. `_BACKDROP_PATHS` (`tile_grid_display.gd:13-17`)
-is dead code: defined, read by nothing.
-
-**The two asset directories are NOT duplicates**, and were treated as one set by mistake
-in the original plan. Repo-root `assets/backdrop_layers/` holds 4 files (the slicer's
-source art, including `displacement.png`, no `.import` sidecars); `editor/assets/backdrop_layers/`
-holds the results plus Godot `.import` sidecars and is the only one Godot loads.
-
-**Phase 3 test: `editor/tests/test_parallax_backdrop.gd`, green, 13/13 mutants killed.**
-
-Two measurement findings that shaped it, both worth keeping:
-
-- **`Parallax2D.get_screen_offset()` is NOT a drift signal.** It returned `(88, 39)`
-  identically for Sky and Foreground — identical values for two layers with different
-  `scroll_scale` prove it is viewport-derived. Asserting on it would pass equally for a
-  working and a completely broken parallax. Use `position`, step-to-step.
-- **Absolute `position` is unreadable on x**: it carries a ~2028px common constant from the
-  repeat wrap. Two successive EQUAL camera steps cancel it. Measured form is
-  `step * (1 - scroll_scale)` per axis; two independent samples agreed exactly.
-
-That second point also produced the one genuine test hole: a first draft derived expected
-drift as `step * (1 - layer.scroll_scale)`, so the expectation read the value under test
-and `SCALE-SWAP-XY` / `FG-SCALE-FLAT` refuted it. All twelve scale literals are now pinned
-before anything is derived from them. Two further mutants (`TEX-SWAP-HILLS`,
-`DROP-VSCROLLBAR`) were **void experiments**, not refutations — perl aborted on a path and
-on an empty replacement, so the files were never modified and the suite passed on unmodified
-code. The mutator now checks perl's exit code and byte-identity before scoring.
-
-**Known, deliberately not fixed (out of scope for #68):** `simulator.gd` guards a missing
-strip but not a missing scrollbar, so dropping one node segfaults on the signal connect.
-The suite still fails correctly; the crash is teardown after an already-failed run.
-
-Wiki is FROZEN pending sign-off on the implementations. Issues #68, #85, #86, #87 all open.
-
-**Live block state, measured 2026-10-02 (not copied from the previous run):**
-
-| quantity | value |
-|---|---|
-| `TODO(human)` markers | **0** (was 20) |
-| `// SAMPLE:` headers | **0** |
-| sample notes (`// // `) | **0** |
-| E0308 holes (`cargo check -p gen-backdrop --tests`) | **0**, with **0 non-hole errors and 0 warnings** |
-| tests | **29 passed / 0 failed** in the repo tree itself |
-| generator output | 6 PNGs + `manifest.json` at 1920 wide; `repeat_size_y == 0` on all 6 |
-
-`cargo check -p gen-backdrop --tests` now compiles the `#[cfg(test)]` module for the first
-time — until this fill, every build stopped at a deliberate hole, which is why the whole
-verification cycle ran against the uncommented copy in `/tmp` instead of the repo.
-
-**Two visual risks MEASURED on the emitted PNGs on 2026-10-02** (numerically, not by eye —
-I cannot view images, so both were checked as pixel counts):
-
-- **Seam, all six layers: 0 differing rows between the first and last column.** The suite
-  only ever asserted this for the sky, so the cloud and silhouette planes — the ones whose
-  edges actually show — were unchecked for the one property that makes a wrapping repeat
-  invisible. **This is a real coverage gap that measurement closed, not a test.** If a
-  cloud plane's seam ever breaks, nothing in the suite will catch it.
-- **Cut line, cloud planes: bottom row ~97% partial alpha**, not a hard edge, because the
-  band gradient was dropped in favour of a bare `smoothstep` over the noise. The 240px
-  clamped camera-y budget therefore has margin, though it remains the only guard.
-
-**Test coverage is complete for all 10 functions, and falsifiability is now complete
-too.** Counts derived by mapping call sites in the `#[cfg(test)]` module to their owning
-`fn` — never from memory, and never from a table that a later fill invalidates:
-
-| function | tests | mutants confirming |
-|---|---|---|
-| `lattice_hash` | 2 | 2 (`LATTICE-DIV`, `LATTICE-YDROP`) |
-| `value_noise` | 5 | 4 |
-| `fbm` | 2 | 1 |
-| `lerp_rgb` | 3 | 3 |
-| `smoothstep` | 3 | 3 |
-| `make_sky` | 3 | 2 |
-| `make_clouds` | 2 | 1 |
-| `make_silhouette` | 3 | 2 |
-| `validate_factors` | 2 | 2 (`VF-CAP10`, `VF-WRONGVAR`) |
-| `build_manifest` | 2 | 2 (`MANIFEST-VREPEAT`, `MANIFEST-RENAME`) |
-
-`generate_layers_and_manifest` has **0 direct unit tests** — expected, it writes files to
-disk and is exercised end to end in step 4 below. `deterministic` and `seam_is_invisible`
-are cross-cutting and call nothing unique.
-
-**Falsification battery: 24 mutants, ALL confirmed, 0 void, 0 refuted. 16 of the 24 turn
-EXACTLY ONE test red**, which is the evidence none is redundant with another. Four were
-added 2026-10-02 to close the two functions that had zero confirmed mutants
-(`lattice_hash` and `validate_factors`), so every function above now has at least one.
-`LATTICE-YDROP` is the good one: it drops the `cell_y` term so the hash varies on x only,
-which is exactly the defect `lattice_hash_decorrelates_adjacent_cells` asserts the
-vertical leg exists to catch. `VF-WRONGVAR` is the same shape — the y-positivity check
-re-reading `scale_x`, a copy-paste of the rule above it.
-
-### NEXT MOVE
-
-1. **Phase 1 is done. Nothing to hand @me.** The next step is Phase 2, but it is the first
-   step in this plan that deletes committed files, so confirm before starting: `git rm` the
-   13 tracked backdrop PNGs / `.import` files (12 MB) in `assets/backdrop_layers/` and
-   `editor/assets/backdrop_layers/`, including the `*_strip_x5.png` collision strips.
-   `tools/slice-layers` stays as a documented one-off.
-2. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false` and
-   `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a 240px-clamped
-   `BackdropScrollV`; drive `camera.position` from both bars in `simulator.gd`. **Copy the 6
-   emitted PNGs to `editor/assets/backdrop_layers/` and let Godot import them.**
-3. Phase 4: repoint `tile_grid_display.gd`'s 4-entry `_layers` to the 6-layer stack
-   (5 behind + the Foreground front placeholder at `z_order = 10`, whose `path` is `""`).
-   Decide there whether Foreground points at `foreground.png` or stays empty — that is
-   discrepancy 5 below, and it needs a call, not a default.
-4. Phase 5: `test_parallax_backdrop.gd`, **spike before asserting**. Step the camera by
-   `(+120, +40)`, `await process_frame` twice, read each `Parallax2D.get_screen_offset()`.
-   If the offsets are observable headless, assert the both-axis drift within 0.5px; if not,
-   degrade to a static contract and **record which one shipped**. Replace
-   `probe_parallax_scroll.gd`. **Also add a cloud-plane seam assertion** — the seam
-   measurement above proves today's art is fine but pins nothing, so the next seed or the
-   next algorithm change could break it silently.
-5. Phase 6: gates, checkpoint, close #68 citing the wiki page, file the legacy `.json`
-   layer round-trip gap (TDD §4.2) as a separate follow-up, ask for push permission,
-   `--ff-only` merge, offer branch deletion.
-6. **The wiki is FROZEN** until @me signs off on the implementations. Every discrepancy
-   in the list below is recorded here instead, so nothing is silently lost.
-
-### SIX wiki-vs-code discrepancies — all deferred to sign-off, none to be fixed yet
-
-All six verified against the current post-fill code on 2026-10-02. The first two were
-known; **the last four are new, surfaced by an independent scope audit of the plan against
-the block samples, and re-confirmed by hand afterwards.** Note the wiki is the design of
-record, so each is either a wrong wiki line to correct at sign-off or a real code/doc
-divergence to decide — not a licence to "just make the code match" now.
-
-1. **fBm period direction.** `TDD_Parallax-Background.md:243` says fBm *"halves the period
-   per octave"*; the implementation **doubles** it (`period << o` paired with
-   `freq *= 2.0`, so the spatial period stays exactly `period`). The plan, the block doc
-   and `fbm_matches_its_documented_octave_formula` all agree on doubling. That wiki line
-   is wrong.
-2. **`clouds_low` frequency.** `TDD:249` and the plan's §3 both call it a *"lower
-   frequency"* sibling; both cloud layers use `cells = 8` (`main.rs`) and differ only by
-   threshold (`0.52/0.68` vs `0.44/0.60`) and derived seed.
-3. **Forest recipe (NEW).** `TDD:252` specifies forest as *"periodic canopy blob union
-   over an opaque ground band"*. The code dispatches Forest to the **same heightfield
-   `make_silhouette`** as Hills, and `canopy`/`blob` appear nowhere in `main.rs` except one
-   unrelated INTENT comment. This one is worse than a wrong sentence: `TDD` says biome
-   palettes arrive later by *"re-tinting these same layers"*, and **a re-tint cannot turn a
-   heightfield into canopy blobs.** Decide before sign-off — amend the two docs to the
-   heightfield recipe, or implement blobs.
-4. **Sky haze octaves (NEW).** `TDD:248` says the sky is *"one octave of fBm haze"*;
-   `make_sky` calls `fbm` with **3** octaves. Mitigating, and worth weighing: one octave of
-   `fbm()` **is** `value_noise`, so "one octave of fBm" may be loose phrasing rather than a
-   broken contract. Recorded either way because nobody had flagged it.
-5. **`foreground.png` has no documented consumer (NEW).** The code emits **6** PNGs;
-   `TDD:236` lists **5** plus the manifest, and the plan's §5 output list also says 5. The
-   editor's `Foreground` entry at `tile_grid_display.gd:23` has `path: ""`, so nothing
-   reads the file. Also note `Hills`, `Forest` and `Foreground` are now **three layers
-   sharing one algorithm with two numbers differing**, which no document states.
-6. **`--overscan` is plumbed but sizes nothing (NEW).** It is parsed, logged, and passed
-   to `build_manifest`, but the `height_px` values in the layer table are hard-coded
-   literals (1320 / 320 / 384) and `TDD:161`'s *"authored overscan px taller than its
-   visible band"* never reaches the texture size. `TDD:166`'s *"320 + headroom"* is
-   ambiguous against a stored 320. Make it effective or drop it from the usage block.
-
-| repo | branch | what is on it |
-|---|---|---|
-| `sidescroll-towerdefense` | `feat/gen-backdrop-crate` (local only, 14 commits, unpushed) | `tools/gen-backdrop/` (crate + 9 blocks / 10 functions + 29 tests; ALL filled, 0 markers, 0 holes), workspace `Cargo.toml`, `Cargo.lock` |
-| `sidescroll-towerdefense` | `chore/godot-4-7-upgrade` (local only, 1 commit, unpushed) | `editor/project.godot` (4.7 feature level) + the `editor/addons/` gitignore; **still needs landing**, so `git status` on the feature branch will keep showing `?? editor/addons/` |
-| `sidescroll-towerdefense` | `feat/parallax-tutorial-stack` (merged to `trunk`) | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, `tools/slice-layers/README.md`, this checkpoint, `.opencode/sessions/parallax-tutorial-restack.md` |
-| `sidescroll-towerdefense.wiki` | `docs/parallax-tutorial-model` (merged to `master`) | `TDD_Parallax-Background` revised (§2, §3.1, §3.2, §3.3, §4.1, §4.1.1, §5, §6, §7), `GDD_Art-Direction` Parallax section, `TDD_Parallax-Restack-2026-09-30` decision record, `Home.md` rows, `TODO.md` rows TS71 + DD7 |
-
-Issue #68 stays **OPEN**. Issue **#85** is a separate filed bug — see the Gate section; it
-is unrelated to this work and must not be folded into it. Issue **#86** (generators
-hard-code their palettes and take no style parameters) is open and is the ticket that
-would close discrepancy 5's palette half.
-
-### Block 1 filled, naming sweep, and 2 direct `lattice_hash` tests
-
-**Block 1/9 was written by @me** (sample uncommented, both markers removed). Marker count
-therefore dropped 20 -> 18 and the E0308 count 10 -> 9. The plan/checkpoint counts written
-before that were stale; `sample-check.sh` step 0 now asserts every count against the repo
-file so a filled block fails loudly instead of silently skewing later steps.
-
-**Two naming sweeps, both user-driven, recorded as a GLOBAL rule** in
-`~/scripts/LLM/rules/default.md`:
-
-1. *No bare `x` / `y`* as a parameter or variable, any language — name the coordinate
-   space. This was already the project's own rule (`Coordinate & Unit — explicit suffixes
-   required everywhere`), so bare `x`/`y` was a convention violation, not a preference.
-   `left_hand_side` / `lhs` was explicitly rejected: those name a role in an equation, and
-   these are two coordinates of a lattice, so `lhs` is *less* informative than `x`/`y`.
-2. *No meaningless short locals* (`s1`, `m1`, `p`, `c`, `n`, `h`, `v`, `a`, `b`, `t`).
-   Block 1's `s1/m1/s2/m2/s3` became `xorshift_1/multiply_1/xorshift_2/multiply_2/
-   xorshift_3`, which now reads as the algorithm and matches the comment already above it.
-
-Applied via counted perl rules (`rename.pl`, `rename2.pl` in
-`/tmp/user/1000/opencode/`), 40 + 29 rules, each printing a hit count so a missed site is
-a `0` rather than a silent skip. Two lessons from that, both worth keeping:
-
-- **A rule that matches part of a construct is worse than no rule.** The first `run()` rule
-  renamed the `let`/`while`/`match` lines and left 14 uses of `i` behind — a build break
-  disguised as a rename. Match the whole arm.
-- **The per-rule counter cannot see a site it was never told about.** Five `put_pixel(x, y)`
-  sites and two test bodies were missed by every rule; only grepping the *output* for bare
-  `x`/`y` found them. Counted rules prove the sites you knew about; a sweep proves the
-  sites you did not.
-
-**`cargo check -p gen-backdrop` does NOT compile the test module.** The whole `#[cfg(test)]`
-module sits behind a cfg, so a plain check reported a clean 9-error bill while the test
-module held an unresolved `h`. Always use `cargo check -p gen-backdrop --tests`. This is now
-asserted in `sample-check.sh` step 0 (**7** E0308 expected as of the 3/9 fill; the live
-count is in CURRENT STATE above — now **1**).
-
-**Two of the 18 new tests initially failed to COMPILE, and the harness caught it.**
-`ImageBuffer::columns()` does not exist in `image` 0.25, and the `#[cfg(test)]` module is
-invisible to a bare `cargo check`. Both silhouettes tests used `columns().enumerate()`;
-both were rewritten as `for col in 0..W` + `get_pixel`. **A test that does not compile is
-a void experiment, not a passing one** — `sample-check.sh` step 0 exists precisely to make
-that failure loud.
-
-**2 new tests, both mutation-verified: `lattice_hash_is_in_unit_range` and
-`lattice_hash_decorrelates_adjacent_cells`.** `lattice_hash` previously had no direct test —
-it was only ever reached through `value_noise`, so every assertion was about the composite.
-
-The decorrelation test's original doc comment claimed no other test could see a bad hash.
-**That was false, and the mutation run is what disproved it** — the ramp mutant
-`((cell_x + cell_y + seed) % 256) / 256` trips `cloud_layers_have_holes` *and* `deterministic`
-too, because a near-uniform 1/256 seed shift is quantized away by the `.round()` in the
-silhouette. What the other tests cannot do is LOCALISE the fault. The corrected comment
-keeps the measurements and drops the wrong conclusion. Three mutants are recorded there:
-
-| mutant | mean horiz delta | tests it fails |
-|---|---|---|
-| `ramp` `((cx+cy+seed)%256)/256` | 0.00391 | decorrelation, `cloud_layers_have_holes`, `deterministic` |
-| `ramp2` `(cx*3+cy*5)/512` + seed jitter | — | decorrelation, `cloud_layers_have_holes` |
-| `sine` `sin(cx*0.11+cy*0.07+seed*0.9)/2+0.5` | 0.03486 | **decorrelation only (10 passed, 1 failed)** |
-
-The `sine` row is what justifies the test: in range, pure, seed-sensitive, seamless, valid
-sky and clouds — every other assertion satisfied — yet locally smooth. Threshold 0.15 is
-derived, not guessed: E|X-Y| = 1/3 for uniform draws, and no plausible hash lands between
-0.15 and 1/3. Fixed seeds, no RNG, so it cannot flake.
-
-### The 16 tests for blocks 3-9: written red-first, then mutation-verified (2026-10-01)
-
-@me's ordering directive was **write ALL tests first, for all blocks, not just the next
-one**. So the 16 tests covering `fbm`, `lerp_rgb`, `smoothstep`, `make_sky`, `make_clouds`,
-`make_silhouette` and `build_manifest` were written against empty bodies (so genuinely
-red-first) and then verified against the reference samples in a throwaway copy.
-
-**Process deviation to record:** the 2 direct `lattice_hash` tests could NOT be
-red-first — @me had already filled block 1/9 before they were written. The substitute is
-mutation verification after the fact, which is weaker: it proves the test bites but not
-that the test came first. Every other test in the file is red-first.
-
-**Falsification battery: 19 mutants, all 16 tests confirmed.** 14 of the 19 mutants turned
-**exactly one** test red, which is the direct evidence that none of these tests is
-redundant with another.
-
-| mutant | the one test it turns red |
-|---|---|
-| `VN-LINEAR` interpolate the fraction linearly | `value_noise_smoothsteps_the_fraction_not_linear` |
-| `VN-NOWRAP` x does not wrap at all | `value_noise_is_periodic_in_x` (+3) |
-| `VN-BAREPCT` bare `%`, so negative cells go negative | `value_noise_is_periodic_in_x_across_negative_cells` |
-| `VN-WRAPY` y wraps too | `value_noise_does_not_wrap_y` |
-| `FBM-HALVE` period halves per octave | `fbm_matches_its_documented_octave_formula` |
-| `FBM-AMP` amplitude ratio 0.7 | `fbm_matches_its_documented_octave_formula` |
-| `FBM-FREQ` frequency ratio 1.5 | `fbm_matches_its_documented_octave_formula` (+2) |
-| `LERP-U8` narrow blend to an integer | `lerp_rgb_keeps_the_full_channel_range` (+1) |
-| `LERP-NOCLAMP` drop the clamp, rely on the saturating `as u8` | `lerp_rgb_clamps_blend_outside_unit_range` (+1) |
-| `LERP-INVERT` invert blend | `lerp_rgb_hits_its_endpoints_exactly` (+4) |
-| `SS-NOGUARD` remove the degenerate-interval guard | `smoothstep_degenerate_interval_is_never_nan` |
-| `SS-LINEAR` linear ramp, no Hermite curve | `smoothstep_has_zero_slope_at_each_end` |
-| `SS-NOCLAMP` remove ramp_t's clamp | `smoothstep_reaches_its_edges_and_clamps` (+2) |
-| `SKY-FLIP` gradient inverted | `sky_gradient_runs_dark_above_and_light_below` |
-| `SKY-HARDDISC` hard-edged sun circle | `sky_sun_disc_falls_off_softly` |
-| `CLOUD-HARD` hard threshold, no smoothstep | `cloud_edges_are_gradual` |
-| `SIL-FLIP` fill inverted | `silhouette_is_opaque_below_the_skyline_and_clear_above` |
-| `SIL-RIMOFF` rim drawn at mid-height, not on the skyline | `silhouette_rim_is_darker_than_its_body_and_sits_on_the_skyline` |
-| `MANIFEST-VREPEAT` `repeat_size_y = width` | `manifest_hard_codes_repeat_size_y_to_zero` |
-| `MANIFEST-RENAME` `#[serde(rename = "repeatSizeY")]` | `manifest_json_keys_are_the_on_disk_contract` |
-
-`CLOUD-HARD` closes the **M9 gap** left open by the earlier session: `cloud_layers_have_holes`
-stays green under a hard threshold (it is a holes check, correctly documented), so
-`cloud_edges_are_gradual` now asserts the partial-alpha population the old suite could not.
-
-**`MANIFEST-RENAME` closes a round-trip blind spot.** `manifest_json_keys_are_the_on_disk_contract`
-serialises and deserialises, so it agrees with any key the writer produces — a rename of
-both sides together stays green. That test therefore asserts the **literal** key strings, and
-the mutant that only renames one side reddens it. A persisted artifact name is a
-backward-compat contract, so the literal is the point.
-
-**Thresholds: measured, not predicted.** Every numeric bound was measured before it was
-written into a doc comment, and two of my predictions were wrong:
-
-| quantity | measured | bound | margin |
-|---|---|---|---|
-| HighClouds partial-alpha fraction | 0.17401 | `> 0.02` | ~9x |
-| LowClouds partial-alpha fraction | 0.26917 | `> 0.02` | ~13x |
-| sun brightening at centre / 0.8r / 1.25r | +89 / +64 / +3 | `>50`, `<80`, `>15`, `<15` | 16 at the tightest |
-| sky mean channel top -> bottom (H=64) | 152.00 -> 201.00 | gap `> 10` | 39 |
-| `value_noise` y-vs-y+period mean delta, 4 seeds | 0.25727 / 0.26472 / 0.20498 / 0.24600 | `> 0.15` | **0.055 at the tightest** |
-| value-noise edge/mid-cell slope ratio | 0.0010 | `< 0.25` | 250x |
-| `lerp_rgb` distinct red values over 256 blends | 256 | `>= 250` | 6 |
-
-**The correction worth keeping:** the `1/3` derivation is for INDEPENDENT uniform draws, so
-it does **not** transfer to `value_noise(y)` vs `value_noise(y + period)`. Those two outputs
-are 8 cells apart but both bilinearly interpolated, so they are CORRELATED and the mean gap
-is smaller than `1/3` — measured 0.205-0.265, not ~0.333. The 0.15 floor still sits in the
-empty gap (wrapping drives the mean to exactly 0) but by 0.055, not by the comfortable
-margin the `1/3` argument implies. The doc comment now carries the measured range and says
-so explicitly. The same pattern hit `value_noise_smoothsteps_the_fraction_not_linear`, where
-the predicted ratio was ~0.01 and the measured value is 0.0010.
-
-**`fbm_matches_its_documented_octave_formula` re-implements the formula it checks** — @me
-accepted this limitation explicitly. A simultaneous edit to implementation *and* test stays
-green. It is kept because the three independent mutants above show it pins the constants,
-not because it is independent.
-
-**Tooling rebuilt** (all in `/tmp/user/1000/opencode/`, outside the repo tree):
-`sample-check.sh` (repo-shape assertions -> ranged uncomment -> compile -> 29 tests),
-`uncomment.pl` (uncomments ONLY inside marker ranges — a blanket pass would have destroyed
-block 1's now-live comments), `mutate.sh <fn> <body> [expected_failing_test]` (asserts the
-mutant parses BEFORE reading the result, because an unparseable mutation reads as "the
-guard is vacuous" when the experiment never ran).
-
-**Coding-assistant scope, confirmed by @me:** tests are the assistant's job, no
-TODO(human) blocks in test files. Source: `skills/coding-assistant/SKILL.md:31` "Tests are
-the assistant's job". @me chose to gate every test diff anyway.
-
-### Phase 1 gate: 4 contracts the tests falsified, and 2 test gaps they exposed
-
-The 9 tests were mutation-verified in a throwaway scratch copy **outside the repo tree**,
-16 mutations. Scratch since deleted. Four of my own claims were wrong before the first
-mutation ran:
-
-- **x -> lattice mapping is `x * cells / (width - 1)`, not `/ width`.** `/ width` is a
-  continuous function but the last column lands *near* the wrap, so first and last column
-  are never byte-equal and the seam cannot be asserted at all. `(width - 1)` puts the last
-  column exactly on the first. M2 falsifies the `/ width` form.
-- **`relief_px` is absolute pixels, not a fraction of height.** Layers range 1320px to
-  320px, so a fraction gives one authored number a different silhouette per layer, and it
-  collapses to 0 at small sizes — which made the noise and therefore the **seed**
-  irrelevant, so `make_silhouette` returned a constant. M15 falsifies the fraction form.
-- **fBm's period DOUBLES per octave** (octave `o` samples at `2^o` frequency so it spans
-  `2^o` cells). Halving also stays seamless, so `fbm_stays_in_unit_range_and_wraps` is a
-  **seam** check, not a spectrum check. M5 stayed green and that is expected and documented.
-- **A cloud's vertical band must saturate at 1.0**, or no pixel reaches full opacity and
-  the plane reads as haze. M8 falsifies the non-saturating form.
-
-Two gaps in my own tests, both found by mutations that *stayed* green:
-
-- **M12** (disabling the `x <= y` check in `validate_factors`) stayed green because
-  `factors_in_unit_range` only ever feeds it the shipped stack, which is valid by
-  construction. Added `validate_factors_rejects_bad_specs`, which asserts the specific
-  error message for 4 invalid specs. M14/M16 now redden.
-- **M6** (relief as a fraction) stayed green at a large `relief_px`, because the fraction
-  form still varies with seed at that size. Added `relief_is_absolute_not_a_fraction`,
-  which measures skyline amplitude at two heights. M15 now reddens.
-- **M9** (hard-threshold clouds) stayed green even with the partial-alpha assertion,
-  because the band gradient supplies partial alpha on its own. The assertion was
-  **deleted**, not weakened, and `cloud_layers_have_holes` is now documented as a holes
-  check only. Do not cite it as a soft-edge check.
-
-**Methodology, worth keeping:** the mutation harness itself failed its first run and the
-failure had to be caught. A substitution produced a parse error, and the harness read the
-*absence* of `FAILED` in the output as a **pass**. It now requires each mutant to compile
-and to emit a result line before any result is read. A build error is a void experiment,
-not a green test.
-
-**Where the design lives:** the wiki TDD is the design of record. The code repo's
-`docs/PLAN-2026-09-30-parallax-tutorial-stack.md` is the session-local execution plan
-(finding detail, phase order, block map, risks). If they disagree, the TDD wins.
-
-### Do NOT redo these (measured or decided 2026-09-30)
-
-- **The Parallax2D tutorial ships NO downloadable assets.** Verified four ways: the
-  page and the raw `tutorials/2d/2d_parallax.rst` reference only screenshots plus one
-  `.webm`; the `tutorials/2d/img/` listing holds only those 15 images; the original
-  pull request (#9587, `Add 2D Parallax documentation page`) names no asset source; and
-  `godot-demo-projects/2d/` has no parallax demo. The page was added 2024-07-08 and no
-  revision ever carried an asset bundle. **Do not re-search for tutorial assets.**
-  The tutorial is the *mechanism* contract; the art is generated in-repo.
-- **No external/CC0 art pack.** @me's decision: SSTD is a deliberate LLM-co-developer
-  exercise, so external art dependencies and licence review stay out unless asked.
-- **Art style this pass: neutral, palette-agnostic placeholder.** The goal is to prove
-  the mechanism. Biome palettes are a later re-tint of the same layers.
-- **`tools/slice-layers` is KEPT**, documented as a one-off recovery tool. Its only
-  inputs are gitignored local-only MP4s, so a clean clone can never re-run it — that is
-  the reason it is not the normal path, not a reason to delete it.
-- **The screen geometry is derived, not a choice.** 60x33 tiles at 32px = a
-  **1920x1056** gameplay screen; `project.godot` viewport is 1920x1080. Layers author
-  1:1 at 1920 wide, so nothing scales and nothing blurs.
-- **Vertical coverage is overscan + a 240px camera-y clamp**, not a vertical
-  `repeat_size`, which would leave empty blocks above and below a horizontal-only stack.
-
-### Two defects found that the old GREEN probe could not see
-
-1. **`editor/scenes/main.tscn:809` sets `BackdropStrip` to `visible = false`.** The
-   parallax has not been rendering in the app. `probe_parallax_scroll.gd` still reports
-   GREEN and exits 0 because it reads static node properties and never checks
-   visibility. This is the concrete cause behind the long-standing "runtime rendering
-   unverified" open thread.
-2. **`editor/scenes/backdrop_preview.tscn` centers every `Sprite2D` on the `(0,0)`
-   crossing and sets no `repeat_size`.** That is precisely the positioning/sizing
-   mistake the tutorial's *Poor positioning* and *Poor sizing* sections document.
-
-### Phase 1 correction: the block format shipped degraded, and the count was wrong
-
-@me caught it by asking why `grep -n "TODO(human)"` returned nothing. It did, because the
-markers were never written. The Phase 1 scaffold had the *hole* mechanism right (real
-return type, empty body -> `E0308`, never `todo!()`) but dropped the other two parts of the
-`coding-assistant` block contract:
-
-- **No `begin`/`end` markers.** The skill's own verification is that `grep -n "TODO(human)"`
-  lists both ends of every open block; it listed nothing. The mistake was ratifying that
-  result during the original work by labelling the grep "must be empty: not the convention
-  here", which converted a failure into a decision without surfacing it.
-- **The SAMPLE was a stub, not code.** Each block carried `// let v: f32 = 0.0;` — a
-  placeholder. Uncommenting it yields a function that always returns 0.0, so the skill's
-  actual promise ("learning by SAMPLE CODE", "or simply uncomment it") was broken. A
-  deliberate decision to keep reference implementations out of the repo (scratch only) was
-  never flagged, and the scratch was deleted, so the reference had to be rewritten.
-- **The block count was wrong: 7 blocks over 8 functions, actually 9 over 10.** The two
-  omitted blocks were `smoothstep` and `lerp_rgb`, helpers the layer generators call. They
-  are non-trivial (the u8-truncation banding trap, the degenerate-interval NaN guard), so
-  they are the human's to write. Nothing defined them, which is why the first uncommented
-  build failed with `cannot find function Rgba` and friends.
-
-**Tooling that caught the above, and the trap in it.** Verification is a throwaway copy in
-`/tmp` where markers are stripped and every sample line uncommented; the result must compile
-clean and pass all 9 tests. Measured: compiles clean, 9 passed / 0 failed.
-
-The trap, which cost several iterations and is worth keeping: a **sample note** and a
-**sample statement** cannot both be plain `// <text>` at 4-space indent, because the
-uncomment pass cannot tell them apart. Notes are written `// // note` and must uncomment to
-`//note` — **no space**. Emitting `// note` instead makes the output byte-identical to an
-unprocessed statement line, the second pass strips it too, and every note becomes a bare
-prose token (`splitmix64's finaliser: ...` in Rust). The failure surfaces as a parse error
-about English words, which reads like a mutation that broke the build rather than like a
-bug in the harness. Related, from the same session: a build error is a **void experiment**,
-not a green result — every check step asserts its own counts before the build is consulted.
-
-
-
-`Sky (0.10, 0.08)` / `HighClouds (0.20, 0.17)` / `LowClouds (0.30, 0.25)` /
-`Hills (0.50, 0.42)` / `Forest (0.70, 0.60)`, plus a `Foreground (1.30, 1.15)` plane
-drawn **in front of** the tile layer. The x factors are the tutorial's own published
-values; y is scaled to ~0.85x so both axes move. Six of the 7-layer cap. The
-foreground is excluded from `biome_backdrop_layers` because its factor exceeds the
-schema's `[0,1]` CHECK by design.
-
-**Do not confuse the 7-layer cap with the 9-block map.** The stack is 6 planes and stays
-within the documented 7-layer cap; the block map counts *functions @me writes*, which
-includes the two helpers and the manifest builder. They are unrelated numbers.
-
-### The asset estate to remove (10 tracked PNGs + 3 `.import`, 12 MB on disk)
-
-| What | Where |
-|---|---|
-| `layer_0/1/2.png`, `displacement.png` | `assets/backdrop_layers/` (root; **read by no code**, only the old wiki replay command did) |
-| same 3 PNGs + 3 `.import` | `editor/assets/backdrop_layers/` (engine-loaded copies) |
-| `layer_0/1/2_strip_x5.png` + 3 `.import` | `editor/assets/backdrop_layers/` (x5 collision strips, #76) |
-
-The x5 collision strips dying means the new `forest` layer is decorative. A collidable
-near band is a fresh image-to-tiles import, not a restoration — and worlds that already
-imported those cells keep their collision, because the cells live in the world package,
-not in the PNG.
-
-### Next move, in runnable order
-
-1. ~~Commit the code-repo docs on `feat/parallax-tutorial-stack`.~~ **DONE** (3 commits,
-   self-reviewed).
-2. ~~Comment on issue #68 recording the design revision.~~ **DONE**, and **#68 stays
-   OPEN** — no code has landed.
-3. ~~Pre-push self-review.~~ **DONE**, and it was worth it: it caught the Godot-runtime
-   claim (4.4.1 -> 4.7.2) and the asset size, both of which had gone into the docs
-   unverified, and surfaced the unrelated red now filed as **#85**.
-4. ~~Push both branches, merge `--ff-only` onto `trunk` / `master`, push both.~~
-   **DONE** — `trunk` and `master` are pushed and level with their remotes. Branch
-   deletion was offered to @me; not yet answered.
-5. Phase 1: `tools/gen-backdrop`. The non-trivial logic is @me's to write via the
-   `coding-assistant` skill, in **9 blocks over 10 functions** (block map in the plan file
-   §5; it was 7 over 8 until 2026-09-30 and the count was wrong — see §5). The assistant
-   writes scaffolding, the serde config, the assembly loop, and all 9 unit tests.
-   **The skill's editor channel is verified working**: `$NVIM` is set and a
-   non-terminal editor window exists beside the opencode terminal.
-   **Status: scaffolding committed, blocks 1-9 all still open.** `cargo check -p
-   gen-backdrop` reports exactly 10 `E0308` and zero `todo!()`; `grep -c 'TODO(human)'`
-   is 20. @me's editor is parked on `// TODO(human): begin block 1/9`.
-6. Phase 2: `git rm` the 10 old PNGs.
-7. Phase 3: rebuild `backdrop_preview.tscn` from `manifest.json` with `centered = false`
-   and `repeat_size=(1920,0)`; flip `BackdropStrip` to `visible = true`; add a
-   240px-clamped VScrollBar; drive `camera.position` from both bars in `simulator.gd`.
-8. Phase 4: repoint `tile_grid_display.gd`'s 6-entry `_layers` default stack.
-9. Phase 5: replace `probe_parallax_scroll.gd` with `test_parallax_backdrop.gd`.
-   **Spike first:** step the camera by `(+120, +40)`, `await process_frame` twice, read
-   each `Parallax2D.get_screen_offset()`. If the offsets are observable headless, assert
-   the both-axis drift; if not, degrade to a static contract and record which shipped.
-   Every assertion must be mutation-verified (the TDD §6 table lists the mutation for
-   each claim).
-10. Phase 6: gates, checkpoint, close #68 with the wiki page cited, file the legacy
-    `.json` layer round-trip gap (TDD §4.2) as a separate follow-up rather than
-    bundling it, `--ff-only` merge to `trunk`, push, offer to delete the branch.
-
-### Gate — MEASURED 2026-09-30, and one suite is RED on the current runtime
-
-`cargo test -p sstd-core` (110) plus `gen-backdrop` once it exists, and all the
-GDScript suites. **Gate on the exit code**, never on the printed `failures=0` line
-(#80). No CI exists in this repo; nothing gates a push automatically.
-
-**`~/bin/godot4` is 4.7.2.mono, not 4.4.1.** The symlink was repointed on
-2026-09-29 09:24; `~/bin/godot4.4` (4.4.1.stable) still exists alongside it. Every
-baseline number previously recorded in `.opencode/AGENTS.md` was measured on 4.4.1,
-so they are stale for the canonical command. Both runtimes measured, same tree:
-
-| suite | 4.4.1 (`godot4.4`) | 4.7.2 (`godot4`, current) |
-|---|---|---|
-| `test_screen_store` | exit 0, failures=0, 187 ok | **exit 1, failures=1**, 186 ok |
-| `test_image_to_map` | exit 0, failures=0, 9 ok | exit 0, failures=0, 9 ok |
-| `test_terrain_brush` | exit 0, failures=0, 14 ok | exit 0, failures=0, 14 ok |
-| `test_override_merge` | exit 0, failures=0, 26 ok | exit 0, failures=0, 26 ok |
-
-**Known red, filed as #85, NOT caused by this work and NOT to be fixed inside it:**
-`test_screen_store.gd:947` `world-shared tile stored exactly once`. It counts every
-zip entry matching `begins_with("tiles/")`, and Godot 4.7's `ZIPPacker` now emits a
-`tiles/` **directory entry** next to the two PNGs, so the count is 3 not 2. Verified by
-listing the actual entries on both runtimes. The behaviour under test is correct on
-both: 4 terrain references across 2 screens resolve to exactly 2 stored PNGs, and
-`load_world` returns both. `screens/` gained a directory entry too, so any other
-`screens/` count has the same coupling. So: a test bug surfaced by a toolchain change,
-not a product regression. Expect this one red until #85 lands — do not read it as a
-regression introduced by the parallax work, and do not "fix" it by loosening an
-assertion that is not the one at fault.
-
-```bash
-cargo test -p sstd-core                                                        # 110
-~/bin/godot4 --headless --path editor --script res://tests/test_screen_store.gd   # exit 1 today (#85), 187 ok on 4.4.1
-~/bin/godot4 --headless --path editor --script res://tests/test_image_to_map.gd   # 9 ok
-~/bin/godot4 --headless --path editor --script res://tests/test_terrain_brush.gd # 14 ok
-~/bin/godot4 --headless --path editor --script res://tests/test_override_merge.gd # 26 ok
-~/bin/godot4 --headless --path editor --script res://tests/test_parallax_backdrop.gd  # new, phase 5
+— in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
+scroll.
+
+**State: the Simulator scrollbars are broken by a structural bug found on 2026-10-03 and
+filed as #89. No fix is in place. Phase 2 still blocked on #87. Phase 6 pending.**
+
+### The bug (#89) — read this before touching the backdrop
+
+`BackdropStrip`'s `Camera2D` sits in the **same canvas layer as the entire editor UI**. A
+`Camera2D` transforms its whole canvas layer, so it was displacing every `Control` —
+tab bar, all editors, both scrollbars — by half the viewport.
+
+Measured with a real window at 1920x1080 (frame 1920x1029):
+
+```
+canvas_transform       = translate(960, 483.5)
+ui pixels bbox         = (960, 483) size (960, 546)   <- UI in one quadrant
+bar_x renders at y     = 1496.5   (frame ends at 1029 -> off-screen)
+bar_y renders at x     = 2864     (frame ends at 1920 -> off-screen)
+bar_x contributed px   = 0
+bar_y contributed px   = 0
 ```
 
+**Both scrollbars have been invisible this whole time.** They are anchored correctly
+(`bar_x` at `(0,1013) 1904x16`, `bar_y` at `(1904,31) 16x982`) and render off-screen.
+
+### Two candidates measured on rendered frames — both fail
+
+| candidate                        | ui_bbox                      | bar_x px | bar_y px | art scrolls |
+|----------------------------------|------------------------------|----------|----------|-------------|
+| baseline (camera on, inline)     | (960, 483) size (960, 546)   | 0        | 0        | yes         |
+| B: `camera.enabled = false`      | (0, 0) size (1920, 1029)     | 30442    | 15690    | **NO**      |
+| A: strip onto its own CanvasLayer | (960, 514) size (960, 515) | 0        | 0        | yes         |
+
+- **B is a diagnostic, not a fix.** `simulator.gd:32-39` drives both bars by writing
+  `camera.position`, so a disabled camera leaves the strip immobile.
+- **A does not work at all.** Moving the strip — and the camera — onto its own
+  `CanvasLayer` should confine the camera to the art's canvas. It does not: the UI stays
+  displaced and both bars still draw 0 px.
+
+### The measurement trap that hid this — do not repeat it
+
+`get_global_rect()` reports **anchor math only** and excludes the camera's canvas
+transform. The bars therefore read as correctly placed at every window size while being
+drawn off-screen entirely. `z_index` cannot detect it either: a control created in code at
+the same parent and at `z_index = 20` draws 2968 px, while the declared bar draws 0 px at
+**every** z from 0 to 20.
+
+Two checks are required for anything expected to be visible, and neither is a transform
+read:
+
+1. intersect the **canvas-space** rect with `get_visible_rect()`;
+2. hide the node, diff the rendered frame, and count changed pixels. Include a positive
+   control that is known to draw, so a zero result is distinguishable from a broken differ.
+
+**Corollary: every framing number measured before this finding is suspect**, because it was
+calibrated through a displaced canvas. Specifically void —
+
+- `Backdrops.position = Vector2(-960, -780)` in `backdrop_preview.tscn`
+- `_frame_backdrop()` runtime horizontal alignment in `simulator.gd`
+- the 240px vertical travel clamp and its justification
+- the conclusion that vertical travel needs a **generator change** for taller art. That was
+  measured through the wrong canvas and must be re-tested before acting on it.
+- #88's `half_viewport * scroll_scale` stagger formula — a camera-induced half-viewport
+  offset and a parallax-induced one present identically, so it must be re-measured.
+
+### Next move
+
+1. **#89** — replace camera-driven scrolling with per-layer `scroll_offset`. No camera
+   means no canvas transform, so the UI is never displaced; per-layer control is also
+   what #88 needs. This is a design change, so plan it before coding.
+2. Re-derive the backdrop framing from scratch under the corrected canvas, at two window
+   sizes.
+3. Re-test #88's stagger formula under the corrected canvas.
+4. **#87** (editor backdrop repoint + persisted-map migration + dead `_BACKDROP_PATHS`)
+   before Phase 2's `git rm` of the 13 old tracked PNGs.
+5. Phase 6: final gates, close #68, `--ff-only` merge, offer branch deletion.
+
+### Landed and pushed to `trunk` (kept, but see the caveat above)
+
+- Both bars at `z_index = 20`. Still correct: PlacementEditor's grid sits at `z_index = 5`,
+  so a bar at the default 0 would be painted over.
+- `_size_layer_repeats()` in `simulator.gd` — `repeat_times` derived as
+  `ceil(scrub / repeat_size.x) + 1`. Left at Godot's default of 1 the horizontal scrub
+  showed no art at all (100% bare at camera x=1600, 89-92% bare out to x=6400). The
+  measurement was taken through the displaced canvas, so the numbers do not transfer, but
+  the defect itself is real and the derivation is sound.
+
+### Other open state (unchanged)
+
+- **Phase 2** (retire 13 old tracked PNGs, ~15 MB) **blocked on #87**.
+- **`chore/godot-4-7-upgrade`** (1 commit, local, unpushed) awaiting a landing decision; it
+  carries the gitignore keeping `editor/addons/` out.
+- **`feat/parallax-restack`** still on `origin`, level with `trunk`; deletion not approved.
+- Wiki's six recorded discrepancies untouched (FROZEN pending @me's agreement).
+
+### Gates
+
+`cargo test -p gen-backdrop` 29/29. `test_parallax_backdrop`, `test_image_to_map`,
+`test_terrain_brush`, `test_override_merge` all green. `test_screen_store` exits 1 on
+Godot 4.7.2 (pre-existing #85, `ZIPPacker` directory entry).
+
+Gate on the **exit code**, never on a printed `failures=0` line.
+
+Issues open: #68, #82, #84, #85, #86, #87, #88, **#89**.
+
+---
 ---
 
 ## SUPERSEDED (2026-09-27) — agent-config consolidation + wiki link-rot sweep
