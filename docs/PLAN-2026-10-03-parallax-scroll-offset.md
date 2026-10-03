@@ -19,30 +19,43 @@ framing from rendered-frame measurement under the corrected canvas.
 
 ## 2. What the ticket requires, verbatim
 
-#89 carries no `Expected Result` heading; its normative clauses are these.
+#89 carries no `Expected Result` heading. Its normative clauses are B1-B8 below, quoted from
+the ticket. The D clauses are **not** from the ticket -- they are the task prompt's
+Definition of done, and they are held to a stricter rule below.
+
+### 2.1 Ticket clauses (normative authority)
 
 From the issue body:
 
-- B1 (Consequence): "`simulator.gd _frame_backdrop()` and `Backdrops.position =
+- **B1** (Consequence): "`simulator.gd _frame_backdrop()` and `Backdrops.position =
   Vector2(-960, -780)` were both tuned against this displaced canvas ... So those two
   values must be re-derived."
-- B2: "the 240px vertical travel clamp and its justification" are among the values that
-  "must be re-derived".
-- B3 (Verification method): "Real window, not headless"; "Assert a control's canvas-space
-  rect intersects `get_visible_rect()`"; "hide it and diff the frame"; "Include a positive
-  control that is known to draw".
-- B4 (Notes): "Both bars being `z_index = 20` remains correct and is worth keeping".
-
-From the correction comment ("Where that leaves the fix"):
-
-- B5: "The camera cannot stay in the default canvas, and it cannot simply be switched
-  off."
-- B6: "stop using a camera to scroll the strip at all, and drive each
-  `Parallax2D.scroll_offset` directly from the scrollbar value times that layer's own
+- **B2** (Consequence): "Anything else calibrated through the same lens is suspect,
+  specifically:" -- three enumerated items, all re-derive or re-test, none delete:
+  1. "the runtime horizontal alignment added in #68's work"
+  2. "the 240px vertical travel clamp and its justification"
+  3. "the conclusion that vertical travel opens a gap needing a **generator change** for
+     taller art. That conclusion was measured through the wrong canvas and should be
+     re-tested before acting on it."
+- **B3** (Verification method), four numbered clauses: "Real window, not headless";
+  "Assert a control's canvas-space rect intersects `get_visible_rect()`"; "For anything
+  expected to be visible, hide it and diff the frame"; "Include a positive control that is
+  known to draw".
+- **B4** (Notes): "Both bars being `z_index = 20` remains correct and is worth keeping",
+  and "this is a node/canvas structure issue, not an authoring one".
+- **B5** (correction comment): "The camera cannot stay in the default canvas, and it cannot
+  simply be switched off."
+- **B6** (correction comment): "stop using a camera to scroll the strip at all, and drive
+  each `Parallax2D.scroll_offset` directly from the scrollbar value times that layer's own
   `scroll_scale`."
-- B7: "No camera means no canvas transform, so the UI is never displaced".
+- **B7** (correction comment): "No camera means no canvas transform, so the UI is never
+  displaced."
+- **B8** (Consequence, final paragraph): "#88 (per-band stagger) was also derived from a
+  half_viewport * scroll_scale formula; that relationship needs re-measuring under the
+  corrected canvas, since a camera-induced half-viewport offset and a parallax-induced
+  offset would present identically."
 
-From the task prompt's Definition of done (the acceptance contract for this pass):
+### 2.2 Task-prompt clauses (acceptance contract, weaker authority)
 
 - D1: "The `Camera2D` node and every reference to it are gone."
 - D2: "Both scrollbars render real pixels, proven by hide-and-diff with a positive
@@ -53,12 +66,29 @@ From the task prompt's Definition of done (the acceptance contract for this pass
 - D5: "Framing constants are re-derived from measurement, and the comments stating them
   are corrected to match what was actually measured."
 
+**The authority rule, and why it exists.** A D clause alone does not authorise a change.
+Every implementation item in section 4 cites a **B** clause, and cites a D clause only in
+addition. D5's "comments ... are corrected" is the reason this matters: on its own it would
+authorise rewriting any comment anywhere, including a design document with no bearing on the
+bug. That is the scope-creep path, and section 4.2a and #92 exist because the rule was
+applied after a gate run caught it, not before.
+
 Explicitly NOT required, and therefore not planned (section 8):
 
-- N1: #88's per-band stagger.
-- N2: A `tools/gen-backdrop` change for taller art.
-- N3: Any change to the scrollbars' anchors or `z_index` (B4 says keep).
+- N1: #88's per-band stagger **implementation**. B8 asks for the `half_viewport *
+  scroll_scale` relationship to be addressed under the corrected canvas, and 4.2b
+  discharges that -- not by measuring it, which is impossible once the input is gone, but by
+  recording why and posting it to #88.
+- N2: A `tools/gen-backdrop` change for taller art. B2 item 3 asks for the *conclusion* to
+  be re-tested; M-e is that re-test. No generator change is planned and no generator file is
+  touched, so the gate is `sstd-core`, not `gen-backdrop` (section 7).
+- N3: Any change to the scrollbars' anchors or `z_index`. B4 says keep.
 - N4: #87, or the retirement of the 13 old tracked PNGs.
+- N5: **#92** -- the four code comments and one design document that describe the deleted
+  `Camera2D`, plus `backdrop_preview.tscn:12-14`, whose premise is separately wrong today.
+  #89 re-derives the *values*; it does not rewrite prose around them (section 4.2a).
+- N6: **#90** -- the sky's celestial body. **#91** -- deriving `scroll_scale` from a
+  per-layer depth, filed as a sub-issue of #90.
 
 ---
 
@@ -249,23 +279,79 @@ force solution"). The plan no longer proposes raising it.
 `_frame_backdrop()` (`simulator.gd:99`) becomes correctable on both axes (M5), so its
 "Only x" comment and its measured constants are replaced.
 
+### 3.2 Alternatives considered and rejected
+
+Two of these the ticket measured itself, on rendered frames. They are not candidates this
+plan weighed and declined -- they are recorded results, and re-testing them would spend runs
+re-deriving a finding the issue already carries.
+
+| Alternative | Disposition | Basis |
+|---|---|---|
+| **Keep the `Camera2D`, move `BackdropStrip` to its own `CanvasLayer`** | **MEASURED, DOES NOT WORK** | #89's correction comment, candidate A: "A does not work at all. Moving `BackdropStrip` -- and therefore the camera -- onto its own `CanvasLayer` should have confined the camera to the art's canvas. Measured: the UI stays displaced in the bottom-right quadrant and both bars still draw 0 pixels. So in this scene structure the camera keeps transforming the default canvas." The body adds 63% bare tab against 1% before. |
+| **Keep the `Camera2D` and switch it off** | **MEASURED, KILLS SCROLLING** | #89's correction comment, candidate B: restores the UI and both bars (30442 / 15690 px) but "the strip stops scrolling. Measured, not assumed." Candidate B is a proof of cause, not a fix. |
+| **Make the camera harmless in place** | No setting achieves it | A `Camera2D` transforms its entire canvas layer, and every `Control` in `main.tscn` is in that layer. `ANCHOR_MODE_FIXED_TOP_LEFT` re-anchors the view but still displaces the canvas. B5 states the constraint directly: "The camera cannot stay in the default canvas, and it cannot simply be switched off." |
+| **Use `ParallaxBackground` + `follow_viewport_enabled`** | Not adopted | The tutorial itself calls this recipe "tricky to get right", and it is the pre-4.3 approach it recommends moving away from. Adopting it would be a step backwards, not a fix. |
+| **KoBeWi's Parallax2D Preview addon** | Not adopted | A third-party dependency in the editor for a problem this change solves outright. Recorded as the tutorial's own recommendation for editor preview, not taken. |
+
+**Correction to an earlier draft of this plan.** It proposed re-testing the `CanvasLayer`
+route with a positive control, on the grounds that an earlier session had recorded it as
+failing and that three of this plan's own metrics had proven vacuous, so the rejection was
+not trusted. That was the wrong instinct. The rejection rests on the ticket's own rendered-
+frame measurement, which is the strongest evidence in the issue, and #89's body independently
+reports the same 63% figure. Vacuous metrics elsewhere in a plan are not a reason to doubt a
+measurement recorded by a different observer with different evidence; they are a reason to
+check which measurement a claim rests on. Claim checked: it rests on the ticket.
+
+**The load-bearing consequence.** Once the camera is gone, nothing in the engine applies
+per-layer rates, because `_update_scroll()` scales `screen_offset` (M2) and with no camera
+there is no `screen_offset`. Something must write `scroll_offset` per layer per frame. That
+is not a design choice so much as the remaining degree of freedom, and it is why the
+tutorial's silence on camera-less parallax (4.2a) is survivable rather than blocking.
+
+### 3.3 Why `scroll_offset` is written by hand when the engine could do it
+
+Worth stating because it is the one place this plan adds code the engine arguably owns. Under
+the camera model, the engine multiplied `screen_offset` by `scroll_scale` at (2) and the
+editor only had to move the camera. With no camera, `screen_offset` is (0,0) by M1, so (2)
+multiplies zero and the engine's scaling becomes a no-op -- there is no camera reading left
+for it to scale. The per-layer write is not a workaround bolted on; it is the same
+multiplication, relocated to the caller because the caller's input no longer exists.
+
+The alternative reading -- keep a camera purely as a scalar input, and ignore its canvas
+transform on the layers -- was not pursued. `Parallax2D` has no per-instance opt-out of the
+canvas transform, so it would mean putting a dummy camera on a `CanvasLayer` of its own to
+keep its transform off the default layer, which is the candidate-A shape the ticket measured
+as non-functional.
+
 ---
 
 ## 4. Target design
 
 ### 4.1 `editor/scenes/backdrop_preview.tscn`
 
-- **Delete** the `[node name="Camera2D" type="Camera2D" parent="."]` block. B5, D1.
+- **Delete** the `[node name="Camera2D" type="Camera2D" parent="."]` block. B5, B6, B7, D1.
 - **Re-derive** `Backdrops.position`. The authored `(-960, -780)` encodes the camera's
   centred view (`540 - 1320 = -780`, per its own comment) and a `-960` half-viewport that
-  has no meaning once there is no centring. B1 voids it; the replacement is whatever M5's
-  measurement says.
-- The `Camera2D`-dependent comment above `Backdrops` (lines 32-44) is rewritten to state
-  the no-camera geometry. D5.
+  has no meaning once there is no centring. B1 names this value explicitly. B1 voids it.
+  **M-b measured `(0, -291)` at 1920x1080**: it is the only candidate in the sweep that puts
+  every band inside the frame with the sky's headroom intact, and the whole sweep is
+  predicted to rounding by sky height 1320 against frame 1029 plus the `+31` Simulator-tab
+  offset. 1280x800 is measured before the constant is written; if the two sizes disagree the
+  value becomes size-dependent and the plan changes.
+- **The three comment blocks in this file are NOT corrected here.** Lines 12-14 (which
+  justify `repeat_size_x = 1920` with "the camera can pan forever"), 32-44 (which derive the
+  offset from `ANCHOR_MODE_DRAG_CENTER`) and 38-42 (which size the sky's overshoot against
+  "the camera's 240px vertical travel") all describe a node B5 deletes, so all three are
+  stale. None of them justifies a value B1 or B2 re-derives, so no ticket clause reaches
+  them; D5's "comments ... are corrected" is the task prompt's clause, not the ticket's,
+  and on its own it would authorise rewriting any comment in the repo. Tracked as **#92**
+  with the locations and reasons, to be done after this ticket lands so the replacement text
+  can state measured numbers rather than the old ones. Section 4.2c.
 - Untouched: the six `Parallax2D` layers, their `scroll_scale`, `repeat_size`, `z_index`,
   and their `Sprite2D` children. Those are transcribed from `manifest.json`, which
   `backdrop_preview.tscn:4-6` names as the single source of truth and which this ticket
-  does not change.
+  does not change. Note `repeat_times` is never authored in this scene at all -- it defaults
+  to `1`, which is the state M-k measured as fully covering.
 
 ### 4.2 `editor/scripts/simulator.gd`
 
@@ -284,21 +370,105 @@ force solution"). The plan no longer proposes raising it.
   correction's size dependence and must be re-derived rather than carried forward. Its
   inline `// Only x. ...` note and the closing sentence about aligning the sky baseline
   are rewritten. B1, D5.
-- `_size_layer_repeats()`'s doc block at `simulator.gd:49-63`, whose first line reads
-  "Sizes every layer's horizontal repeat run to cover the full scrub." Under M4 the copy
-  is stationary, so the run's length is a function of the VIEWPORT (plus one wrap), not of
-  the scrub -- which is precisely the premise M4b invalidates. Reworded to the measured
-  derivation, and the `100% bare at x=1600` / `89-92% bare` figures restated from M-d
-  rather than carried over, since they were taken through the displaced canvas. D5.
+- **`_size_layer_repeats()` and its doc block (`simulator.gd:49-63`) are DELETED.** This is
+  a change of kind, not a rewording, so its authorisation is stated rather than assumed.
+  B2's lead-in is "Anything else calibrated through the same lens is suspect", and this
+  helper is calibrated through the same lens: it computes `repeat_times =
+  ceil(scrub / repeat_size.x) + 1`, which reasons about how far the authored copy has to
+  travel, and under the camera model (M4b) that copy travelled with the camera across the
+  whole scrub. So B2's instruction applies -- **re-derive** it -- and the re-derivation is
+  M-k: `repeat_times` 1, 2, 3 and 5 render pixel-identical at scrub 0, 1600 and 6400,
+  against a positive control that diverges ~1.9M px; `set_repeat_times()` clamps with
+  `MAX(p_repeat_times, 1)`; and `_update_repeat()` delegates to
+  `RenderingServer.canvas_set_item_repeat`, so the renderer covers the viewport at the
+  minimum. The quantity is unobservable, so there is nothing to re-derive and a function
+  whose stated purpose is now false is removed rather than re-tuned.
+  B2's own three enumerated items are *not* this one, so the enumeration alone does not
+  reach it -- the lead-in does. If a reviewer reads the lead-in as too broad, the
+  conservative disposition is to leave the function in place, which costs nothing: M-k shows
+  it cannot affect the frame either way. It is therefore not a correctness dependency, and
+  block 1/6 is the one block that can be dropped without touching anything else.
+  This supersedes the earlier instruction to reword its doc block and restate its
+  `100% bare at x=1600` / `89-92% bare` figures: those figures came from the void M-d
+  metric (5.1) and must not be restated anywhere.
 - `_scroll_v.max_value`: the 240px clamp stays until measurement says otherwise, and its
   justification comment at `simulator.gd:42-44` is replaced by the M-e measurement. B2,
   D5. The `(2784, 419.32)` / `(2816, 199.48)` figures at `simulator.gd:79-81` are
   comment prose, not code constants, and are removed with that block.
-- `_size_layer_repeats()`: re-measured per M-d; changed only if the measurement requires
-  it. Section 3.1.
-- File header (`simulator.gd:2-11`): currently explains the `Camera2D` contract in the
-  first person -- "the tutorial's Parallax2D multiplies the camera offset by scroll_scale
-  per axis". Rewritten to the no-camera contract. D5.
+- **File header (`simulator.gd:2-11`): NOT corrected here.** It explains the `Camera2D`
+  contract in the first person -- "the tutorial's Parallax2D multiplies the camera offset by
+  scroll_scale per axis". B5 deletes the node it describes, so the header is stale, but it is
+  not the justification of any value B1 or B2 re-derives. Tracked in **#92**.
+- `_frame_backdrop()`'s doc block (`simulator.gd:74-98`) **is** in scope, unlike the two
+  above, because B1 names `_frame_backdrop()` as one of the two values to re-derive and this
+  block is where its rationale lives.
+
+### 4.2a Relationship to the official tutorial, stated honestly
+
+The rates already match the tutorial's table exactly on x (`0.1 / 0.2 / 0.3 / 0.5 / 0.7`),
+and the six `Parallax2D` siblings under a plain `Node2D` follow its recommendation to use
+`Parallax2D` rather than `ParallaxBackground`. Two departures must be written down rather
+than discovered later:
+
+- **The tutorial's whole model is camera-relative.** Under "Scroll offset" it documents
+  `scroll_offset` as a *starting point* -- "if you prefer it to start at a different point"
+  -- not as a per-frame scroll driver, and it offers no camera-less alternative. #89 removes
+  the camera, so this plan necessarily repurposes `scroll_offset` as the driver. That is a
+  public documented property written every frame, which is a legitimate use, but it is not
+  the use the tutorial illustrates and the code comments must say so.
+- **The tutorial's "Previewing in the editor" section is about our exact situation** -- a
+  parallax stack inside a `Control`-based editor -- and recommends neither route taken here.
+  Its options are `ParallaxBackground` + `follow_viewport_enabled`, a `CanvasLayer`, or
+  KoBeWi's Parallax2D Preview addon. See 3.2 -- where the first two are not merely declined
+  but ticket-measured as non-functional.
+
+### 4.2b B8 disposition -- #88's `half_viewport * scroll_scale` formula
+
+B8 asks that the relationship "be re-measuring under the corrected canvas". It cannot be,
+and saying so is the disposition rather than a deferral.
+
+`half_viewport` is the camera's half-viewport displacement. It exists only because a
+`Camera2D` centres the view, so the canvas transform is non-identity and every layer in that
+canvas is shifted by the same amount. B7 makes the canvas transform the identity, so after
+this fix no layer sees a half-viewport offset again. The formula's **input** is undefined,
+not merely wrong -- there is no quantity left to re-measure.
+
+The ambiguity B8 actually names is removed rather than measured away: the body says a
+camera-induced offset and a parallax-induced one "would present identically", and deleting
+the camera deletes the first of the two, so there is nothing left to be confused with.
+
+After this fix each layer's x position is `-fposmod(-scroll_offset.x, repeat_size.x)` with
+`scroll_offset.x = scrub * scroll_scale.x`, so a per-band stagger is an additive constant in
+scrub units applied to a value `simulator.gd` already computes per layer -- a simpler
+expression than the current one, but the constants are #88's work.
+
+**Recorded where it is actionable:** posted to
+[#88](https://github.com/HidekiAI/sidescroll-towerdefense/issues/88#issuecomment-5970931374),
+including the two questions #88 must now answer that it could not before (whether the
+stagger is expressed in scrub units or screen units -- they differ by `scroll_scale.x` per
+layer -- and whether it is a constant or a fraction of the scrub, since a fraction must be
+checked against each layer's repeat period). No values are proposed here.
+
+### 4.2c What no ticket clause reaches -- #92
+
+The boundary this plan draws, stated so a later reader can see it was drawn deliberately:
+
+| Item | In a ticket clause? | Disposition |
+|---|---|---|
+| `_frame_backdrop()` and its doc block | B1 names the function | in scope, 4.2 |
+| 240px clamp and its justification | B2 item 2 says "and its justification" | in scope, 4.2 |
+| #68's runtime horizontal alignment | B2 item 1 | in scope -- it is the x half of the B1 re-derivation |
+| generator-change conclusion | B2 item 3 | re-tested by M-e; no generator change, 4.3 |
+| `backdrop_preview.tscn` header comment (12-14) | no | #92 |
+| `backdrop_preview.tscn` `Backdrops` comment (32-44) | no | #92 |
+| `backdrop_preview.tscn` sky-overshoot comment (38-42) | no | #92 |
+| `simulator.gd` file header (2-11) | no | #92 |
+| `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` 3.1 + Phase 3 | no | #92 |
+
+The rule behind the table: **a comment is in scope only when it justifies a value a ticket
+clause re-derives.** Everything else is stale prose, which is a real defect but not this
+ticket's -- and #89 is a bug fix, where widening the blast radius is the failure mode this
+gate exists to catch.
 
 ### 4.3 `editor/tests/test_parallax_backdrop.gd`
 
@@ -340,51 +510,69 @@ contract, keeping the parts that are still load-bearing:
   the assertion is kept unchanged and only the comment is corrected -- the point is that
   the number is measured, not inherited.
 
-### 4.3a `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` -- correct the model it documents
-
-That plan's section 3.1 and its Phase 3 describe the `Camera2D`-driven node contract this
-ticket deletes. D5 requires the stated comments to match reality, and a plan document
-that describes a deleted node as the design is the same defect in prose form. This is a
-correction of that file, not new design work, and it is why it is an item here rather than
-in section 8.
-
 ### 4.4 `editor/tests/probe_parallax_scroll.gd` -- delete
 
-It reads `BackdropStrip/Camera2D` (`:28`), which D1 requires to be gone. It is already
-dead independent of this change: `:29` reads `Backdrops/L2_near`, a node removed by the
-restack commit `ba2cbb4` in favour of the six manifest layers. Its contract is fully
-subsumed by `test_parallax_backdrop.gd`. Deleting it is the minimal way to satisfy D1
-without rewriting a probe that tests a scene shape which no longer exists.
+It reads `BackdropStrip/Camera2D` at `:28`, a node B5, B6 and B7 require to be gone, so
+once the camera is deleted this probe cannot run at all. It is already dead independent of
+this change: `:29` reads `Backdrops/L2_near`, a node removed by the restack commit `ba2cbb4`
+in favour of the six manifest layers. Deleting it is therefore the minimal way to satisfy B6
+without rewriting a probe for a scene shape that no longer exists, and it is the only
+disposition available -- the alternative is repairing a file that tests nothing live.
+
+Its contract is **superseded** by `test_parallax_backdrop.gd` as rewritten in 4.3, which
+asserts the same layer-rate properties under the new model and additionally covers the axis
+isolation and ordering checks the probe never had. Superseded, not "fully subsumed": an
+earlier draft claimed the latter, which is a claim about coverage of a moving target and
+should not be made for a file being replaced.
 
 ### 4.5 `editor/tests/probe_render_visibility.gd` -- new, real window
 
-The only new non-document file. D2 and B3 require hide-and-diff proof with a positive
-control at two window sizes, and #89's whole history is a defect that every transform
+The only new non-document file. B3's four clauses require exactly what it does, and D2 is the
+acceptance item only rendered evidence can settle -- #89 is a defect that every transform
 read and every `z_index` probe reported as fine.
 
-The repo's precedent for frame capture is `editor/tests/capture_backdrop.gd:29`, which
-does `root.get_texture().get_image().save_png(path)` in one statement, and
+The repo's precedent for frame capture is `editor/tests/capture_backdrop.gd:29`, which does
+`root.get_texture().get_image().save_png(path)` in one statement, and
 `editor/capture_all_tabs.gd`, which splits the same pattern across two. Neither sets a
 window size. `probe_parallax_scroll.gd` is **not** that precedent -- it is a headless
 node-graph probe with no `DisplayServer` call and no frame read.
 
-Neither capture script sets a window size, and B3 clause 1 rules out running them
-headless (`DisplayServer.window_get_size()` is (0,0) there), so this probe is also where
-the sizing has to come from: the resolution is supplied per run on the command line as
-`--resolution 1920x1080` and `--resolution 1280x800`, and the probe asserts the size it
-actually got rather than assuming it. A run whose reported size is (0,0) exits non-zero
-as an invalid experiment, not as a zero-pixel result.
+Because B3 clause 1 rules out headless (`DisplayServer.window_get_size()` is (0,0) there),
+the sizing has to come from the command line as `--resolution 1920x1080` and
+`--resolution 1280x800`, and the probe asserts the size it actually got rather than assuming
+it. A run whose reported size is (0,0) exits non-zero as an invalid experiment, not as a
+zero-pixel result.
 
-Requirements it encodes:
+Requirements it encodes, each with the clause that requires it:
 
-- A positive control that is known to draw, so a 0-pixel result is distinguishable from a
-  broken differ.
-- Canvas-space rect intersected with `get_visible_rect()` (B3 clause 2).
-- Changed-pixel count for each bar against a baseline frame (B3 clause 3).
-- Run at both 1920x1080 and 1280x800.
-- D3's range-end evidence: bare-background percentage at scrub x = 0 and x = 6400, so
-  the assertion `test_parallax_backdrop.gd:111-112` makes about the scrub's extent has
-  rendered-frame backing.
+- **B3 clause 4** -- a positive control known to draw, so a 0-pixel result is distinguishable
+  from a broken differ.
+- **B3 clause 2** -- canvas-space rect intersected with `get_visible_rect()`, for both bars.
+- **B3 clause 3** -- changed-pixel count for each bar against a baseline frame.
+- **B3 clause 1** -- run with a real window at both sizes, never headless.
+- **D2** -- both bars non-zero at both sizes; non-zero exit otherwise.
+
+**D3's range-end evidence, with the metric corrected.** D3 needs "art across the full
+6400 px range". The first attempt measured that as a whole-frame CHANGED-pixel percentage
+and is recorded void in 5.1: exposing bare background is itself a change, so a gap scores
+identically to art, and every configuration reported 0.00% bare including at scrub 6400 where
+one 1920 px copy cannot cover a 1920 px frame.
+
+The replacement is an **absolute** count, not a difference:
+
+- Count pixels equal to the Simulator tab's background colour, rather than counting pixels
+  that changed. A gap is a positive quantity that stands on its own; a diff cannot tell a gap
+  from art because both are "changed".
+- Sample at scrub x = 0, 1600, 3200, 4800 and 6400, so the whole range is covered rather
+  than only its ends -- 5.1's second attempt failed partly by sampling only `scrub = 0`,
+  where every `position.x` is exactly 0 and one copy looks sufficient when it is not.
+- **Positive control:** hide one named layer, assert the bare count RISES by that layer's
+  pixel count, then restore it. This is the control 5.1 says every metric must carry, and it
+  is also the check that distinguishes "no gaps" from "the diff cannot see gaps".
+- **Stated prediction before the run:** M-k established geometrically that the authored copy
+  spans `(-1920, 0]` at rate `scroll_scale.x`, which covers the frame at every scrub, so the
+  expected bare count is 0 throughout. A non-zero result falsifies that and means the
+  geometry reasoning is wrong, not that the metric is wrong.
 
 ---
 
@@ -399,11 +587,17 @@ it (B3 clause 1).
 | M-a | Is the real per-axis rate `scrub * scroll_scale` (M3/M4)? | real window; scrub one bar; measure each layer's `position` delta over two equal steps | the literal drift constants in 4.3 |
 | M-b | Where does the art land at scrub (0,0), at 1920x1080 and 1280x800? | hide-and-diff per layer, plus canvas-space rects | `Backdrops.position` (4.1) |
 | M-c | Does one parent translation align all six bands on both axes? | M-b repeated per band | whether `_frame_backdrop` corrects y (M5) |
-| M-d | Is `repeat_times = 5` correct, over-provisioned, or insufficient across 0..6400? | bare-background percentage at scrub x = 0, 1600, 3200, 4800, 6400, both sizes | whether `_size_layer_repeats` changes (3.1, D3) |
-| M-e | How much vertical travel is safe before the sky's top edge shows? | scrub y upward at both sizes, hide-and-diff | `_scroll_v.max_value` (B2) and the `240.0` assertion (4.3) |
+| M-d | Is `repeat_times = 5` correct, over-provisioned, or insufficient across 0..6400? | bare-background **count** at scrub x = 0, 1600, 3200, 4800, 6400, both sizes, with a hide-one-layer control (4.5) | whether `_size_layer_repeats` changes (3.1) |
+| M-e | How much vertical travel is safe before the sky's top edge shows? | scrub y upward at both sizes, hide-and-diff | `_scroll_v.max_value` (B2 item 2) and the `240.0` assertion (4.3). Also re-tests B2 item 3, the generator-change conclusion |
 | M-f | Do both bars contribute real pixels? | hide-and-diff with positive control, both sizes | D2 |
-| M-i | What is actually painted in each layer PNG, and where is the sky's celestial body? | read the source images directly, no frame capture | follow-up ticket scope; whether the body can tile |
-| M-k | Does any `repeat_times` value change the frame, and can the diff see a gap at all? | rt 1/2/3/5 vs each other, plus a positive control displacing every layer | 3.1, `_size_layer_repeats` deletion |
+| M-g | Why do `Forest` and `Foreground` contribute so few pixels? | read the source PNGs' alpha and row occupancy, no frame capture | whether their low pixel counts are a bug or the art (5.2) |
+| M-h | What is actually painted in the sky, and where is the celestial body? | read `sky.png` directly, no frame capture | filed as #90; not a prerequisite here |
+| M-k | Does any `repeat_times` value change the frame, and can the diff see a gap at all? | rt 1/2/3/5 vs each other, plus a positive control displacing every layer | 3.1, the `_size_layer_repeats` disposition |
+
+M-h is listed for provenance, not as a dependency: it answers "is the sun a bug?", which is
+#90's question, and #89 does not act on the answer. It was carried in an earlier draft as a
+prerequisite for D3, which was wrong -- D3 is about scrub range, not about a body at
+infinity. See 4.2c and section 8.
 
 ### 5.1 Voided measurements, kept so they are not repeated
 
@@ -445,17 +639,25 @@ number that ships is the one measured, not the one predicted.
 Coding-assistant Phase 1. Test files are the assistant's, not blocks. Numbering is global
 and in dependency order.
 
-| Block | file:line | What to write (not how) | Depends on |
-|---|---|---|---|
-| 1/5 | `editor/scenes/backdrop_preview.tscn:29` | remove the `Camera2D` node | - |
-| 2/5 | `editor/scripts/simulator.gd:25,32-39` | replace the camera writes with per-layer `scroll_offset` writes, each bar on its own axis | 1/5, M-a |
-| 3/5 | `editor/scenes/backdrop_preview.tscn:45` | re-derive `Backdrops.position` | 2/5, M-b, M-c |
-| 4/5 | `editor/scripts/simulator.gd:99` | re-derive `_frame_backdrop()` on both axes | 3/5, M-b, M-c |
-| 5/5 | `editor/scripts/simulator.gd:45` | set the vertical clamp from the measured travel | 4/5, M-e |
+| Block | file:line | What to write (not how) | Clause | Depends on |
+|---|---|---|---|---|
+| 1/6 | `editor/scripts/simulator.gd:64` | **delete** `_size_layer_repeats()` and its doc block -- or keep, per the fallback in 4.2 | B2 lead-in | M-k |
+| 2/6 | `editor/scenes/backdrop_preview.tscn:29` | remove the `Camera2D` node | B5, B6, B7 | - |
+| 3/6 | `editor/scripts/simulator.gd:25,32-39` | replace the camera writes with per-layer `scroll_offset` writes, each bar on its own axis | B6, B7 | 2/6, M-a |
+| 4/6 | `editor/scenes/backdrop_preview.tscn:45` | re-derive `Backdrops.position` | B1 | 3/6, M-b, M-c |
+| 5/6 | `editor/scripts/simulator.gd:99` | re-derive `_frame_backdrop()` on both axes, with its doc block | B1, B2 item 1 | 4/6, M-b, M-c |
+| 6/6 | `editor/scripts/simulator.gd:45` | set the vertical clamp and its justification from the measured travel | B2 item 2 | 5/6, M-e |
+
+Ordering is dependency order, and block 1 is first because it is the only one that can be
+dropped: while `_size_layer_repeats()` exists it rewrites `repeat_times` on every resize, so
+any measurement or test of blocks 3-6 taken alongside it observes a value something else is
+still setting. M-k says that value cannot affect the frame, so the ordering is precaution
+rather than necessity -- which is the same reason 4.2 gives for making it droppable.
 
 Assistant-written, not blocks: `test_parallax_backdrop.gd` (rewrite), the deletion of
-`probe_parallax_scroll.gd`, `probe_render_visibility.gd` (new), and the correction to
-`docs/PLAN-2026-09-30-parallax-tutorial-stack.md` (4.3a).
+`probe_parallax_scroll.gd` (4.4), and `probe_render_visibility.gd` (4.5). Nothing else is
+touched -- in particular no comment outside 4.2c's first three rows and no design document,
+both of which are #92.
 
 GDScript holes must be **real static errors**, because GDScript has no ahead-of-time
 compiler and a hole that only fails at runtime shows no red squiggle. So each block is
@@ -468,8 +670,14 @@ explicitly typed, 4-space indent, ASCII only.
 
 ## 7. Gates
 
+No Rust source is modified by this ticket, so the Rust gate is the workspace's stated one,
+not the generator's. `gen-backdrop` was an earlier draft's choice and was wrong twice over:
+no `tools/gen-backdrop` file is touched, so its 29 tests cannot regress, and B2 item 3 asks
+for the *conclusion* about taller art to be re-tested -- which M-e does -- not for the
+generator to change.
+
 ```bash
-cargo test -p gen-backdrop                       # 29 tests, generator (unchanged by this work)
+cargo test -p sstd-core                           # 110 tests, the workspace Rust gate
 
 $HOME/bin/godot4 --headless --path editor --script res://tests/test_parallax_backdrop.gd
 $HOME/bin/godot4 --headless --path editor --script res://tests/test_image_to_map.gd
@@ -508,7 +716,8 @@ All values below were read or diffed with a window; headless was not used.
 | M-a | `scroll_offset = scrub * scroll_scale` gives exactly rate `scroll_scale` per layer per axis. Sky `+0.1` moved `12.0` px per `120` scrub; Foreground `+1.3` moved `156.0`. All six matched, and both step windows agreed (no repeat boundary between them). |
 | M-b/M-c | `Backdrops.position.y = -291` gives 0.00% bare at 1920x1080 with every band inside the frame. The whole sweep is predicted by sky height 1320 vs frame 1029 plus the `+31` Simulator tab offset: `-780 -> 44.51%`, `-600 -> 27.02%`, `-400 -> 7.58%`, `0 -> 3.01%`, all matching prediction to rounding. One parent translation does align all six bands on both axes. |
 | M-f | Both bars contribute real pixels: positive control `30912`, `bar_x` `30442`, `bar_y` `15690`, and both rects intersect `get_visible_rect()`. D2 holds at this size. |
-| M-h | `Forest` and `Foreground` are sparse silhouettes, not a bug: `forest.png` is 36% opaque with content in rows 187..320 of 320, `foreground.png` is 18% opaque with content in rows 254..320. Their small pixel counts are what the art actually contains. |
+| M-g | `Forest` and `Foreground` are sparse silhouettes, not a bug: `forest.png` is 36% opaque with content in rows 187..320 of 320, `foreground.png` is 18% opaque with content in rows 254..320. Their small pixel counts are what the art actually contains. |
+| M-h | `sky.png` is 1920x1320 and fully opaque. The celestial body is a 116x117 disc at `(1248, 259)`, luma 0.937, brightest pixel `(1258, 336)`, 1248 px from the left tile edge and 556 from the right. At `scroll_scale.x = 0.1` it travels 640 px over the 6400 scrub, wraps its tile edge every 19200 px, and its next tiled copy sits at x=3168 -- so a viewport wider than that shows two. **Filed as #90; no #89 item depends on this.** |
 | M-k | `repeat_times` 1/2/3/5 render identically. See 3.1. |
 
 Two things are **not** yet decided and must not be written as constants until measured at
@@ -519,27 +728,38 @@ assertion) and the framing confirmation at the second size.
 
 ## 8. Possible follow-ups (NOT this ticket, NOT planned)
 
-- **N0 -- #90, the sky's celestial body.** `sky.png` carries a 116x117 px disc at tile
-  x=1248. At `scroll_scale.x = 0.1` it travels 640 px -- 33% of a screen width -- over the
-  6400 px scrub, and its next tiled copy sits at x=3168, so a viewport wider than that shows
-  two. A body at infinity should not move: rate `0` is the `Z -> inf` limit of
-  `scroll_scale = Z_ref / Z`, and is the tutorial's "complete stop". Fixing it is one line
-  in `manifest.json` and is **independent of this ticket** -- it is neither caused by the
-  camera nor by the `scroll_offset` mechanism, so it is not fixed here. Measured detail and
-  the two options are in #90.
+- **M0 -- the celestial body filed as #90 rather than fixed here.** `sky.png` carries a
+  116x117 px disc at tile x=1248. At `scroll_scale.x = 0.1` it travels 640 px -- 33% of a
+  screen width -- over the 6400 px scrub, and its next tiled copy sits at x=3168, so a
+  viewport wider than that shows two. A body at infinity should not move: rate `0` is the
+  `Z -> inf` limit of `scroll_scale = Z_ref / Z`, and is the tutorial's "complete stop". It
+  is **independent of this ticket** -- neither caused by the camera nor by the
+  `scroll_offset` mechanism -- so it is not fixed here. Measured detail (M-h) and the two
+  options are in #90; #91 covers the depth model that would give infinity a representation
+  rather than a bare `0`.
 
-- **N1 -- #88, per-band stagger.** The task prompt and the checkpoint both say its
-  `half_viewport * scroll_scale` formula was measured through the displaced canvas and
-  must be re-measured. That re-measurement is not planned here; this ticket only makes
-  per-layer control *possible*.
-- **N2 -- taller art from `tools/gen-backdrop`.** The conclusion that vertical travel
-  needs a generator change was measured through the wrong canvas. M-e re-tests the
-  premise. If a gap is real it needs its own ticket; no generator change is planned and
-  no generator file is touched.
-- **N3 -- the scrollbars' anchors and `z_index`.** B4 says the current values are correct.
-  No change planned.
+## 9. Risks
+
+- **N1 -- #88, per-band stagger implementation.** B8's clause is discharged in 4.2b, which
+  reasons why the formula cannot be re-measured as written and posts that to #88. What is
+  *not* done here is choosing the stagger constants, because B8 asks about the relationship,
+  not the values, and because per-layer control only becomes *possible* after this ticket
+  -- it does not become *chosen*. The relationship's new form is `scrub * scroll_scale.x`
+  plus an additive per-band constant, which is strictly simpler than the current expression;
+  what remains for #88 is the constants and whether they are in scrub or screen units.
+- **N2 -- taller art from `tools/gen-backdrop`.** B2 item 3 asks for the conclusion to be
+  re-tested, and M-e is that re-test. If a gap proves real it needs its own ticket; no
+  generator change is planned and no generator file is touched.
+- **N3 -- the scrollbars' anchors and `z_index`.** B4 says the current values are correct
+  and worth keeping. No change planned.
 - **N4 -- #87 and the retirement of the 13 old tracked PNGs.** Untouched; still blocked
   separately.
+- **N5 -- #92, the stale `Camera2D` comments and the superseded design plan.** Filed during
+  this plan's gate, because a gate run found four comment blocks and one design document
+  that no ticket clause reaches (4.2c). The defect is real; it is not this bug's.
+- **N0 -- #90, the sky's celestial body, and #91, depth-derived rates.** #91 is filed as a
+  sub-issue of #90, so the relationship is a real one rather than a cross-mention. Neither
+  is caused by the camera nor by the `scroll_offset` mechanism.
 
 ---
 
@@ -548,24 +768,88 @@ assertion) and the framing confirmation at the second size.
 | Risk | Mitigation |
 |---|---|
 | M3/M4 wrong, so D4 fails | Section 5 M-a measures the rate before any constant is written; the delta idiom in `test_parallax_backdrop.gd` is retained so a wrong rate is a red test, not a wrong picture |
-| Framing constants re-derived through a stale method | B3's two checks are mandatory and neither is a transform read; the previous constants were wrong precisely because a transform read said otherwise |
-| `repeat_times` under-provisioned after the model change | **Retired.** M-k measured rt 1/2/3/5 as pixel-identical against a ~1.9M px positive control, and the engine clamps `repeat_times` to a minimum of 1 while the renderer covers the viewport regardless. `_size_layer_repeats()` is deleted rather than re-tuned. See 3.1. |
-| A measurement is trusted because it looks sane rather than because it can fail | 5.1 records three vacuous metrics that all reported success. Every surviving metric carries a positive control that MUST produce non-zero, and states its prediction before the run. |
-| Scope creep into #88 or the generator | Section 8 lists both as follow-ups; the hard cap in the plan gate applies |
+| Framing constants re-derived through a stale method | B3's two rendered checks are mandatory and neither is a transform read; the previous constants were wrong precisely because a transform read said otherwise |
+| `repeat_times` under-provisioned after the model change | **Retired.** M-k measured rt 1/2/3/5 as pixel-identical against a ~1.9M px positive control, and the engine clamps `repeat_times` to a minimum of 1 while the renderer covers the viewport regardless. See 3.1 for the deletion's authorisation and its documented fallback. |
+| A measurement is trusted because it looks sane rather than because it can fail | 5.1 records three vacuous metrics that all reported success. Every surviving metric carries a positive control that MUST produce non-zero, and states its prediction before the run. 4.5 replaces the one metric the gate found to be vacuous by construction. |
+| Scope creep into #88, the generator, or stale comments | Section 8 lists all three; 4.2c draws the line explicitly with the clause test each side of it passes or fails; the gate's hard cap applies |
+| `_size_layer_repeats()` deletion reads as unsupported | It is authorised by B2's lead-in, and 4.2 states the fallback (keep the function) and that nothing else depends on it, so a reviewer who disagrees loses nothing |
 | `project.godot` or `addons/` accidentally committed | Section 7's explicit-path rule |
 
 ---
 
 ## 10. Plan gate
 
-**Iterations:** 2. **Final score: 91/100** (bar is 90). Evaluator: independent agent,
-same model both iterations, given only the ticket text, the task prompt's Definition of
-done, and this document -- not the planner's reasoning.
+**Iterations:** 3. Bar is 90. Evaluator: independent agent, same model every iteration, given
+the ticket text, this document, and the rubric -- never the planner's reasoning.
 
 | iteration | score | outcome |
 |---|---|---|
 | 1 | 84 | FAIL. No CRITICAL, but two uncovered clauses and seven deficiencies. |
-| 2 | 91 | PASS. No CRITICAL, no uncovered clause. |
+| 2 | 91 | PASS as scored. **Invalid pass** -- see below. |
+| 3 | **88** | FAIL on the bar (90), **no CRITICAL** -- the two CRITICALs it opened with were both resolved, and it declined to re-raise either. Seven deficiencies, all citation-hygiene rather than design. Revision below is in flight. |
+
+### The iteration-2 pass was invalid, and why
+
+Iteration 2 was scored against the ticket text **plus the task prompt's Definition of done**,
+with the D clauses presented as normative alongside the ticket's. That fed the evaluator a
+premise this plan should have been tested against, and the plan sailed through on it: the
+document cites `D5` ("comments ... are corrected") as authority for rewriting a *design
+document*, and no such clause exists in the ticket.
+
+Iteration 3 supplied the ticket alone. The evaluator immediately found what two prior rounds
+had not:
+
+- **CRITICAL** -- the plan edited `docs/PLAN-2026-09-30-parallax-tutorial-stack.md`, which no
+  ticket clause mentions. Citing it to D5 meant citing it to a clause outside the ticket.
+- **CRITICAL** -- the plan deleted `_size_layer_repeats()`, which B2's three enumerated items
+  do not name.
+
+The lesson is not "the evaluator was stricter in round 3". It is that **a gate given a
+weaker authority than the artefact will pass the artefact**, because the premise was supplied
+by the party being gated. Section 2.1 now separates ticket clauses from task-prompt clauses and
+section 2.2 states the authority rule the plan is held to.
+
+### What the iteration-3 findings changed
+
+| Finding | Change |
+|---|---|
+| CRITICAL: design-doc edit unsupported | **Removed** from the plan. Filed as **#92** with all five locations and reasons. Section 4.2c draws the line: a comment is in scope only when it justifies a value a ticket clause re-derives. |
+| CRITICAL: `_size_layer_repeats` deletion unsupported | **Kept, with its authorisation stated.** B2's lead-in is "Anything else calibrated through the same lens is suspect", and this helper computes `ceil(scrub / repeat_size.x) + 1`, which reasons about how far the copy travels -- the displaced canvas. 4.2 now quotes the lead-in, records that the *enumeration* alone does not reach it, and gives the fallback: leave the function, since M-k shows it cannot affect the frame either way. |
+| B8 (#88) uncovered | **Discharged** in 4.2b by reasoning rather than measurement -- `half_viewport` is camera-defined, so after B7 the formula's input no longer exists and cannot be re-measured. Posted to #88. |
+| 4.5's bare-background metric vacuous by construction | **Replaced.** The old metric counted CHANGED pixels, which cannot distinguish a gap from art. It now counts pixels *matching* the tab background -- an absolute quantity -- with a hide-one-layer positive control and a stated prediction. |
+| M-i was out-of-scope work listed as a prerequisite | **Demoted** to provenance, relabelled M-h, marked as #90's question with no #89 item depending on it. M-g added so the Forest/Foreground result has the row it was missing. |
+| 4.4 claimed its contract was "fully subsumed" | **Softened** to "superseded" -- subsumption is a claim about coverage of a moving target. |
+| Block numbering ran `1/5..5/5` then `6/6` | **Renumbered** `1/6..6/6`, and the assistant-written list no longer names the removed doc edits. |
+| Section 7 gated a generator this ticket does not touch | **Switched** to `cargo test -p sstd-core`, the workspace's stated Rust gate. |
+| N1's deferral asserted, not reasoned | **Reasoned** in 4.2b and section 8: B8 asks about the relationship, not the values, and #89 makes per-layer control possible without choosing it. |
+| 3.2's `CanvasLayer` rejection rested on speculation | **Replaced with the ticket's own measurement.** See below. |
+
+### The CanvasLayer correction
+
+Iteration 2 was preceded by an earlier draft's proposal to re-test the `CanvasLayer` route,
+reasoning that three of this plan's own metrics had proven vacuous so an earlier recorded
+failure was not to be trusted. The gate did not raise this, but it was wrong, and the reason is
+worth keeping:
+
+**#89's own correction comment measured candidate A as "does not work at all"** -- UI stays
+displaced, both bars draw 0 pixels, 63% bare tab against 1% before -- and the ticket body
+reports the same 63% figure independently. That is a different observer, different evidence,
+and the strongest measurement in the issue. Vacuous metrics elsewhere in a plan are not a reason
+to doubt a measurement recorded elsewhere; they are a reason to check which measurement a claim
+actually rests on. Claim checked: it rests on the ticket. Re-testing was dropped.
+
+Section 3.2 now carries the ticket's measurements for both candidates A (`CanvasLayer`) and B
+(`camera.enabled = false`), so neither is presented as a candidate this plan weighed and
+declined.
+
+### Verdict on the load-bearing claim
+
+An evaluator re-derived the mechanism independently from `godotengine/godot` `4.7`
+`scene/2d/parallax_2d.cpp` and `.h` and confirmed M1-M8 line by line, including that
+`follow_viewport` being `true` is what makes the camera-era form in M4b measurable, and that
+writing `scroll_offset = scrub * scroll_scale` per layer moves every layer at its own rate on x
+(tiled) and on y (linear). **D4 is therefore satisfiable as designed**, and M-a has since
+confirmed it on rendered frames at runtime rather than on paper alone.
 
 ### Items removed or moved at iteration 1
 
@@ -581,8 +865,11 @@ claims. These are the changes iteration 1 forced:
   "`screen_offset` is (0,0) so (4) would subtract zero", not the default value.
 - **Corrected M4**: the x branch is `-fposmod(-scroll_offset.x, 1920)`, not
   `fposmod(scroll_offset.x, 1920)`. Range is `(-1920, 0]`, not `[0, 1920)`.
-- **Moved the `PLAN-2026-09-30` doc correction out of section 8** into 4.3a, where it is a
-  D5 item rather than a self-contradictory "planned and not planned".
+- **Moved the `PLAN-2026-09-30` doc correction out of section 8** into 4.3a. **Iteration 3
+  reverted this in the opposite direction** -- out of the plan entirely, into #92 -- which is
+  the same finding arriving twice by opposite routes: iteration 1 saw a self-contradiction
+  ("planned and not planned"), iteration 3 saw an unsupported item. The contradiction was the
+  symptom; the missing clause was the cause.
 - **Corrected 4.5's precedent**: `capture_backdrop.gd:29` / `capture_all_tabs.gd`, not
   `probe_parallax_scroll.gd` (which is a headless node-graph probe with no frame read).
 - **Corrected section 7**: `editor/project.godot` IS tracked; the reason to restore it is
@@ -591,10 +878,12 @@ claims. These are the changes iteration 1 forced:
   and M5 -- the two claims the whole design rests on -- are measured rather than inferred
   from source.
 
-### Items added after the passing iteration 2
+### Post-iteration-2 additions, retained as history
 
-Iteration 2 passed, but surfaced defects worth closing before any code is written. They
-are recorded here rather than silently dropped:
+Iteration 2 scored as a pass, but surfaced defects worth closing before any code is written.
+Recorded rather than silently dropped. **The fourth item below was later found to be the
+iteration-2 mis-citation itself** -- it counts the `simulator.gd` file header among the
+comments D5 requires be corrected, which is exactly the reasoning iteration 3 overturned:
 
 - **M10** -- the x wrap is invisible in rendered pixels but NOT in `layer.position`, which
   is what the test reads. A wrap inside the suite's two-step window would make
@@ -610,16 +899,9 @@ are recorded here rather than silently dropped:
   `repeat_size.x`. Recorded because a future scaled layer changes M10's arithmetic.
 - **Section 7** now gates on the new probe at both resolutions, since D2 is the acceptance
   item only rendered evidence can settle.
-- **4.2** now enumerates `simulator.gd:49-63` and `simulator.gd:74-98` among the comments
-  D5 requires be corrected, and corrects two attributions: the `(2784, 419.32)` figures are
-  comment prose rather than code constants, and the `manifest.json` single-source-of-truth
-  claim belongs to `backdrop_preview.tscn:4-6` rather than to the task prompt.
-
-### Verdict on the load-bearing claim
-
-Iteration 2's evaluator re-derived the mechanism independently from
-`godotengine/godot` `4.7` `scene/2d/parallax_2d.cpp` and `.h` and confirmed M1-M8 line by
-line, including that `follow_viewport` being `true` is what makes the camera-era form in
-M4b measurable, and that writing `scroll_offset = scrub * scroll_scale` per layer moves
-every layer at its own rate on x (tiled) and on y (linear). **D4 is therefore satisfiable
-as designed.**
+- **4.2** enumerated `simulator.gd:49-63` and `simulator.gd:74-98` among the comments D5
+  requires be corrected. Superseded in part: `74-98` is still in scope under B1 (it justifies
+  a re-derived value), while `49-63` went with the `_size_layer_repeats` disposition and the
+  file header moved to #92. It also corrected two attributions that stand: the
+  `(2784, 419.32)` figures are comment prose rather than code constants, and the
+  `manifest.json` single-source-of-truth claim belongs to `backdrop_preview.tscn:4-6`.
