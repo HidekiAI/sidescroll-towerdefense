@@ -5,7 +5,22 @@
 **Parent feature:** [#68](https://github.com/HidekiAI/sidescroll-towerdefense/issues/68) (OPEN)
 **Branch:** `feat/parallax-restack` (code repo), currently level with `trunk`
 **Design of record (read-only, FROZEN):** wiki `TDD_Parallax-Background`
-**Status at time of writing:** design derived from the engine source, **no code written yet**
+**Status at time of writing:** design derived from the engine source. **No production code is
+written yet** -- but the measurements in 5.2 exist, and they came from a throwaway probe. See
+"Working-tree disposition" below; corrected by gate iteration 4, which found the status line
+above contradicting its own section 5.
+
+### Working-tree disposition (gate iteration 4)
+
+Two untracked files are present and neither is part of the change:
+
+| File | What it is | Disposition |
+|---|---|---|
+| `editor/tests/measure_no_camera.gd` | **765 lines**, the throwaway probe that produced M-0, M-a, M-b, M-c, M-d, M-e, M-f, M-h, M-k and M-e's counter-verification | **DELETE before the branch merges.** It is scaffolding for the numbers, not a test: it has no assertions, it asserts its own conclusions by printing, and several of the metrics it contains are the void ones recorded in 5.1. Shipping it would import every voided metric as if it were a suite. |
+| `editor/tests/probe_parallax_scroll.gd` | tracked; reads `BackdropStrip/Camera2D`, a node this change deletes | **DELETE**, 4.4 |
+
+Neither is ever `git add`ed. `editor/addons/` is 516 MB of vendored third-party code and is
+also untracked; explicit paths only, never `git add -A` or `git add .`.
 
 ---
 
@@ -265,11 +280,28 @@ against a positive control that displaces every layer by +3000 px:
 | 6400 | 0 px | 0 px | 0 px | 1950260 px |
 
 `repeat_times` does not change a single pixel at 1920 wide, and the positive control proves
-the diff can see a gap when one exists. Two facts from `4.7/scene/2d/parallax_2d.cpp`
-explain it: `set_repeat_times()` clamps with `repeat_times = MAX(p_repeat_times, 1)`, and
-`_update_repeat()` delegates to `RenderingServer.canvas_set_item_repeat(...)`, so the
-renderer already covers the viewport at the minimum. Nothing under- or over-provisions, so
-there is no value to choose and the helper has nothing left to do.
+the diff can see a gap when one exists. The reason is in the renderer, not in the clamp:
+
+`servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp:2239-2252`
+
+```cpp
+Point2 start_pos = ci->repeat_size * -(ci->repeat_times / 2);
+int repeat_times_x = ci->repeat_size.x ? ci->repeat_times : 0;
+for (int rx = 0; rx <= repeat_times_x; rx++) {   // INCLUSIVE: N+1 copies, not N
+    offset.x = start_pos.x + rx * ci->repeat_size.x;
+```
+
+The bound is inclusive, so **`repeat_times = N` draws N+1 centred copies**. At
+`repeat_times = 1`: integer division gives `start_pos.x = 0`, `rx` runs 0 and 1, so two
+copies land at offsets `0` and `+1920` and the layer spans `[px, px + 3840)` where
+`px = position.x ∈ (-1920, 0)` (M4). Since `px + 3840 > 1920` for every `px` in that range,
+**two copies cover any viewport up to 3840 px wide.** The value is not chosen by the plan; it
+is forced by the inclusive bound, and nothing can under-provision a 1920 frame. `set_repeat_times()`
+additionally clamps with `repeat_times = MAX(p_repeat_times, 1)`, so `0`, `1` and `5` are all
+drawn from the same floor.
+
+Nothing under- or over-provisions, so there is no value to choose and the helper has nothing
+left to do.
 
 This also retires the tutorial's objection in
 [2D Parallax](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
@@ -378,20 +410,23 @@ as non-functional.
   and under the camera model (M4b) that copy travelled with the camera across the whole scrub.
   So B2's instruction applies -- **re-derive** -- and the re-derivation is M-k:
   `repeat_times` 1, 2, 3 and 5 render pixel-identical at scrub 0, 1600 and 6400 against a
-  positive control that diverges ~1.9M px; `set_repeat_times()` clamps with
-  `MAX(p_repeat_times, 1)`; and `_update_repeat()` delegates to
-  `RenderingServer.canvas_set_item_repeat`, so the renderer covers the viewport at the minimum.
+  positive control that diverges ~1.9M px; and `repeat_times = 1` draws **two** centred copies
+  (inclusive bound, 3.1), so two copies cover any viewport up to 3840 px wide and no value can
+  under-provision a 1920 frame.
   The quantity is unobservable, so a function whose stated purpose is now false is removed
   rather than re-tuned.
   **Two honest qualifications.** B2's own three enumerated items are *not* this one, so the
   enumeration alone does not reach it -- the lead-in does, and that is an argued reading, not a
   quoted one. And nothing depends on the outcome either way: M-k shows the function cannot
-  affect the frame, so leaving it in place costs nothing. It is not a correctness dependency and
-  block 1/6 is the one block that can be dropped without touching anything else.
-  One factual consequence, not an argument for the deletion: the figures an earlier draft said
-  must not be restated are *in* this doc block -- `simulator.gd:53` ("x=0 was only 6% bare")
-  and `simulator.gd:63` ("measured at x = 0, 1600, 3200, 4800, 6400") -- and both come from the
-  void M-d metric (5.1).
+  affect the frame, so leaving it in place is not a correctness problem, and block 1/6 is the
+  one block that can be dropped without touching anything else.
+  **"Costs nothing" was withdrawn** (gate iteration 4), because keeping it is not free: it
+  preserves the doc block at `simulator.gd:49-63`, whose figures at `:53` ("x=0 was only 6%
+  bare") and `:63` ("the bare-background percentage is a flat 1% across the whole range,
+  measured at x = 0, 1600, 3200, 4800, 6400") come from the **void** M-d metric (5.1). A metric
+  that could not fail produced those percentages, so the fallback path would ship two
+  confidently-worded numbers this very plan requires be corrected elsewhere. That is a real
+  cost, and it is why block 1/6 is worth doing even though the *code* is harmless.
 - `_scroll_v.max_value`: the 240px clamp stays until measurement says otherwise, and its
   justification comment at `simulator.gd:42-44` is replaced by the M-e measurement. B2,
   D5. The `(2784, 419.32)` / `(2816, 199.48)` figures at `simulator.gd:79-81` are
@@ -461,15 +496,26 @@ The boundary this plan draws, stated so a later reader can see it was drawn deli
 | #68's runtime horizontal alignment | B2 item 1 | in scope -- it is the x half of the B1 re-derivation |
 | generator-change conclusion | B2 item 3 | re-tested by M-e; no generator change, 4.3 |
 | `backdrop_preview.tscn` header comment (12-14) | no | #92 |
-| `backdrop_preview.tscn` `Backdrops` comment (32-44) | no | #92 |
-| `backdrop_preview.tscn` sky-overshoot comment (38-42) | no | #92 |
+| `backdrop_preview.tscn` `Backdrops` + sky-overshoot comment (**one** block, 32-44; the sky sentences sit inside it at 38-42) | no | #92 |
 | `simulator.gd` file header (2-11) | no | #92 |
 | `docs/PLAN-2026-09-30-parallax-tutorial-stack.md` 3.1 + Phase 3 | no | #92 |
+| `simulator.gd:40-41` -- "Strip is 6400px wide; scrub spans the full band" | **no clause re-derives 6400**, but B6 **falsifies it** | **in scope, 4.2** |
 
-The rule behind the table: **a comment is in scope only when it justifies a value a ticket
-clause re-derives.** Everything else is stale prose, which is a real defect but not this
-ticket's -- and #89 is a bug fix, where widening the blast radius is the failure mode this
-gate exists to catch.
+The rule behind the table: **a comment is in scope when a ticket clause re-derives the value
+it justifies, or when the change itself makes it false.** Everything else is stale prose,
+which is a real defect but not this ticket's -- and #89 is a bug fix, where widening the blast
+radius is the failure mode this gate exists to catch.
+
+**The second clause was added by gate iteration 4, and the table now has a row it exists to
+hold.** The earlier rule had one trigger -- re-derivation -- and that missed
+`simulator.gd:40-41`. The comment claims the scrub "spans the full band", which is a claim
+about what the scrub *means*. Under B6 the scrub becomes layer-local input to
+`scroll_offset = scrub * scroll_scale`, and there is no world band left to span: the value
+`6400.0` is correctly KEPT (D3 acceptance), but the sentence explaining it is not. A rule that
+only catches comments whose numbers are re-derived would have shipped a freshly-false comment
+while claiming the surrounding prose was untouched -- which is worse than not looking, because
+it asserts a coverage that was never performed. Falsification by the change is a trigger in
+its own right, and #92 must not be handed a comment this ticket has just invalidated.
 
 ### 4.3 `editor/tests/test_parallax_backdrop.gd`
 
@@ -493,13 +539,38 @@ contract, keeping the parts that are still load-bearing:
   values to layers with different `scroll_scale`. Without it, a suite that asserted only
   "the art moved" would pass for an implementation where all six layers move 1:1, which
   is exactly the M3 failure mode.
+- **Add** a **sign** assertion, and record why it is not optional (gate iteration 4).
+  The x scrub **inverts its on-screen direction** under B6, and nothing in the plan said so:
+
+  | Model | `position.x` | Dragging the bar right moves the art |
+  |---|---|---|
+  | camera (M4b) | `scrub - fposmod(scrub * scale.x, 1920)` | **left** (the whole canvas pans) |
+  | `scroll_offset` (M4) | `-fposmod(-scrub * scale.x, 1920)` | **right** |
+
+  Same magnitude, opposite sign. It follows unavoidably from B6 -- writing a per-layer offset
+  is not the same operation as moving a shared canvas -- so it is not a blocker, but it is
+  user-visible, it is exactly the kind of thing a later reader "fixes" by negating the
+  expression, and no existing assertion would catch it: M-a measures *rates* (unsigned), and
+  M11's discussion is about the per-layer sign of `1 - scroll_scale`, which is a different
+  quantity. The assertion is that increasing `scroll_x` by `step` increases each layer's
+  measured `position.x` by `+step * scroll_scale.x`, positive. M10 still governs the sample
+  points: `position.x` must not be sampled across a wrap boundary.
 - **Keep `scroll_x.max_value == 6400.0` unchanged** (`test_parallax_backdrop.gd:111-112`).
   Re-citation: the ticket names **no scrub range anywhere** -- `grep -n 6400` on the issue text
   returns nothing -- so this is a keep, not a change, and no clause authorises altering it. The
-  range is a code fact, documented at `simulator.gd:40-41` ("Strip is 6400px wide; scrub spans
-  the full band"), and 6400 is the strip width rather than a framing constant, so B1's
+  range is a code fact: 6400 is the strip width rather than a framing constant, so B1's
   re-derivation does not reach it. D3's "full 6400 px range" is the acceptance phrasing for
   this assertion, cited as such and not as authority for a change.
+
+  **But its justification comment is now in scope, and 4.2c says so.** An earlier draft of this
+  plan cited `simulator.gd:40-41` ("Strip is 6400px wide; scrub spans the full band") as the
+  *reason* to keep the value, which made the comment an authority the plan was entitled to leave
+  alone. Gate iteration 4 showed that is circular: B6 falsifies "the scrub spans the full band"
+  (the scrub becomes layer-local input to `scroll_offset = scrub * scroll_scale`; there is no
+  world band to span), so the comment cannot be both the justification for the value and a
+  casualty of the change. The value stands on its own -- it is the strip width, kept because
+  no clause touches it. The comment is rewritten in the same pass for the reason in 4.2c, and
+  **not** handed to #92, which filed before this falsification was identified.
 - **Keep `scroll_v.max_value == 240.0`; rewrite its justification comment.**
   `test_parallax_backdrop.gd:108-109` asserts the value, `:106-107` justifies it, and the
   justification is false. It reads "Vertical travel is clamped to the generator's 240px
@@ -564,8 +635,10 @@ supplies the reason to run it twice.
 **D3's range-end evidence, with the metric corrected.** D3 needs "art across the full
 6400 px range". The first attempt measured that as a whole-frame CHANGED-pixel percentage
 and is recorded void in 5.1: exposing bare background is itself a change, so a gap scores
-identically to art, and every configuration reported 0.00% bare including at scrub 6400 where
-one 1920 px copy cannot cover a 1920 px frame.
+identically to art, so the metric could not report a gap even where one existed. (Its
+accompanying reading -- that 0.00 % at scrub 6400 was therefore impossible -- was also
+wrong, for a separate reason now corrected in 3.1 and 5.1: `repeat_times = 1` draws two
+copies, so 0.00 % is what it must produce.)
 
 The replacement is an **absolute** count, not a difference:
 
@@ -576,9 +649,17 @@ The replacement is an **absolute** count, not a difference:
   documented at `simulator.gd:40-41`; the five-point grid is not new, it is the grid
   `simulator.gd:63` already used for its (void) measurement, so it needs no new
   authorisation -- only a metric that can actually fail.
-- **Positive control:** hide one named layer, assert the bare count RISES by that layer's
-  pixel count, then restore it. This is the control 5.1 says every metric must carry, and it
-  is also the check that distinguishes "no gaps" from "the diff cannot see gaps".
+- **Positive control -- the layer must be named `Sky`, not "one named layer".** Hide `Sky`,
+  assert the bare count RISES to the region area, then restore it. This is the control 5.1
+  says every metric must carry, and it is also the check that distinguishes "no gaps" from
+  "the metric cannot see gaps".
+
+  The choice of `Sky` is forced, not arbitrary: `sky.png` is fully opaque and, per M-e, its
+  rect **contains all five other bands' rects**. So hiding `Forest` or `Foreground` reveals
+  the Sky underneath and the bare count does **not** rise -- the control reports a false red
+  and would have been read as "the metric is broken". Only hiding the bottom-most opaque
+  layer can increase a background count. Measured: `0 -> 1,423,644` px at 1920x1029 and
+  `0 -> 921,975` px at 1280x800, each equal to the exact region area (5.2).
 - **Stated prediction before the run:** M-k established geometrically that the authored copy
   spans `(-1920, 0]` at rate `scroll_scale.x`, which covers the frame at every scrub, so the
   expected bare count is 0 throughout. A non-zero result falsifies that and means the
@@ -603,8 +684,20 @@ it (B3 clause 1).
 | M-h | What is actually painted in the sky, and where is the celestial body? | read `sky.png` directly, no frame capture | filed as #90; not a prerequisite here |
 | M-k | Does any `repeat_times` value change the frame, and can the diff see a gap at all? | rt 1/2/3/5 vs each other, plus a positive control displacing every layer | 3.1, the `_size_layer_repeats` disposition |
 
-This table lists only what still has to be **run**. Two questions were asked and answered during
-planning and are recorded in 5.2 rather than here, because no plan item depends on either:
+This table is the **full ledger**, not a to-do list: it names every measurement the design was
+originally going to need, whether or not it has been run. Results live in 5.2; an unrun row
+there is pending, and **only these rows are still outstanding**:
+
+| Still to run | Why |
+|---|---|
+| **M-b1** (added by gate iteration 4) | the per-band containment column, which is what actually discriminates `Backdrops.position.y = -291` from the five other candidates the closed form ties with it -- see 5.3 |
+| M-d | superseded by M-k, which answers the same question with a metric that can fail; retained only as the row that was measured badly first |
+| M-e at 1280x800 | the upward bound is resolution-independent and the run confirmed it; the 1280x800 confirmation of the five-point scrub sweep is the one open end |
+
+Everything else in the table is answered and cross-referenced from 5.2.
+
+Two further questions were asked and answered during planning and are recorded in 5.2 rather
+than here, because no plan item depends on either:
 
 - **M-g** -- why `Forest` and `Foreground` contribute so few pixels. Answered: they are sparse
   silhouettes. See 5.2.
@@ -617,11 +710,34 @@ planning and are recorded in 5.2 rather than here, because no plan item depends 
 Three coverage metrics were built and then falsified. They are recorded here because each
 one looked correct and each one measured nothing.
 
+**Corrected 2026-10-03 (gate iteration 4).** Two of these were void for the reason given, but
+two of the *readings* written into them were wrong, and the correction matters more than the
+voiding: `repeat_times = 1` draws **two** copies, not one (3.1). The metric was worthless; the
+inference drawn from its output was not.
+
 | Attempt | Why it was vacuous |
 |---|---|
-| M-d, `_measure_whole_frame_coverage` | Counts CHANGED pixels. Exposing bare tab background is itself a change, so a gap scores identically to art. Every `repeat_times` reported 0.00% bare, including at scrub 6400 where a single 1920 px copy cannot cover a 1920 px frame. |
-| M-d1, bare-`%` across the scrub | Same metric, re-run. Also sampled only `scrub = 0`, where every `position.x` is exactly 0 and the authored copy lands flush at the frame's left edge, so `repeat_times = 1` looks sufficient when it is not. |
-| M-j, divergence from a `repeat_times = 5` reference | Its own negative control failed first. `repeat_times = 0` reported 0 px divergence from a five-copy reference, which is impossible. |
+| M-d, `_measure_whole_frame_coverage` | Counts CHANGED pixels. Exposing bare tab background is itself a change, so a gap scores identically to art. The metric cannot discriminate; it is void. |
+| M-d1, bare-`%` across the scrub | Same metric as M-d, re-run, so the same disqualification applies. It is void for that reason alone. |
+| M-j, divergence from a `repeat_times = 5` reference | Void on its own terms: its negative control failed first (the "1614339 px" control was measuring a displaced Sky left over from the previous section). |
+
+Two readings in the earlier draft of this table were **mis-diagnosed** and are withdrawn:
+
+- *"0.00 % bare at scrub 6400 is impossible, because a single 1920 px copy cannot cover a
+  1920 px frame."* The premise is true -- at scrub 6400 `Foreground`'s `position.x = -1280`,
+  so one copy spans `[-1280, 640)` and leaves `[640, 1920)` uncovered. The conclusion is
+  false: `repeat_times = 1` draws **two** copies (3.1), so 0.00 % bare is exactly what it must
+  produce. The correct inference runs the other way -- the 0.00 % reading is what proves two
+  copies are drawn.
+- *"`repeat_times = 0` reporting 0 px divergence from a five-copy reference is impossible."*
+  It is possible, and M-k measured it: `0` clamps to `1`, and `1` and `5` render identically.
+  What the reading actually showed was the clamp, not a metric failure.
+
+The lesson is therefore narrower than "a positive control is required". It is: **a control
+that reports a startling value is a claim about the engine, not a verdict on the metric.** Both
+mis-diagnoses above came from reasoning about the renderer's repeat model in prose instead of
+reading the bound. The loop in `renderer_canvas_render_rd.cpp:2245` is inclusive, and that one
+fact settles every one of these readings.
 
 Two traps in the attempts above are worth naming because they cost a run each:
 
@@ -636,7 +752,9 @@ Two traps in the attempts above are worth naming because they cost a run each:
 The lesson applied to the surviving metrics: a measurement needs a positive control that
 **must** produce a non-zero result, and it needs a prediction stated before the run. M-k
 satisfies both -- the control displaces every layer by +3000 px, and the 0-px gap between
-rt1 and rt5 is the prediction being confirmed.
+rt1 and rt5 is the prediction being confirmed. M-e's counter is verified the same way: a
+bare pixel must MATCH the all-hidden frame, which it does exactly (1,916,160 / 984,320 px,
+equal to the exact region areas).
 
 M-0 runs first and exists because M1 and M5 are the two claims the whole design rests on,
 and this ticket's own history is a defect that every property read reported as fine. They
@@ -680,7 +798,7 @@ All values below were read or diffed with a window; headless was not used.
 |---|---|
 | M-0 | All six layers `position = (0,0)`, `screen_offset = (0,0)`, `scroll_offset = (0,0)` at neutral scrub. M1 and M5 hold at runtime. |
 | M-a | `scroll_offset = scrub * scroll_scale` gives exactly rate `scroll_scale` per layer per axis. Sky `+0.1` moved `12.0` px per `120` scrub; Foreground `+1.3` moved `156.0`. All six matched, and both step windows agreed (no repeat boundary between them). |
-| M-b/M-c | `Backdrops.position.y = -291` gives 0.00% bare at 1920x1080 with every band inside the frame. The whole sweep is predicted by sky height 1320 vs frame 1029 plus the `+31` Simulator tab offset: `-780 -> 44.51%`, `-600 -> 27.02%`, `-400 -> 7.58%`, `0 -> 3.01%`, all matching prediction to rounding. One parent translation does align all six bands on both axes. |
+| M-b/M-c | `Backdrops.position.y = -291` gives 0.00% bare at 1920x1080 with every band inside the frame. The whole sweep is predicted by sky height 1320 vs frame 1029 plus the `+31` Simulator tab offset: `-780 -> 44.51%`, `-600 -> 27.02%`, `-400 -> 7.58%`, `0 -> 3.01%`, all matching prediction to rounding. **The bare-% column does NOT discriminate `-291` -- see 5.3.** One parent translation does align all six bands on both axes. |
 | M-f | Both bars contribute real pixels: positive control `30912`, `bar_x` `30442`, `bar_y` `15690`, and both rects intersect `get_visible_rect()`. D2 holds at this size. |
 | M-g | `Forest` and `Foreground` are sparse silhouettes, not a bug: `forest.png` is 36% opaque with content in rows 187..320 of 320, `foreground.png` is 18% opaque with content in rows 254..320. Their small pixel counts are what the art actually contains. |
 | M-h | `sky.png` is 1920x1320 and fully opaque. The celestial body is a 116x117 disc at `(1248, 259)`, luma 0.937, brightest pixel `(1258, 336)`, 1248 px from the left tile edge and 556 from the right. At `scroll_scale.x = 0.1` it travels 640 px over the 6400 scrub, wraps its tile edge every 19200 px, and its next tiled copy sits at x=3168 -- so a viewport wider than that shows two. **Filed as #90; no #89 item depends on this.** |
@@ -710,6 +828,46 @@ M-e is now **measured** (see its row and the counter-verification table above), 
 rather than a number: the `Backdrops.position.y` confirmation at the second resolution, which
 M-b/M-c covered only at the first.
 
+### 5.3 M-b's evidence cannot pick `-291` -- and what would (gate iteration 4)
+
+Added because gate iteration 4 found the number that ships was selected by a column that
+cannot discriminate it. This is recorded as an **open gap**, not as a fix, because no run has
+been made against it yet.
+
+The M-b sweep reports a whole-frame bare percentage per candidate. That column is reproduced
+exactly by the closed form
+
+```
+bare(offset) = max(0, 31 + offset) + max(0, -322 - offset)
+```
+
+for rows of a 1029-tall frame (31 = the Simulator tab offset, -322 = the sky's top edge
+relative to the frame at offset 0), and the gate re-derived all five reported percentages
+digit for digit from it. The closed form also predicts **0.00 % at `-320`, `-240`, `-180`,
+`-120` and `-60`** -- six candidates tied with `-291`, not a unique winner. So the sweep's
+"only candidate with every band inside the frame" claim is an artifact of which candidates
+were sampled, and a reader who re-ran the sweep over a denser grid would get a different
+winner for the same art.
+
+This is *not* a reason to distrust `-291`, and it is not a reason to change it. It is the
+reason the plan must not claim the number was derived. What the plan claims is weaker and
+still true: `-291` was measured at 0.00 % bare with all six bands contained, which is what
+4.1 needs. What it must not claim is that `-291` is the *only* value with that property.
+
+**M-b1, the measurement that would close this.** The spike already computes the discriminating
+column -- `measure_no_camera.gd:195` -> `_measure_per_band_visibility`, per-band hide-and-diff
+at `:331` -- and the plan never reported any of it. M-b1 runs that across all sweep candidates
+at both resolutions and reports which of the six tied offsets is uniquely safe. The tie is
+expected to persist: the six differ only in how much headroom sits above and below the sky,
+which no per-band metric distinguishes. If M-b1 confirms a tie, the honest disposition is to
+record `-291` as **one member of an equivalence class**, note the headroom available at each
+size, and move on -- not to search for a spurious unique answer.
+
+The general defect, recorded once so it is not repeated: **a table of one metric across
+sampled candidates is not evidence that the chosen candidate is distinguished.** M-e already
+taught this once from the other side (a sweep whose range was hand-chosen reports on where it
+stopped). Here the range was derived and the *metric* was the wrong one.
+
 ---
 
 ## 6. Block map (proposal, for approval before scaffolding)
@@ -720,11 +878,25 @@ and in dependency order.
 | Block | file:line | What to write (not how) | Clause | Depends on |
 |---|---|---|---|---|
 | 1/6 | `editor/scripts/simulator.gd:64` | **re-derive** `_size_layer_repeats()` under B2's lead-in; M-k's answer is that the quantity is unobservable, so removal is the *conditional* follow-through (4.2) | B2 lead-in | M-k |
-| 2/6 | `editor/scenes/backdrop_preview.tscn:29` | remove the `Camera2D` node | B5, B6, B7 | - |
-| 3/6 | `editor/scripts/simulator.gd:25,32-39` | replace the camera writes with per-layer `scroll_offset` writes, each bar on its own axis | B6, B7 | 2/6, M-a |
+| 2/6 | `editor/scripts/simulator.gd:25,32-39` | replace the camera writes with per-layer `scroll_offset` writes, each bar on its own axis | B6, B7 | M-a |
+| 3/6 | `editor/scenes/backdrop_preview.tscn:29` | remove the `Camera2D` node | B5, B6, B7 | 2/6 |
 | 4/6 | `editor/scenes/backdrop_preview.tscn:45` | re-derive `Backdrops.position` | B1 | 3/6, M-b, M-c |
 | 5/6 | `editor/scripts/simulator.gd:99` | re-derive `_frame_backdrop()` on both axes, with its doc block | B1, B2 item 1 | 4/6, M-b, M-c |
 | 6/6 | `editor/scripts/simulator.gd:45` | set the vertical clamp and its justification from the measured travel | B2 item 2 | 5/6, M-e |
+
+**Blocks 2/6 and 3/6 are ordered script-then-scene, and the earlier order was wrong**
+(gate iteration 4). `simulator.gd:25` is `strip.get_node("Camera2D")` -- a hard `get_node`,
+not `get_node_or_null` -- so deleting the node first (the old block 2/6) left a window in
+which `_ready()` raised "Node not found" on every run. That is not one of the intentional
+GDScript holes this plan declares elsewhere; it is an undeclared broken state, and in an open
+editor the `.tscn` reload surfaces it immediately.
+
+The corrected order is strictly safer. After block 2/6 the script no longer references the
+camera at all, so an idle `Camera2D` node still in the scene is merely inert -- it still
+transforms the canvas, so the *frame* is still wrong, but nothing errors and any test still
+runs. Block 3/6 then removes the node and the frame becomes correct. Wrong-but-runnable is a
+better intermediate state than correct-but-crashing, and it means a failure after block 2/6
+can only be a logic failure rather than a missing-node error.
 
 Ordering is dependency order, and block 1 is first because it is the only one that can be
 dropped: while `_size_layer_repeats()` exists it rewrites `repeat_times` on every resize, so
@@ -773,9 +945,21 @@ Two rules, and both have cost a run before:
    open. Never `git add -A` or `git add .` -- `editor/addons/` is 516 MB of vendored code.
 
 The probe is a gate rather than a probe because D2 is the acceptance item only rendered
-evidence can settle. Its contract, restated from 4.5 so a failure is diagnosable from here:
-exit 0 requires both bars non-zero at that resolution, a positive control that contributes
-non-zero, and a reported window size other than (0,0).
+evidence can settle. **Its contract is closed, so a failure is diagnosable from here. Exit 0
+requires ALL FOUR:**
+
+| # | Condition | Settles |
+|---|---|---|
+| 1 | both bars contribute a non-zero pixel count at that resolution, and both bar rects intersect `get_visible_rect()` | D2, B3 clauses 2 and 3 |
+| 2 | the positive control contributes non-zero -- specifically, hiding **Sky** raises the bare count to the region area | 5.1's control requirement, 4.5 |
+| 3 | the reported window size is not (0,0), and is compared against the **window manager's** screen size, not the requested `--resolution` | B3 clause 1, and the 1920x1029 grant |
+| 4 | **the bare count is zero at every one of the five scrub points x = 0, 1600, 3200, 4800, 6400** | **D3's range acceptance** |
+
+Condition 4 was **missing** (gate iteration 4): 4.5 specifies the five-point sweep and this
+list gated only 1-3, so the range evidence D3 asks for was produced but never asserted. A
+sweep that is computed and not gated is a report, not a gate. The two `1920x1080` / `1280x800`
+invocations above are both required -- see 4.5's "On the second resolution", which grounds the
+second size in `simulator.gd:78` and `:125` rather than in the prompt.
 
 ---
 
@@ -828,21 +1012,86 @@ names the clause that *would* have to exist for it to be in scope.
 | `repeat_times` under-provisioned after the model change | **Retired.** M-k measured rt 1/2/3/5 as pixel-identical against a ~1.9M px positive control, and the engine clamps `repeat_times` to a minimum of 1 while the renderer covers the viewport regardless. See 3.1. |
 | A measurement is trusted because it looks sane rather than because it can fail | 5.1 and 5.1a record **five** vacuous metrics that all reported success. Every surviving metric carries a positive control that MUST produce non-zero, and states its prediction before the run. 4.5 replaces the one metric the gate found to be vacuous by construction. |
 | Scope creep into #88, the generator, or stale comments | Section 8.1 lists all three; 4.2c draws the line explicitly with the clause test each side of it passes or fails; the gate's hard cap applies |
-| `_size_layer_repeats` re-derivation rests on B2's lead-in, not its enumeration | Stated as an argued reading in 4.2, not claimed as a quote. The shipped default is **re-derive**, and removal is separable -- M-k shows the function cannot affect the frame either way, so a reviewer who rejects the deletion loses nothing and drops one block |
+| `_size_layer_repeats` re-derivation rests on B2's lead-in, not its enumeration | Stated as an argued reading in 4.2, not claimed as a quote. The shipped default is **re-derive**, and removal is separable -- M-k shows the function cannot affect the frame either way, so a reviewer who rejects the deletion loses nothing and drops one block. Keeping it is not free, though: it preserves a doc block whose figures came from a voided metric |
 | `project.godot` or `addons/` accidentally committed | Section 7, rule 2 |
+| The 765-line `measure_no_camera.gd` probe, or `addons/`, swept into a commit | "Working-tree disposition" in the header: explicit paths only, and the probe is deleted before merge |
+| `Backdrops.position.y = -291` treated as a derived optimum | 5.3: it is one member of a six-way tie the bare-% column cannot break. The plan claims only what was measured -- 0.00 % bare, all six bands contained -- and M-b1 records what would settle uniqueness |
+| A future reader "corrects" the inverted x direction | 4.3's sign assertion, with both formulas stated. Same magnitude, opposite sign, unavoidable from B6 |
 
 ---
 
 ## 10. Plan gate
 
-**Iterations:** 3. Bar is 90. Evaluator: independent agent, same model every iteration, given
+**Iterations:** 4. Bar is 90. Evaluator: independent agent, same model every iteration, given
 the ticket text, this document, and the rubric -- never the planner's reasoning.
 
 | iteration | score | outcome |
 |---|---|---|
 | 1 | 84 | FAIL. No CRITICAL, but two uncovered clauses and seven deficiencies. |
 | 2 | 91 | PASS as scored. **Invalid pass** -- see below. |
-| 3 | **88** | FAIL on the bar (90), **no CRITICAL** -- the two CRITICALs it opened with were both resolved, and it declined to re-raise either. Seven deficiencies, all citation-hygiene rather than design. Revision below is in flight. |
+| 3 | **88** | FAIL on the bar (90), **no CRITICAL** -- the two CRITICALs it opened with were both resolved, and it declined to re-raise either. Seven deficiencies, all citation-hygiene rather than design. All seven applied, commit `576b1a1`. |
+| 4 | **76** | FAIL on the bar, **no CRITICAL**. Ten deficiencies. One is a **false engine claim in the plan's central section**, confirmed against `renderer_canvas_render_rd.cpp:2239-2252`; two are mis-diagnosed readings that were withdrawn by name. Also a section that contradicted itself about what had been measured, an evidence table that cannot pick the value it selects, and a gate contract missing one of its own four conditions. Revision below. |
+
+### What iteration 4 changed, and the one finding that was load-bearing
+
+Iteration 3's deficiencies were all hygiene. Iteration 4 found an error of fact, and it is in
+the section the design leans on hardest.
+
+**The claim that was wrong.** The plan asserted "`_update_repeat()` delegates to
+`RenderingServer.canvas_set_item_repeat(...)`, so the renderer already covers the viewport at
+the minimum" -- stated as a reason, with no mechanism. Iteration 4 read the renderer loop and
+found the bound is **inclusive**:
+
+```cpp
+for (int rx = 0; rx <= repeat_times_x; rx++)   // N+1 copies, not N
+```
+
+`repeat_times = 1` therefore draws **two** centred copies, and that fact was independently
+confirmed from `parallax_2d.cpp` (`repeat_times = MAX(p_repeat_times, 1)`). Verified before
+adopting, not after: this is the same discipline applied to iteration 3's off-by-one report,
+which turned out to be half wrong.
+
+**The cost was bigger than the sentence.** Two of 5.1's three "falsified" metrics had been
+declared impossible on the strength of the wrong repeat model, and both readings were actually
+*correct*:
+
+| Plan said | Truth |
+|---|---|
+| 0.00 % bare at scrub 6400 is impossible, because one 1920 px copy cannot cover a 1920 px frame | the premise holds (`Foreground.position.x = -1280`, one copy leaves `[640, 1920)` uncovered) -- and rt=1 draws two copies, so 0.00 % is exactly what it must produce |
+| `repeat_times = 0` reporting 0 px divergence from a 5-copy reference is impossible | it is possible, and M-k measured it: `0` clamps to `1`, and `1` and `5` render identically |
+
+So a plan whose whole argument is about falsifiable evidence had, in the section titled
+**"Voided measurements"**, two readings that reasoned about the renderer in prose instead of
+reading the loop. The metrics were worthless; the lessons drawn from them were wrong. 5.1 now
+separates the two explicitly: *a control that reports a startling value is a claim about the
+engine, not a verdict on the metric.*
+
+**No design changed.** rt=1 was always sufficient, so retiring `_size_layer_repeats()` still
+stands; the clamp, the framing constant and the per-layer writes are all unaffected. What
+changed is that the plan can no longer say it knows why, and 3.1 now cites the loop.
+
+**The other nine, briefly.** 2 -- section 5 claimed to list only unrun work while listing seven
+answered rows, and M-h appeared as both pending and answered; it is now an explicit ledger with
+a named outstanding list. 3 -- M-b's bare-% column reproduces exactly from
+`bare(offset) = max(0, 31 + offset) + max(0, -322 - offset)`, which also predicts 0.00 % at five
+further offsets, so the sweep never distinguished `-291` from six candidates; recorded as an
+**open gap** with M-b1 as the measurement that would close it (5.3), and the claim that `-291`
+is *the* value is withdrawn in favour of "one member of an equivalence class". 4 -- 4.5's
+positive control said "one named layer", but only hiding the bottom-most opaque layer can raise
+a background count; now names `Sky`, which M-e measured. 5 -- "leaving it in place costs
+nothing" was wrong, because keeping `_size_layer_repeats` preserves a doc block whose figures
+come from the void M-d metric. 6 -- `simulator.gd:40-41` becomes false under B6 and escaped
+4.2c's rule, which had only one trigger; the rule gained a second (falsification by the change)
+and the row now exists to hold it. 7 -- **the x scrub inverts its on-screen direction** under
+B6 and no plan item said so; added as a sign assertion with the two formulas side by side. 8 --
+4.5's five-point sweep was computed but never gated, so D3's range acceptance had no
+corresponding exit condition; section 7's contract is now four conditions. 9 --
+`backdrop_preview.tscn:38-42` sits inside `32-44`, so #92's "four code comments" is three blocks
+across two files. 10 -- the header claimed "no code written yet" while a 765-line untracked
+probe stood in the working tree with no stated disposition, and the block map deleted the
+`Camera2D` node before removing the hard `strip.get_node("Camera2D")` at `simulator.gd:25`,
+leaving a window where `_ready()` raises "Node not found"; both fixed, and the block order
+swapped to script-then-scene because wrong-but-runnable beats correct-but-crashing.
 
 ### The iteration-2 pass was invalid, and why
 
