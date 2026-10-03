@@ -248,8 +248,9 @@ files.
   same section + `minimap_schematic.{svg,png}`. **Nothing else in the wiki may be edited.**
   The first two are merged to `master` (`7e461f8`) and their branches deleted. The zoom
   ladder is merged to `master` as `ace6738`, fast-forward, no merge commit. Both feature
-  branches (`docs/minimap-zoom-ladder`, `docs/minimap-zoom-checkpoint`) are pushed and
-  merged; they are still on the remote pending @me's approval to delete.
+  branches (`docs/minimap-zoom-ladder`, `docs/minimap-zoom-checkpoint`) were pushed, merged
+  and then deleted local and remote with @me's approval. The wiki is on `master` with only
+  `master` on the remote.
 - Wiki's six recorded discrepancies untouched (FROZEN pending @me's agreement).
 - Issues filed today: **#90** celestial body, **#91** signed depth (real sub-issue of #90),
   **#92** four stale `Camera2D` comments + one superseded design plan, **#93**
