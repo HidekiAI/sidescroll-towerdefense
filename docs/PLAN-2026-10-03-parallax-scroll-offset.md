@@ -500,15 +500,17 @@ contract, keeping the parts that are still load-bearing:
   the full band"), and 6400 is the strip width rather than a framing constant, so B1's
   re-derivation does not reach it. D3's "full 6400 px range" is the acceptance phrasing for
   this assertion, cited as such and not as authority for a change.
-- **Re-pin, or replace, `scroll_v.max_value == 240.0`**
-  (`test_parallax_backdrop.gd:108-109`) and rewrite its justification comment at
-  `test_parallax_backdrop.gd:106-107`, which today reads "Vertical travel is clamped to
-  the generator's 240px overscan: past it the 1320px sky band would reveal its own top
-  edge." That sentence states the 240px constant B2 item 2 calls suspect, and B2 names "the
-  240px vertical travel clamp **and its justification**", so this one is squarely in scope.
-  M-e decides the value; the assertion follows it, and its comment is rewritten to the measured
-  travel. If M-e returns 240.0, the assertion is kept unchanged and only the comment is
-  corrected -- the point is that the number is measured, not inherited.
+- **Keep `scroll_v.max_value == 240.0`; rewrite its justification comment.**
+  `test_parallax_backdrop.gd:108-109` asserts the value, `:106-107` justifies it, and the
+  justification is false. It reads "Vertical travel is clamped to the generator's 240px
+  overscan: past it the 1320px sky band would reveal its own top edge." M-e measured the sky's
+  top edge at **3,637.5** scrub units away -- the geometric headroom is 15x the clamp, so past
+  240 nothing is revealed. B2 item 2 names "the 240px vertical travel clamp **and its
+  justification**", so the comment is in scope and the value is not.
+  The number is kept because it is the generator's `overscan_px` (`manifest.json`), a *design*
+  limit, and it is safe at both resolutions with margin to spare -- which is now measured rather
+  than assumed. 4.3's earlier disposition ("M-e decides the value") expected M-e might move it;
+  it did not, and the plan records the outcome instead of the expectation.
 
 ### 4.4 `editor/tests/probe_parallax_scroll.gd` -- delete
 
@@ -640,6 +642,33 @@ M-0 runs first and exists because M1 and M5 are the two claims the whole design 
 and this ticket's own history is a defect that every property read reported as fine. They
 are read from the live node, not inferred from the engine source.
 
+### 5.1a Two more voided measurements, found while fixing M-e
+
+Both were produced by rebuilding M-e at the second resolution, and both **reported success**.
+
+**1. A sweep whose range was chosen by hand.** The original M-e sampled
+`scrub_y` in `[0, 60, 120, 180, 240, 480]` and reported "no gap" at every point. The true first
+bare pixel is at `-387.5`, so the entire sweep sat inside the safe region and its "no gap" was a
+statement about where it stopped. It also printed the sky's canvas rect but never the frame rect
+it was comparing against, so the reader could not have checked the claim even if it were wrong.
+This is the same defect as the earlier `scrub = 0`-only attempt, one axis over. **Sample points
+for a threshold are now derived from the geometry that sets the threshold**, then used to verify
+the prediction rather than to find it.
+
+**2. `min|gap|` over all six bands, when five of them are occluded.** The rebuilt sweep computed
+a per-band gap for every layer and took the smallest magnitude. It reported `-27.0` for the
+Foreground -- and the Foreground's rect leaving the frame reveals *the Sky*, which is still
+there. The correct bound comes from the single backmost opaque band, whose rect the run confirms
+encloses all five others' rects at scrub 0. **`min` over occluders is not a bound on anything**;
+the arithmetic was correct and the model was wrong, which is the harder defect to see because
+the output is a plausible small number rather than an obvious error.
+
+The shared lesson, and the reason this subsection exists: **both defects produced a clean
+result.** A measurement is only as good as the question it was in a position to answer, and the
+question has to be stated before the run -- not reconstructed after it. The surviving M-e states
+which band bounds it and why, predicts the boundary before sampling, and carries a positive
+control that must rise.
+
 Each measurement is recorded with its window size and its positive control, and the
 number that ships is the one measured, not the one predicted.
 
@@ -656,10 +685,30 @@ All values below were read or diffed with a window; headless was not used.
 | M-g | `Forest` and `Foreground` are sparse silhouettes, not a bug: `forest.png` is 36% opaque with content in rows 187..320 of 320, `foreground.png` is 18% opaque with content in rows 254..320. Their small pixel counts are what the art actually contains. |
 | M-h | `sky.png` is 1920x1320 and fully opaque. The celestial body is a 116x117 disc at `(1248, 259)`, luma 0.937, brightest pixel `(1258, 336)`, 1248 px from the left tile edge and 556 from the right. At `scroll_scale.x = 0.1` it travels 640 px over the 6400 scrub, wraps its tile edge every 19200 px, and its next tiled copy sits at x=3168 -- so a viewport wider than that shows two. **Filed as #90; no #89 item depends on this.** |
 | M-k | `repeat_times` 1/2/3/5 render identically. See 3.1. |
+| M-e | **Vertical travel is bounded by the Sky alone**, and the sky's rect contains all five other bands' rects at scrub 0 (`inside_sky=true` for every one), so no other band can expose background. Predicted first bare pixel: `scrub_y = 3637.5` (sky top, **resolution-independent**: region top `31` and sky top `-260` are both fixed) or `-387.5` at 1920x1029 / `-3250.0` at 1280x800 (sky bottom). The shipped `240.0` clamp is below the upward bound at both sizes and measured `0` background px at `scrub_y` 0, 240.0 and 241.0. **Keep 240.0; fix its justification** (4.3). |
 
-Two things are **not** yet decided and must not be written as constants until measured at
-1280x800: M-e (vertical travel, and therefore `_scroll_v.max_value` and the `240.0`
-assertion) and the framing confirmation at the second size.
+M-e's counter is verified four ways, none of which is "the number looked fine":
+
+| Check | Expected | Measured |
+|---|---|---|
+| Bare frame counted against itself | exactly the region area | `1,916,160` = 1920x998; `984,320` = 1280x769 |
+| Positive control, hide the Sky | must RISE | 0 -> `1,423,644`; 0 -> `921,975` |
+| Gap appears where predicted, not before | 0 at the boundary, non-zero one step past | 0 at `-387.5`/`-3250.0`, then `15,360`/`83,200` |
+| Count matches the predicted gap height | `step * rate_y * width`, to rounding | `96.875 * 0.08 * 1920 = 14,880` -> `15,360` (8 rows); `812.5 * 0.08 * 1280 = 83,200` -> `83,200` exactly |
+
+**`--resolution 1920x1080` yields a 1920x1029 window.** The window manager grants 1029, not
+1080, and `DisplayServer.window_get_size()` reports the granted size. Every number in this plan
+labelled "1920x1080" was measured at 1920x1029, with a `seen_region` of 1920x998 at canvas
+`y = 31`. The labels stay because they name the request a reader will reproduce, but
+`probe_render_visibility.gd` must assert the size it *received* against the window manager's
+actual screen size rather than against the requested one, or it will fail on any machine that
+clamps for a different reason.
+
+M-e is now **measured** (see its row and the counter-verification table above), so
+`_scroll_v.max_value` is decided: keep `240.0`, correct the justification at
+`test_parallax_backdrop.gd:106-107`. One item still unmeasured, and it is a framing constant
+rather than a number: the `Backdrops.position.y` confirmation at the second resolution, which
+M-b/M-c covered only at the first.
 
 ---
 
@@ -777,7 +826,7 @@ names the clause that *would* have to exist for it to be in scope.
 | M3/M4 wrong, so D4 fails | Section 5 M-a measures the rate before any constant is written; the delta idiom in `test_parallax_backdrop.gd` is retained so a wrong rate is a red test, not a wrong picture |
 | Framing constants re-derived through a stale method | B3's two rendered checks are mandatory and neither is a transform read; the previous constants were wrong precisely because a transform read said otherwise |
 | `repeat_times` under-provisioned after the model change | **Retired.** M-k measured rt 1/2/3/5 as pixel-identical against a ~1.9M px positive control, and the engine clamps `repeat_times` to a minimum of 1 while the renderer covers the viewport regardless. See 3.1. |
-| A measurement is trusted because it looks sane rather than because it can fail | 5.1 records three vacuous metrics that all reported success. Every surviving metric carries a positive control that MUST produce non-zero, and states its prediction before the run. 4.5 replaces the one metric the gate found to be vacuous by construction. |
+| A measurement is trusted because it looks sane rather than because it can fail | 5.1 and 5.1a record **five** vacuous metrics that all reported success. Every surviving metric carries a positive control that MUST produce non-zero, and states its prediction before the run. 4.5 replaces the one metric the gate found to be vacuous by construction. |
 | Scope creep into #88, the generator, or stale comments | Section 8.1 lists all three; 4.2c draws the line explicitly with the clause test each side of it passes or fails; the gate's hard cap applies |
 | `_size_layer_repeats` re-derivation rests on B2's lead-in, not its enumeration | Stated as an argued reading in 4.2, not claimed as a quote. The shipped default is **re-derive**, and removal is separable -- M-k shows the function cannot affect the frame either way, so a reviewer who rejects the deletion loses nothing and drops one block |
 | `project.godot` or `addons/` accidentally committed | Section 7, rule 2 |
