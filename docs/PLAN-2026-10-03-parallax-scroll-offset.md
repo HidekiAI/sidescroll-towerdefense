@@ -219,16 +219,32 @@ swapped `scroll_scale.x` / `scroll_scale.y` detectable on the x axis alone.
 
 ### 3.1 Consequence for the two existing runtime helpers
 
-`_size_layer_repeats()` (`simulator.gd:64`) derives
-`repeat_times = ceil(scrub / repeat_size.x) + 1 = ceil(6400/1920) + 1 = 5`. That formula
-was derived for the camera model, where (per M4b) the authored copy sat at
-`S.x - fposmod(S.x * scale.x, 1920)` and travelled with the camera across the whole scrub,
-so repeats had to span `[S.x - 1920, S.x + 1920]` for the whole 6400 range. Under M4 the
-copy is stationary in `(-1920, 0]`, so the number of repeats needed is a function of the
-VIEWPORT WIDTH alone and not of the scrub. **This helper is therefore re-measured, not
-assumed dead or assumed right**: it stays unchanged unless a measurement shows it wrong
-or wasteful. D3 ("art across the full 6400 px range") is the acceptance test for it
-either way.
+**RESOLVED BY MEASUREMENT 2026-10-03 (M-k): `_size_layer_repeats()` is dead code and is
+deleted.** It derived `repeat_times = ceil(scrub / repeat_size.x) + 1 = ceil(6400/1920) + 1
+= 5`, a formula that was correct only for the camera model, where (per M4b) the authored
+copy sat at `S.x - fposmod(S.x * scale.x, 1920)` and travelled with the camera across the
+whole scrub.
+
+M-k compared the rendered frame at `repeat_times` 1, 2, 3 and 5, at scrub 0, 1600 and 6400,
+against a positive control that displaces every layer by +3000 px:
+
+| scrub | rt1 vs rt2 | rt1 vs rt3 | rt1 vs rt5 | positive control |
+|---|---|---|---|---|
+| 0 | 0 px | 0 px | 0 px | 1975680 px |
+| 1600 | 0 px | 0 px | 0 px | 1891321 px |
+| 6400 | 0 px | 0 px | 0 px | 1950260 px |
+
+`repeat_times` does not change a single pixel at 1920 wide, and the positive control proves
+the diff can see a gap when one exists. Two facts from `4.7/scene/2d/parallax_2d.cpp`
+explain it: `set_repeat_times()` clamps with `repeat_times = MAX(p_repeat_times, 1)`, and
+`_update_repeat()` delegates to `RenderingServer.canvas_set_item_repeat(...)`, so the
+renderer already covers the viewport at the minimum. Nothing under- or over-provisions, so
+there is no value to choose and the helper has nothing left to do.
+
+This also retires the tutorial's objection in
+[2D Parallax](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
+("Increasing `repeat_times` technically *would* work in some scenarios, but is a brute
+force solution"). The plan no longer proposes raising it.
 
 `_frame_backdrop()` (`simulator.gd:99`) becomes correctable on both axes (M5), so its
 "Only x" comment and its measured constants are replaced.
@@ -386,6 +402,34 @@ it (B3 clause 1).
 | M-d | Is `repeat_times = 5` correct, over-provisioned, or insufficient across 0..6400? | bare-background percentage at scrub x = 0, 1600, 3200, 4800, 6400, both sizes | whether `_size_layer_repeats` changes (3.1, D3) |
 | M-e | How much vertical travel is safe before the sky's top edge shows? | scrub y upward at both sizes, hide-and-diff | `_scroll_v.max_value` (B2) and the `240.0` assertion (4.3) |
 | M-f | Do both bars contribute real pixels? | hide-and-diff with positive control, both sizes | D2 |
+| M-i | What is actually painted in each layer PNG, and where is the sky's celestial body? | read the source images directly, no frame capture | follow-up ticket scope; whether the body can tile |
+| M-k | Does any `repeat_times` value change the frame, and can the diff see a gap at all? | rt 1/2/3/5 vs each other, plus a positive control displacing every layer | 3.1, `_size_layer_repeats` deletion |
+
+### 5.1 Voided measurements, kept so they are not repeated
+
+Three coverage metrics were built and then falsified. They are recorded here because each
+one looked correct and each one measured nothing.
+
+| Attempt | Why it was vacuous |
+|---|---|
+| M-d, `_measure_whole_frame_coverage` | Counts CHANGED pixels. Exposing bare tab background is itself a change, so a gap scores identically to art. Every `repeat_times` reported 0.00% bare, including at scrub 6400 where a single 1920 px copy cannot cover a 1920 px frame. |
+| M-d1, bare-`%` across the scrub | Same metric, re-run. Also sampled only `scrub = 0`, where every `position.x` is exactly 0 and the authored copy lands flush at the frame's left edge, so `repeat_times = 1` looks sufficient when it is not. |
+| M-j, divergence from a `repeat_times = 5` reference | Its own negative control failed first. `repeat_times = 0` reported 0 px divergence from a five-copy reference, which is impossible. |
+
+Two traps in the attempts above are worth naming because they cost a run each:
+
+- `repeat_times = 0` does **not** draw nothing. `set_repeat_times()` clamps with
+  `MAX(p_repeat_times, 1)`. The "1614339 px divergence" that looked like a passing control
+  was in fact measuring a displaced Sky left over from the previous section.
+- `Parallax2D` has **no `NOTIFICATION_DRAW`**. It draws nothing itself; `_update_repeat()`
+  hands the repeat to `RenderingServer.canvas_set_item_repeat(...)`. So `queue_redraw()`
+  is irrelevant to `repeat_times`, and adding it to "fix" the measurement was addressing a
+  mechanism that does not exist.
+
+The lesson applied to the surviving metrics: a measurement needs a positive control that
+**must** produce a non-zero result, and it needs a prediction stated before the run. M-k
+satisfies both -- the control displaces every layer by +3000 px, and the 0-px gap between
+rt1 and rt5 is the prediction being confirmed.
 
 M-0 runs first and exists because M1 and M5 are the two claims the whole design rests on,
 and this ticket's own history is a defect that every property read reported as fine. They
@@ -454,9 +498,35 @@ on every `--import` run, which Godot 4.7.2 does on open. Restore it after every 
 run: `git checkout -- editor/project.godot`. Never `git add -A` or `git add .` --
 `editor/addons/` is 516 MB of vendored third-party code.
 
+### 5.2 Measurements confirmed at 1920x1080
+
+All values below were read or diffed with a window; headless was not used.
+
+| # | Result |
+|---|---|
+| M-0 | All six layers `position = (0,0)`, `screen_offset = (0,0)`, `scroll_offset = (0,0)` at neutral scrub. M1 and M5 hold at runtime. |
+| M-a | `scroll_offset = scrub * scroll_scale` gives exactly rate `scroll_scale` per layer per axis. Sky `+0.1` moved `12.0` px per `120` scrub; Foreground `+1.3` moved `156.0`. All six matched, and both step windows agreed (no repeat boundary between them). |
+| M-b/M-c | `Backdrops.position.y = -291` gives 0.00% bare at 1920x1080 with every band inside the frame. The whole sweep is predicted by sky height 1320 vs frame 1029 plus the `+31` Simulator tab offset: `-780 -> 44.51%`, `-600 -> 27.02%`, `-400 -> 7.58%`, `0 -> 3.01%`, all matching prediction to rounding. One parent translation does align all six bands on both axes. |
+| M-f | Both bars contribute real pixels: positive control `30912`, `bar_x` `30442`, `bar_y` `15690`, and both rects intersect `get_visible_rect()`. D2 holds at this size. |
+| M-h | `Forest` and `Foreground` are sparse silhouettes, not a bug: `forest.png` is 36% opaque with content in rows 187..320 of 320, `foreground.png` is 18% opaque with content in rows 254..320. Their small pixel counts are what the art actually contains. |
+| M-k | `repeat_times` 1/2/3/5 render identically. See 3.1. |
+
+Two things are **not** yet decided and must not be written as constants until measured at
+1280x800: M-e (vertical travel, and therefore `_scroll_v.max_value` and the `240.0`
+assertion) and the framing confirmation at the second size.
+
 ---
 
 ## 8. Possible follow-ups (NOT this ticket, NOT planned)
+
+- **N0 -- #90, the sky's celestial body.** `sky.png` carries a 116x117 px disc at tile
+  x=1248. At `scroll_scale.x = 0.1` it travels 640 px -- 33% of a screen width -- over the
+  6400 px scrub, and its next tiled copy sits at x=3168, so a viewport wider than that shows
+  two. A body at infinity should not move: rate `0` is the `Z -> inf` limit of
+  `scroll_scale = Z_ref / Z`, and is the tutorial's "complete stop". Fixing it is one line
+  in `manifest.json` and is **independent of this ticket** -- it is neither caused by the
+  camera nor by the `scroll_offset` mechanism, so it is not fixed here. Measured detail and
+  the two options are in #90.
 
 - **N1 -- #88, per-band stagger.** The task prompt and the checkpoint both say its
   `half_viewport * scroll_scale` formula was measured through the displaced canvas and
@@ -479,7 +549,8 @@ run: `git checkout -- editor/project.godot`. Never `git add -A` or `git add .` -
 |---|---|
 | M3/M4 wrong, so D4 fails | Section 5 M-a measures the rate before any constant is written; the delta idiom in `test_parallax_backdrop.gd` is retained so a wrong rate is a red test, not a wrong picture |
 | Framing constants re-derived through a stale method | B3's two checks are mandatory and neither is a transform read; the previous constants were wrong precisely because a transform read said otherwise |
-| `repeat_times` under-provisioned after the model change | M-d measures bare-background percentage across the whole range at both sizes |
+| `repeat_times` under-provisioned after the model change | **Retired.** M-k measured rt 1/2/3/5 as pixel-identical against a ~1.9M px positive control, and the engine clamps `repeat_times` to a minimum of 1 while the renderer covers the viewport regardless. `_size_layer_repeats()` is deleted rather than re-tuned. See 3.1. |
+| A measurement is trusted because it looks sane rather than because it can fail | 5.1 records three vacuous metrics that all reported success. Every surviving metric carries a positive control that MUST produce non-zero, and states its prediction before the run. |
 | Scope creep into #88 or the generator | Section 8 lists both as follow-ups; the hard cap in the plan gate applies |
 | `project.godot` or `addons/` accidentally committed | Section 7's explicit-path rule |
 
