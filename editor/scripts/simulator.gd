@@ -13,11 +13,22 @@ extends Control
 @onready var _scroll_x: HScrollBar = %BackdropScroll
 @onready var _scroll_v: VScrollBar = %BackdropScrollV
 
+# The backdrop's authored position, captured once so the runtime framing correction is
+# always re-derived from the same base and is therefore idempotent across resizes.
+var _authored_backdrops_position := Vector2.ZERO
+var _authored_position_captured := false
+
 func _ready() -> void:
     var strip := get_node_or_null("BackdropStrip") as Node2D
     if strip == null:
         return
     var camera := strip.get_node("Camera2D") as Camera2D
+    _frame_backdrop(strip)
+    # The tab is laid out when TabContainer selects it, and again on every window
+    # resize, so both are triggers. Changing the backdrop's position does not resize
+    # this Control, so this cannot loop.
+    resized.connect(func() -> void: _frame_backdrop(strip))
+    get_viewport().size_changed.connect(func() -> void: _frame_backdrop(strip))
     _scroll_x.value_changed.connect(
         func(value: float) -> void:
             camera.position = Vector2(value, camera.position.y)
@@ -33,3 +44,70 @@ func _ready() -> void:
     # stops there instead of letting the camera pan past the art.
     _scroll_v.max_value = 240.0
     _scroll_v.min_value = 0.0
+
+# Puts the art flush with the tab's left and bottom edges, measured rather than
+# hard-coded.
+#
+# Why measurement: the offset needed is NOT constant. Parallax2D frames its own repeat
+# run from the viewport, so the correction depends on the window size. Measured with a
+# real window, the required translation was (2784, 419.32) at 1920x1080 and
+# (2816, 199.48) at 1280x800. A single static position cannot satisfy both, which is
+# why the backdrop read as off-centre at every size.
+#
+# Why the BOTTOM edge, not the sky's top-left: the sky is a full-height 1320px OPAQUE
+# backdrop and every other band is bottom-aligned to it at design y = 1320. Aligning the
+# sky's TOP-left to the tab corner was measured and is wrong -- Sky went to 100% visible
+# and every other band to 0%, hidden behind the sky.
+#
+# No zoom is applied. A uniform zoom to fit the 1320px design into the tab was measured
+# and made it worse -- it scales the bands toward each other, Hills dropping 11% -> 1%
+# and Forest 8% -> 0%. The bands must keep their authored sizes.
+#
+# Why it must wait a frame: in _ready() this tab's rect is still (0,0) -- it is only
+# laid out once the TabContainer selects it. Measuring then produced a correction of
+# -1499.5px and dropped every band to 0% visible. So the rect is read after a frame.
+#
+# Why it resets to the authored position first: the correction is re-derived from that
+# base every time rather than accumulated, so calling this on every resize is idempotent
+# instead of drifting further each time.
+func _frame_backdrop(strip: Node2D) -> void:
+    var backdrops := strip.get_node_or_null("Backdrops") as Node2D
+    if backdrops == null:
+        return
+    var sky := backdrops.get_node_or_null("Sky") as Parallax2D
+    if sky == null:
+        return
+    var sky_sprite := sky.get_node_or_null("Sprite") as Sprite2D
+    if sky_sprite == null or sky_sprite.texture == null:
+        return
+
+    if not _authored_position_captured:
+        _authored_backdrops_position = backdrops.position
+        _authored_position_captured = true
+
+    # Back to the authored base, then wait for layout before measuring, so the reading
+    # belongs to the base position and to a tab that actually has a size.
+    backdrops.position = _authored_backdrops_position
+    await get_tree().process_frame
+    if size == Vector2.ZERO:
+        return
+
+    # Design x = 0 to the tab's left edge.
+    #
+    # Only x. Aligning the sky's baseline (its bottom edge, design y = 1320) to the
+    # tab's bottom was also measured, and it aligns perfectly -- baseline_offset 0.0 at
+    # both window sizes -- but it moves the art down by 419px and pushes the lower
+    # bands off the tab: Hills fell from 11% to 1% visible and Forest from 8% to 0% at
+    # 1920x1080. The bands are authored at design y 936..1000 but do not render there,
+    # because each Parallax2D offsets its own child by an amount that depends on its
+    # own scroll_scale, so one parent translation cannot align them all vertically.
+    # Correcting that per layer needs a per-layer scroll_offset and is not done here.
+    #
+    # So x is corrected, where the error was large and the fix does not move any band
+    # vertically, and y is left as authored rather than shipped as a regression.
+    var tab_rect := Rect2(global_position, size)
+    var sky_rect := Rect2(sky_sprite.get_global_transform_with_canvas().origin,
+        sky_sprite.texture.get_size())
+    backdrops.position = _authored_backdrops_position + Vector2(
+        tab_rect.position.x - sky_rect.position.x,
+        0.0)

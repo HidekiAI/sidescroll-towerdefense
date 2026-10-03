@@ -827,9 +827,14 @@ metadata/_tab_index = 4
 ; GROW_DIRECTION_BEGIN and is REQUIRED here, not cosmetic: with grow_vertical = 0
 ; Godot grew the bar downward from the bottom anchor and placed it at P:(0, -16),
 ; 16px above the tab, so it rendered off the top edge and could not be grabbed.
+; z_index = 20, not 0. Measured with a real window: the Foreground parallax layer
+; carries z_index = 10, so at equal z the foreground art painted OVER the horizontal
+; bar and it was invisible and ungrabbable. 20 puts both bars above the highest
+; layer (Foreground at 10) without touching any layer's own z_index.
 [node name="BackdropScroll" type="HScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
+z_index = 20
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -841,10 +846,13 @@ grow_horizontal = 2
 grow_vertical = 0
 
 ; The vertical bar stops short of the bottom edge by its own thickness, so it never
-; sits under the horizontal bar in the corner.
+; sits under the horizontal bar in the corner. Same z_index = 20 as the horizontal
+; bar: PlacementEditor's grid sits at z_index = 5, so a bar left at the default 0
+; would be painted over by that grid.
 [node name="BackdropScrollV" type="VScrollBar" parent="TabContainer/Simulator"]
 unique_name_in_owner = true
 layout_mode = 1
+z_index = 20
 anchor_left = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
