@@ -7,15 +7,82 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-03_
+_Last updated: 2026-10-03 (gate iteration 4 applied, same day)_
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: the Simulator scrollbars are broken by a structural bug found on 2026-10-03 and
-filed as #89. No fix is in place. Phase 2 still blocked on #87. Phase 6 pending.**
+**State: #89 is DESIGNED, GATED and MEASURED. No production code written yet. The plan of
+record has cleared four gate iterations; the last scored 76/100 with all ten deficiencies
+applied. Phase 2 still blocked on #87. Phase 6 pending.**
+
+### The fix, in one line
+
+Delete the `Camera2D`, and write `layer.scroll_offset = scrub * layer.scroll_scale` per
+layer, per axis. From `Parallax2D::_update_scroll()`: the engine scales `screen_offset`,
+never `scroll_offset`, so a per-layer write is what actually drives each band. No camera
+means no canvas transform, so the editor UI is never displaced.
+
+### The plan of record
+
+`docs/PLAN-2026-10-03-parallax-scroll-offset.md`, with per-iteration changelogs in
+`docs/PLAN-2026-10-03-parallax-scroll-offset-gate-history.md`. **Read section 10 first** —
+it carries the gate verdict and what each iteration changed.
+
+Gate: bar is 90, ticket alone, evaluator never sees the planner's reasoning.
+
+| iter | score | outcome |
+|---|---|---|
+| 1 | 84 | FAIL, no CRITICAL, 2 uncovered clauses |
+| 2 | 91 | **invalid pass** — evaluator was fed the task prompt's D clauses as normative |
+| 3 | 88 | FAIL on bar, no CRITICAL, 7 citation deficiencies, all applied |
+| 4 | 76 | FAIL on bar, no CRITICAL, **10 deficiencies, all applied** (`2c4e140`) |
+
+### The correction that matters — read before repeating it
+
+Iteration 4 found a **false engine claim** in the plan's central section, and it was
+verified against source before being adopted (iteration 3's report had a wrong line
+citation, so the gate's word is evidence, not instruction):
+
+```cpp
+// servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp:2239-2252
+Point2 start_pos = ci->repeat_size * -(ci->repeat_times / 2);
+for (int rx = 0; rx <= repeat_times_x; rx++) {   // INCLUSIVE: N+1 copies, not N
+```
+
+`repeat_times = 1` draws **two** centred copies, spanning `[px, px+3840)` with
+`px = position.x ∈ (-1920, 0)`, so a 1920-wide viewport is *always* covered. Separately
+`parallax_2d.cpp` clamps `repeat_times = MAX(p_repeat_times, 1)`, so 0 ≡ 1 ≡ 5.
+
+**Two of the plan's three "falsified" metrics had been declared impossible for the wrong
+reason, and both readings were actually correct.** 0.00% bare at scrub 6400 is exactly what
+rt=1 must produce; rt=0 matching a 5-copy reference is possible and was measured. The lesson
+now recorded in plan 5.1: *a control reporting a startling value is a claim about the
+engine, not a verdict on the metric.* No design changed — the clamp, the framing constant
+and the per-layer writes are unaffected.
+
+### Measured and confirmed (plan section 5.2)
+
+M-0, M-a, M-b/M-c, M-e, M-f, M-g, M-h, M-k, plus M-e's four-way counter-verification.
+Key outputs: `scroll_v.max_value` stays **240.0** (sky top is 3637.5 scrub units away, 15×
+the clamp; its justification comment is false and gets rewritten); `scroll_x.max_value` stays
+**6400.0**; `Backdrops.position.y = -291` measured at 0.00% bare with all six bands
+contained.
+
+`--resolution 1920x1080` yields a **1920x1029** window (the WM grants 1029). Every number
+the plan labels "1920x1080" was measured there, `seen_region` 1920x998 at canvas y=31.
+
+### Still open in the plan
+
+- **M-b1** — `Backdrops.position.y = -291` is **not a derived optimum**. The bare-% column
+  reproduces exactly from `bare(offset) = max(0, 31+offset) + max(0, -322-offset)`, which also
+  predicts 0.00% at `-320, -240, -180, -120, -60` — a six-way tie. Recorded as an open gap,
+  not a settled number.
+- **M-e's five-point scrub sweep at 1280x800** — the upward bound is resolution-independent
+  and confirmed; this is the one open end.
+- **M-d** superseded by M-k.
 
 ### The bug (#89) — read this before touching the backdrop
 
@@ -79,43 +146,115 @@ calibrated through a displaced canvas. Specifically void —
 
 ### Next move
 
-1. **#89** — replace camera-driven scrolling with per-layer `scroll_offset`. No camera
-   means no canvas transform, so the UI is never displaced; per-layer control is also
-   what #88 needs. This is a design change, so plan it before coding.
-2. Re-derive the backdrop framing from scratch under the corrected canvas, at two window
-   sizes.
-3. Re-test #88's stagger formula under the corrected canvas.
-4. **#87** (editor backdrop repoint + persisted-map migration + dead `_BACKDROP_PATHS`)
+1. **Push, then ff-only merge** `feat/parallax-restack` to `trunk`. Branch-then-merge; ask
+   before pushing. Never `--force`. Offer branch deletion after merge; never do it
+   unilaterally.
+2. **Delete `editor/tests/measure_no_camera.gd`** before the branch merges. It is a 765-line
+   throwaway probe with no assertions; it produced the numbers in 5.2 and several of its
+   metrics are the voided ones in plan 5.1. Untracked, never `git add`ed. `editor/addons/`
+   likewise — 516 MB vendored, never `git add -A`.
+3. **Rewrite `editor/tests/test_parallax_backdrop.gd`** (assistant's job, not a block): new
+   `scroll_offset` contract; an ordering assertion replacing the negative-drift check (M11 —
+   "Foreground moves backwards" was true only of the camera model); a **sign** assertion,
+   because the x scrub inverts on screen under B6; keep `240.0` and `6400.0` assertions,
+   rewrite the false `:106-107` justification; assert the wrap-free base of 640 (M10).
+   **Run RED against the unfixed tree first.**
+4. **Write `editor/tests/probe_render_visibility.gd`** — corrected absolute-bare-pixel metric,
+   positive control must hide **Sky** specifically (only the bottom-most opaque layer can
+   raise a background count). Exit 0 needs **four** conditions, including the five-point
+   scrub sweep that 4.5 computed but section 7 previously did not gate. Assert received
+   window size against the **WM** screen size, not the requested `--resolution`.
+5. **Scaffold blocks 1/6–6/6** with the measured numbers, via the `coding-assistant` skill.
+   Order is script-then-scene (`simulator.gd:25` is a hard `get_node`; deleting the node
+   first leaves a window where `_ready()` raises "Node not found").
+6. Re-test #88's stagger formula under the corrected canvas (already commented to #88).
+7. **#87** (editor backdrop repoint + persisted-map migration + dead `_BACKDROP_PATHS`)
    before Phase 2's `git rm` of the 13 old tracked PNGs.
-5. Phase 6: final gates, close #68, `--ff-only` merge, offer branch deletion.
+8. Phase 6: final gates, close #68, `--ff-only` merge, offer branch deletion.
+
+### Parallel thread — #94 minimap (GDD written, two decisions open)
+
+Wiki branch `docs/minimap-gdd`. `GDD_World-Layout.md` gained a *Minimap (Side-Scrolling
+Defense Zones)* section plus `GameDesign/assets/minimap_schematic.{svg,png}` (a labelled
+**MOCKUP** — no minimap exists to screenshot; drawn in screen units so it survives any scale).
+
+Settled: scrolls rather than scales; one `screen_y` row across full map width; entities as
+dots (blue ally, red enemy, grey neutral); **M** key and a Minimap button; overlay with the
+game live.
+
+**Two open decisions, both of which the spec itself surfaced:**
+
+- **The scroll may be unreachable.** `GDD_World-Layout` says maps span 2–3 screens. At every
+  candidate scale a 2–3 screen map fits inside a full-width window, so `min(map, window)`
+  always picks the map and the window never scrolls. Scale and window width cannot be
+  decided separately — narrow the window deliberately, or drop the scrolling for a static
+  strip.
+- **The Alarm tower conflict.** `GDD_Gameplay.Towers` gives Alarm its *entire* effect:
+  "Reveals enemy position on minimap". Always-visible red enemy dots nullify it. A
+  resolution is proposed and **marked unapproved**: reveal extends from the view rectangle to
+  the whole row, so Alarm keeps a real effect. Changing that promise is a change to
+  `GDD_Gameplay.Towers`, not to `GDD_World-Layout`.
+
+Also: the viewport is 1080 px tall and a screen is 1056 px, so the view **straddles the next
+`screen_y` row by 24 px** — 2.3%, invisible at minimap scale. The shown row is defined by the
+top edge of the viewport, stated as a rule rather than drawn as a cue.
+
+Name collision to resolve before implementation: the editor already has a `class_name
+ScreenMinimap` (`editor/scripts/screen_minimap.gd`, used by `map_editor.gd`,
+`placement_editor.gd`, `test_screen_store.gd`) — renaming it is a breaking change across four
+files.
 
 ### Landed and pushed to `trunk` (kept, but see the caveat above)
 
 - Both bars at `z_index = 20`. Still correct: PlacementEditor's grid sits at `z_index = 5`,
   so a bar at the default 0 would be painted over.
 - `_size_layer_repeats()` in `simulator.gd` — `repeat_times` derived as
-  `ceil(scrub / repeat_size.x) + 1`. Left at Godot's default of 1 the horizontal scrub
-  showed no art at all (100% bare at camera x=1600, 89-92% bare out to x=6400). The
-  measurement was taken through the displaced canvas, so the numbers do not transfer, but
-  the defect itself is real and the derivation is sound.
+  `ceil(scrub / repeat_size.x) + 1`.
 
-### Other open state (unchanged)
+  > **CORRECTED 2026-10-03.** The original justification here was wrong twice over. The
+  > measurement was taken through the displaced canvas, so the numbers never transferred;
+  > and the "100% bare at camera x=1600" figure came from the **voided M-d metric** (plan
+  > 5.1) — it counted *changed* pixels, so a gap and art scored identically and the
+  > metric could not report a gap. M-k measured it properly: `repeat_times` 1/2/3/5 render
+  > **pixel-identical** at scrub 0, 1600 and 6400 against a positive control diverging
+  > ~1.9M px. The renderer draws N+1 centred copies (inclusive bound), so two copies already
+  > cover any viewport up to 3840 px wide. The function is unobservable and is slated for
+  > deletion in block 1/6. **Do not cite the bare-percentages in its doc block
+  > (`simulator.gd:53`, `:63`) — they are void.**
+
+### Other open state
 
 - **Phase 2** (retire 13 old tracked PNGs, ~15 MB) **blocked on #87**.
 - **`chore/godot-4-7-upgrade`** (1 commit, local, unpushed) awaiting a landing decision; it
   carries the gitignore keeping `editor/addons/` out.
-- **`feat/parallax-restack`** still on `origin`, level with `trunk`; deletion not approved.
+- **Wiki freeze**: lifted for `TDD_Parallax-Depth.md` only, then for the minimap section of
+  `GDD_World-Layout.md` + its `Home.md` index row. **Nothing else in the wiki may be edited.**
+  Two wiki branches, neither merged:
+  - `docs/parallax-signed-depth` — `cd51730`, signed `z_depth` spec (#91).
+  - `docs/minimap-gdd` — `d858ce8`, the minimap GDD (#94).
 - Wiki's six recorded discrepancies untouched (FROZEN pending @me's agreement).
+- Issues filed today: **#90** celestial body, **#91** signed depth (real sub-issue of #90),
+  **#92** four stale `Camera2D` comments + one superseded design plan, **#93**
+  `TDD_Parallax-Background` names the camera as the parallax system's only input,
+  **#94** the minimap feature request.
+
+### Out of scope, deliberately
+
+#88 stagger constants, taller art from `gen-backdrop`, bar anchors and `z_index`, #87, PNG
+retirement, the celestial body (#90), the #91 depth migration, #92's stale comments, #93's
+design-page correction. Each declined for a stated reason in the plan.
 
 ### Gates
 
-`cargo test -p gen-backdrop` 29/29. `test_parallax_backdrop`, `test_image_to_map`,
-`test_terrain_brush`, `test_override_merge` all green. `test_screen_store` exits 1 on
-Godot 4.7.2 (pre-existing #85, `ZIPPacker` directory entry).
+`cargo test -p sstd-core` **110 tests**, the workspace Rust gate. `cargo test -p gen-backdrop`
+29/29. `test_parallax_backdrop`, `test_image_to_map`, `test_terrain_brush`,
+`test_override_merge` all green. `test_screen_store` exits 1 on Godot 4.7.2 (pre-existing
+#85, `ZIPPacker` directory entry) — **not a gate.**
 
-Gate on the **exit code**, never on a printed `failures=0` line.
+**Gate on the exit code, never on a printed `failures=0` line.**
 
-Issues open: #68, #82, #84, #85, #86, #87, #88, **#89**.
+Issues open: #68, #82, #84, #85, #86, #87, #88, **#89**, **#90**, **#91**, **#92**, **#93**,
+**#94**.
 
 ---
 ---
