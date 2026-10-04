@@ -1031,6 +1031,12 @@ the ticket text, this document, and the rubric -- never the planner's reasoning.
 | 2 | 91 | PASS as scored. **Invalid pass** -- see below. |
 | 3 | **88** | FAIL on the bar (90), **no CRITICAL** -- the two CRITICALs it opened with were both resolved, and it declined to re-raise either. Seven deficiencies, all citation-hygiene rather than design. All seven applied, commit `576b1a1`. |
 | 4 | **76** | FAIL on the bar, **no CRITICAL**. Ten deficiencies. One is a **false engine claim in the plan's central section**, confirmed against `renderer_canvas_render_rd.cpp:2239-2252`; two are mis-diagnosed readings that were withdrawn by name. Also a section that contradicted itself about what had been measured, an evidence table that cannot pick the value it selects, and a gate contract missing one of its own four conditions. Revision below. |
+| 5 | **86** | FAIL on the bar (90), **no CRITICAL**. One **UNCOVERED ticket clause** -- B8, the #88 stagger re-measurement the ticket body asks for, which 4.2b discharges by argument -- plus eight deficiencies, of which two are substantive (block 1/6's authorisation, and `-291` shipping while its discriminating measurement M-b1 is outstanding). The remaining six are scope/citation precision. Full report and the revision it forces: [gate history](PLAN-2026-10-03-parallax-scroll-offset-gate-history). |
+
+**Iterations 5 of a `MAX_ITERATIONS` of 3.** The bar has never been met on a valid pass
+(iteration 2's 91 was invalid, above). The trend is 76 -> 86 with every round's findings
+applied, and iteration 5's UNCOVERED finding is a real coverage gap rather than hygiene, so
+@me owns the decision to run a further round. **Coding stays blocked until it passes.**
 
 ### What iteration 4 changed, and the one finding that was load-bearing
 
@@ -1180,6 +1186,40 @@ claim was correct: "drift is not reproducible" is the failure at `:171`, inside 
 
 Recorded because a gate report is evidence, not instruction, and adopting half of it blindly
 would have put a wrong line number into the plan.
+
+### Iteration 5: B8 was reasoned away, and reasoning is not coverage
+
+Iteration 3 recorded B8 as "**discharged** in 4.2b by reasoning rather than
+measurement -- `half_viewport` is camera-defined, so after B7 the formula's input no
+longer exists and cannot be re-measured." Iteration 5 refused that, and it is right to.
+The ticket body says, verbatim:
+
+> #88 (per-band stagger) was also derived from a half_viewport * scroll_scale formula;
+> that relationship needs re-measuring under the corrected canvas, since a camera-induced
+> half-viewport offset and a parallax-induced offset would present identically.
+
+The clause asks for a **measurement under the corrected canvas**, and it says why: the two
+offset sources are indistinguishable *as measured*. A plan that deletes the camera cannot
+re-measure under the corrected canvas and stop there -- the corrected canvas only exists
+once blocks `2/6` and `3/6` land, so the measurement is a **post-implementation gate item**,
+not a precondition. Section 8.1's deferral argued the relationship is moot because #89 makes
+per-layer control possible; that is an argument about *whether the formula is still needed*,
+standing in for a clause that asks whether its *measurement transfers*. Those are different
+questions, and the ticket asked the second one.
+
+So B8 becomes a plan item with a gate condition of its own, not a paragraph. Two other
+iteration-5 findings are substantive for the same reason -- they are about what the shipped
+branch *contains*, not how it is worded:
+
+- **Block 1/6 (`_size_layer_repeats` deletion) has no clause behind it.** Its sole citation is
+  B2's lead-in, "Anything else calibrated through the same lens is suspect", and this plan
+  itself calls that reading "argued, not quoted". Suspect is not authorisation. Iteration 3
+  flagged this and the plan kept the item anyway with the authorisation merely *stated* --
+  stating an argument more firmly is not answering the objection. Out of the block map, into a
+  follow-up ticket.
+- **`Backdrops.position.y = -291` ships while the evidence cannot pick it.** 5.3's own ledger
+  records M-b1 as outstanding and that six offsets reproduce the same bare percentage. A
+  constant written from an equivalence class is a constant nobody chose.
 
 ### Two structural defects the iteration-3 gate did not find
 

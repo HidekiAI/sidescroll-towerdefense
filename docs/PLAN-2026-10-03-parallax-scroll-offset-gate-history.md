@@ -61,6 +61,60 @@ comments D5 requires be corrected, which is exactly the reasoning iteration 3 ov
   file header moved to #92. It also corrected two attributions that stand: the
   `(2784, 419.32)` figures are comment prose rather than code constants, and the
 
+## Iteration 5 -- 86/100, no CRITICAL, one UNCOVERED clause
+
+Scored against the ticket alone. First round that improved on its predecessor's findings being
+applied; +10 over iteration 4. **Still below the bar of 90**, and iteration 5 is past the
+`MAX_ITERATIONS` of 3, so the decision to run a sixth round is @me's, not the loop's.
+
+Prompt discipline differed from iteration 4 in one respect, and it is worth recording: the
+evaluator was given the ticket in full and the plan path, and was told explicitly **not** to
+read the gate history, the session checkpoint, `.opencode/sessions/`, the wiki or the source
+tree -- the plan must stand alone -- and that section 10 and the header's working-tree
+disposition are the planner's self-assessment and score no points for it. Whether that
+produced a stricter pass than iteration 4 got is unknowable from one data point.
+
+### The UNCOVERED finding, verbatim
+
+> "#88 (per-band stagger) was also derived from a half_viewport * scroll_scale formula; that
+> relationship needs re-measuring under the corrected canvas" -- 4.2b discharges B8 by arguing
+> the formula's input is undefined once the camera is deleted and posting two questions to #88;
+> no plan item performs the re-measurement the clause asks for, so B8 is reasoned away rather
+> than executed.
+
+This is the same objection iteration 3 raised and the plan declined to accept (see the
+iteration-3 table, row "B8 (#88) uncovered"). **Iteration 5 sides with iteration 3.** The
+clause says *re-measured*, and the plan offered *moot*. The correct disposition is a plan item:
+the corrected canvas only exists after blocks `2/6` and `3/6`, so the measurement is a
+post-implementation gate, not a precondition.
+
+### Applied
+
+- **Section 10** -- iteration-5 row added; new subsection recording that B8 was reasoned away
+  and that stating an argument more firmly is not answering the objection.
+
+### Pending @me's go-ahead for iteration 6 -- the eight findings, unresolved
+
+Nothing below is applied. It is recorded here so the decision is made against the full list
+rather than a summary of it.
+
+| # | Finding | Resolution if a sixth round runs |
+|---|---|---|
+| 1 | B8 / #88 re-measurement UNCOVERED | plan item + section 7 exit condition, measured after `3/6` lands |
+| 2 | Block 1/6 (`_size_layer_repeats` deletion) cites only "suspect" | out of the block map; follow-up ticket |
+| 3 | `-291` ships on a six-way tie; M-b1 outstanding | run M-b1, or state the equivalence class and per-size headroom in 4.1 |
+| 4 | 1280x800 gate condition unconfirmed for the `-291` check | add the exit condition, so the second resolution is gated not noted |
+| 5 | ledger row attributes M-e at 1280x800 to the five-point sweep, which is D3's | split the row; condition 4 gets its own |
+| 6 | D5's "comments corrected" met only in-scope; `backdrop_preview.tscn:12-14`, `:32-44`, `simulator.gd:2-11` and one design doc ship knowingly false | state that list in 4.2c as #92's, so the gap is declared rather than silent |
+| 7 | B2 item 1 ("the runtime horizontal alignment added in #68's work") discharged by naming `_frame_backdrop()` without saying where that alignment lives | name the lines, or state it is inside `_frame_backdrop()` |
+| 8 | 1280x800 is ticket-unspecified | already grounded in `simulator.gd:78`/`:125` at iteration 3; the gate wants it labelled a gate choice rather than ticket authority |
+| 9 | 4.2c's `simulator.gd:40-41` row | drop the row, or replace the B6 claim with why the comment survives unchanged scrub range |
+| 10 | section 10 is ~180 lines of self-assessment | reduce to a pointer at this file |
+
+**Refinements not adopted verbatim:** two of the eight restate findings already in the table
+(the M-b1 run-or-declare choice; citing B2 item 1 by name in block 5/6's Clause cell); the
+block-1/6 move is finding 2 and the section-10 reduction is finding 10.
+
 ## Iteration 4 -- 76/100, no CRITICAL
 
 Ten deficiencies. Scored against the ticket alone, as iteration 3 was. The full narrative is

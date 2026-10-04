@@ -7,14 +7,64 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-03 (gate iteration 4 applied, same day)_
+_Last updated: 2026-10-04 (gate iteration 5 scored 86; #89 reopened; #85 closed)_
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: #89 is DESIGNED, GATED and MEASURED. No production code written yet. #85 (Godot 4.7 zip directory entry) is FIXED in trunk and verified green on 4.7.2 (test_screen_store exits 0). Phase 2 still blocked on #87. Phase 6 pending.**
+**State: the 4.7 upgrade is DONE and in `trunk` (`f9d9047` feature level + gitignored
+`editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on 4.7.2). #85 is CLOSED.
+#89 was wrongly closed at 2026-10-03 18:18 UTC with no fix committed and has been REOPENED.
+The #89 plan is at 86/100 against a bar of 90 and **coding is blocked on a sixth gate round,
+which is @me's decision**. No production code written yet. Phase 2 still blocked on #87.**
+
+### The gate, and the decision waiting on @me
+
+Bar is 90, ticket alone, evaluator never sees the planner's reasoning.
+
+| iter | score | outcome |
+|---|---|---|
+| 1 | 84 | FAIL, no CRITICAL, 2 uncovered clauses |
+| 2 | 91 | **invalid pass** — evaluator was fed the task prompt's D clauses as normative |
+| 3 | 88 | FAIL on bar, no CRITICAL, 7 citation deficiencies, all applied |
+| 4 | 76 | FAIL on bar, no CRITICAL, **10 deficiencies, all applied** (`2c4e140`) |
+| 5 | 86 | FAIL on bar, no CRITICAL, **1 UNCOVERED clause + 8 deficiencies, NONE applied** |
+
+Iteration 5's UNCOVERED finding is substantive, not hygiene: the ticket body asks for #88's
+`half_viewport * scroll_scale` stagger to be **re-measured under the corrected canvas**, and
+4.2b discharges it by arguing the formula's input is camera-defined and therefore moot once
+the camera goes. Iteration 3 raised the same objection and the plan declined it; **iteration 5
+sides with iteration 3**. The fix is a plan item plus a section 7 exit condition — the
+corrected canvas only exists after the camera-deletion blocks land, so the measurement is a
+post-implementation gate. Iteration 3's finding that block 1/6 (`_size_layer_repeats`
+deletion) rests on an argued reading also stands unfixed.
+
+**All eight iteration-5 findings and their proposed resolutions are tabulated in the gate
+history**, unapplied. Do not start scaffolding until @me decides whether iteration 6 runs.
+This is iteration 5 of a `MAX_ITERATIONS` of 3 — the loop's own STOP condition, and the bar
+has never been met on a valid pass.
+
+### Issue-state corrections made 2026-10-04 (both verified, both reversible)
+
+- **#89 REOPENED.** It was closed as COMPLETED at 2026-10-03 18:18 UTC with no fix commit and
+  no closing comment; `trunk` at `d3edd5f` has no commit touching `simulator.gd` or
+  `backdrop_preview.tscn` since the framing work, `BackdropStrip/Camera2D` is still in the
+  scene, and both scrollbars still contribute 0 px. A reopen comment records where the design
+  actually lives and that the gate is not yet passed.
+- **#85 CLOSED** with a comment citing `ecbf893` and wiki `TechnicalDesign/TDD_Saved-World`.
+
+### Repo state corrections
+
+- **`chore/godot-4-7-upgrade` (local, `30f55f9`) is a stale duplicate, not pending work.**
+  `git diff 30f55f9 trunk -- .gitignore editor/project.godot` is **empty** — the 4.7 feature
+  level and the addons gitignore are already in `trunk` as `f9d9047`. Deletion offered to
+  @me, not done.
+- **`feat/parallax-restack`, the branch the plan names, does not exist.** Create it from
+  `trunk` when scaffolding starts; the plan's header line claiming it exists is stale.
+- **`editor/tests/measure_no_camera.gd` is already gone** (the plan's working-tree disposition
+  already satisfied) and `git status` is clean, so the tree needs no cleanup before branching.
 
 ### The fix, in one line
 
@@ -28,15 +78,6 @@ means no canvas transform, so the editor UI is never displaced.
 `docs/PLAN-2026-10-03-parallax-scroll-offset.md`, with per-iteration changelogs in
 `docs/PLAN-2026-10-03-parallax-scroll-offset-gate-history.md`. **Read section 10 first** —
 it carries the gate verdict and what each iteration changed.
-
-Gate: bar is 90, ticket alone, evaluator never sees the planner's reasoning.
-
-| iter | score | outcome |
-|---|---|---|
-| 1 | 84 | FAIL, no CRITICAL, 2 uncovered clauses |
-| 2 | 91 | **invalid pass** — evaluator was fed the task prompt's D clauses as normative |
-| 3 | 88 | FAIL on bar, no CRITICAL, 7 citation deficiencies, all applied |
-| 4 | 76 | FAIL on bar, no CRITICAL, **10 deficiencies, all applied** (`2c4e140`) |
 
 ### The correction that matters — read before repeating it
 
@@ -144,31 +185,38 @@ calibrated through a displaced canvas. Specifically void —
 
 ### Next move
 
-1. **Push, then ff-only merge** `feat/parallax-restack` to `trunk`. Branch-then-merge; ask
-   before pushing. Never `--force`. Offer branch deletion after merge; never do it
-   unilaterally.
-2. **Delete `editor/tests/measure_no_camera.gd`** before the branch merges. It is a 765-line
-   throwaway probe with no assertions; it produced the numbers in 5.2 and several of its
-   metrics are the voided ones in plan 5.1. Untracked, never `git add`ed. `editor/addons/`
-   likewise — 516 MB vendored, never `git add -A`.
-3. **Rewrite `editor/tests/test_parallax_backdrop.gd`** (assistant's job, not a block): new
+**Revised 2026-10-04.** Items 1 and 2 are obsolete and are marked rather than deleted, so a
+reader can see why they are not being done.
+
+1. ~~**Push, then ff-only merge** `feat/parallax-restack` to `trunk`.~~ **Obsolete** — that
+   branch does not exist and no code was ever written on it. Create it from `trunk` at step 5.
+   The push/merge discipline still applies when it lands: ask before pushing, `--ff-only`,
+   never `--force`, offer branch deletion.
+2. ~~**Delete `editor/tests/measure_no_camera.gd`**~~ **Already done** — the file is gone and
+   `git status` is clean. `editor/addons/` is still 516 MB vendored: never `git add -A`.
+3. **@me decides whether gate iteration 6 runs.** Nothing below starts until it does. The
+   eight findings and their proposed resolutions are tabulated in the gate history; a sixth
+   round applies them and re-scores with the same evaluator.
+4. **Rewrite `editor/tests/test_parallax_backdrop.gd`** (assistant's job, not a block): new
    `scroll_offset` contract; an ordering assertion replacing the negative-drift check (M11 —
    "Foreground moves backwards" was true only of the camera model); a **sign** assertion,
    because the x scrub inverts on screen under B6; keep `240.0` and `6400.0` assertions,
    rewrite the false `:106-107` justification; assert the wrap-free base of 640 (M10).
    **Run RED against the unfixed tree first.**
-4. **Write `editor/tests/probe_render_visibility.gd`** — corrected absolute-bare-pixel metric,
+5. **Write `editor/tests/probe_render_visibility.gd`** — corrected absolute-bare-pixel metric,
    positive control must hide **Sky** specifically (only the bottom-most opaque layer can
    raise a background count). Exit 0 needs **four** conditions, including the five-point
    scrub sweep that 4.5 computed but section 7 previously did not gate. Assert received
    window size against the **WM** screen size, not the requested `--resolution`.
-5. **Scaffold blocks 1/6–6/6** with the measured numbers, via the `coding-assistant` skill.
+6. **Scaffold the blocks** with the measured numbers, via the `coding-assistant` skill.
    Order is script-then-scene (`simulator.gd:25` is a hard `get_node`; deleting the node
-   first leaves a window where `_ready()` raises "Node not found").
-6. Re-test #88's stagger formula under the corrected canvas (already commented to #88).
-7. **#87** (editor backdrop repoint + persisted-map migration + dead `_BACKDROP_PATHS`)
+   first leaves a window where `_ready()` raises "Node not found"). Note the block map may
+   lose 1/6 to a follow-up ticket if iteration 6 runs.
+7. **Measure #88's stagger formula under the corrected canvas** — now a plan item with its
+   own gate condition, not a deferred paragraph, after the camera-deletion blocks land.
+8. **#87** (editor backdrop repoint + persisted-map migration + dead `_BACKDROP_PATHS`)
    before Phase 2's `git rm` of the 13 old tracked PNGs.
-8. Phase 6: final gates, close #68, `--ff-only` merge, offer branch deletion.
+9. Phase 6: final gates, close #68, `--ff-only` merge, offer branch deletion.
 
 ### Parallel thread — #94 minimap (GDD merged, zoom ladder settled)
 
@@ -265,13 +313,14 @@ design-page correction. Each declined for a stated reason in the plan.
 
 `cargo test -p sstd-core` **110 tests**, the workspace Rust gate. `cargo test -p gen-backdrop`
 29/29. `test_parallax_backdrop`, `test_image_to_map`, `test_terrain_brush`,
-`test_override_merge` all green. `test_screen_store` exits 1 on Godot 4.7.2 (pre-existing
-#85, `ZIPPacker` directory entry) — **not a gate.**
+`test_override_merge` all green. **`test_screen_store` is green again on 4.7.2 as of
+`ecbf893` (#85 fixed) and is a gate** — corrected 2026-10-04, this line still said it exits 1
+and was two commits stale.
 
 **Gate on the exit code, never on a printed `failures=0` line.**
 
-Issues open: #68, #82, #84, #85, #86, #87, #88, **#89**, **#90**, **#91**, **#92**, **#93**,
-**#94**.
+Issues open: #68, #82, #84, #86, #87, #88, **#89** (reopened 2026-10-04), #90, #91, #92,
+#93, #94. **Closed since the last session: #85** (fixed by `ecbf893`, verified green on 4.7.2).
 
 ---
 ---
