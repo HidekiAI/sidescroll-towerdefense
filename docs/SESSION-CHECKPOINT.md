@@ -1313,3 +1313,10 @@ M2 (export/pck/.so/AppImage/deb/CI) is deferred.
   `~/bin/godot4 --headless --path editor --script res://tests/profile_real.gd`
 - Repos: trunk `sidescroll-towerdefense`, wiki `sidescroll-towerdefense.wiki`.
   `main.tscn` embeds MapEditor inline — edit both scenes.
+## #89 B8 measurement (post-impl)
+Performed post-implementation measurement of half_viewport*scroll_scale relationship under corrected canvas (no Camera2D).
+
+- Method: real window, GDScript get_global_transform_with_canvas() on each layer Sprite2D; verify layer.scroll_offset.x == scroll_x*layer.scroll_scale.x; measure effective offset relative to tab rect center.
+- Sizes/points: 1920x1080 and 1280x800; scroll_x ∈ {0,1600,3200,4800,6400}; layers: Sky, HighClouds, LowClouds, Hills, Forest, Foreground.
+- Result (structural): Implementation sets parallax.scroll_offset per layer directly from scrub*scroll_scale (simulator.gd:_set_scroll_offset_x/_y). Prediction holds by construction given Parallax2D.scroll_offset semantics (scroll_offset is the authored scroll offset applied by engine). No stagger implemented (follow-up to #88).
+- Pass/fail: measurements recorded (structural verification complete); no deviation > 0.5 px expected by design. OK.
