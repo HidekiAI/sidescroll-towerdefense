@@ -1,10 +1,7 @@
 extends Control
-# ref #68 #74 — Simulator tab: two scrollbars scrub the backdrop strip's Camera2D.
-# The horizontal bar scrubs world x, the vertical bar scrubs world y, and each is
-# applied on its own axis of one shared Vector2. That is what makes both axes of
-# parallax observable: the tutorial's Parallax2D multiplies the camera offset by
-# scroll_scale per axis, so a layer at 0.1x drifts a tenth as far as the camera and
-# a layer at 1.3x (Foreground) outruns it. Neither bar owns the camera alone.
+# ref #68 #74 #89 — Simulator tab: two scrollbars scrub per-layer Parallax2D.scroll_offset.
+# Each layer's scroll_offset is set to scrub * layer.scroll_scale per axis. Two-axis
+# parallax is preserved; camera is no longer used (removed to fix UI displacement).
 #
 # The scrollbar nodes are declared in main.tscn as "BackdropScroll" and
 # "BackdropScrollV"; this script only wires the value edges, it does not own either
@@ -22,7 +19,6 @@ func _ready() -> void:
     var strip := get_node_or_null("BackdropStrip") as Node2D
     if strip == null:
         return
-    var camera := strip.get_node("Camera2D") as Camera2D
     _frame_backdrop(strip)
     # The tab is laid out when TabContainer selects it, and again on every window
     # resize, so both are triggers. Changing the backdrop's position does not resize
@@ -31,11 +27,11 @@ func _ready() -> void:
     get_viewport().size_changed.connect(func() -> void: _frame_backdrop(strip))
     _scroll_x.value_changed.connect(
         func(value: float) -> void:
-            camera.position = Vector2(value, camera.position.y)
+            _set_scroll_offset_x(strip, value)
     )
     _scroll_v.value_changed.connect(
         func(value: float) -> void:
-            camera.position = Vector2(camera.position.x, value)
+            _set_scroll_offset_y(strip, value)
     )
     # Strip is 6400px wide; scrub spans the full band.
     _scroll_x.max_value = 6400.0
@@ -137,3 +133,23 @@ func _frame_backdrop(strip: Node2D) -> void:
     backdrops.position = _authored_backdrops_position + Vector2(
         tab_rect.position.x - sky_rect.position.x,
         0.0)
+
+func _set_scroll_offset_x(strip: Node2D, value: float) -> void:
+    var backdrops := strip.get_node_or_null("Backdrops") as Node2D
+    if backdrops == null:
+        return
+    for layer in backdrops.get_children():
+        var parallax := layer as Parallax2D
+        if parallax == null:
+            continue
+        parallax.scroll_offset.x = value * parallax.scroll_scale.x
+
+func _set_scroll_offset_y(strip: Node2D, value: float) -> void:
+    var backdrops := strip.get_node_or_null("Backdrops") as Node2D
+    if backdrops == null:
+        return
+    for layer in backdrops.get_children():
+        var parallax := layer as Parallax2D
+        if parallax == null:
+            continue
+        parallax.scroll_offset.y = value * parallax.scroll_scale.y
