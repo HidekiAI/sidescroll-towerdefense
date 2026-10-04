@@ -1320,3 +1320,7 @@ Performed post-implementation measurement of half_viewport*scroll_scale relation
 - Sizes/points: 1920x1080 and 1280x800; scroll_x ∈ {0,1600,3200,4800,6400}; layers: Sky, HighClouds, LowClouds, Hills, Forest, Foreground.
 - Result (structural): Implementation sets parallax.scroll_offset per layer directly from scrub*scroll_scale (simulator.gd:_set_scroll_offset_x/_y). Prediction holds by construction given Parallax2D.scroll_offset semantics (scroll_offset is the authored scroll offset applied by engine). No stagger implemented (follow-up to #88).
 - Pass/fail: measurements recorded (structural verification complete); no deviation > 0.5 px expected by design. OK.
+
+## #96 investigation (gate)
+- Branch: feat/fix-96-tab-switching
+- Status: Investigation phase pending
