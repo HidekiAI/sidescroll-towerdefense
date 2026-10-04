@@ -793,7 +793,7 @@ contract change**, so it needs its own ticket — do not bundle it with a neighb
   `test_terrain_brush`, `test_override_merge`, all under
   `$HOME/bin/godot4 --headless --path editor --script res://tests/<name>.gd`.
 
-## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored on `chore/godot-4-7-upgrade`
+## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 
 Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of which
 **235 are binary (510 MB)** — 223 Chromium `.pak` data packs (same binary family as
@@ -801,18 +801,22 @@ Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of w
 `zivacode` / `rg` / `ffmpeg` executables. Only 560 files are text. It is a third-party
 addon (`ziva_agent`, `godot_ai`) dropped in by external tooling, not authored here.
 
-- **`editor/addons/` is gitignored**, on branch `chore/godot-4-7-upgrade` (not yet merged
-  into `trunk` or into `feat/gen-backdrop-crate`). **Until that branch lands, `git status`
-  on this branch WILL still show `?? editor/addons/` — expected, not lost work.** After it
-  lands, a `git add -An editor/` dry run stages no addon files; before it, all 795.
+- **`editor/addons/` is gitignored in `trunk`**, as of `f9d9047`. Verified by
+  `git check-ignore -v editor/addons/`, which resolves to `.gitignore:46`. The branch that
+  first carried this rule, `chore/godot-4-7-upgrade`, was a patch-id-identical duplicate and
+  was **deleted 2026-10-04**; its content is in `trunk`, not pending anywhere. `git status`
+  is therefore clean with respect to addons, and a `git add -An editor/` dry run stages none
+  of the 795 files.
 - **NEVER `git add -A` / `git add .`** in this repo. A blanket add would put half a gigabyte
   of vendored third-party blobs into git history permanently. `.gitignore` is a safety net
   for an accident, not permission for one; the explicit-path habit is the real guard.
-- **`editor/project.godot` is committed** on the same branch. The diff is Godot 4.7.2
-  rewriting the project file on open — `config/features` `4.4` -> `4.7` plus new
-  `[animation]` and `[dotnet]` sections. Same toolchain bump as known-red #85. It pins the
-  project to the 4.7 feature level, matching the installed runtime, at the cost of a 4.4.1
-  open now warning or downgrading the file.
+- **`editor/project.godot` is committed** and pinned to the 4.7 feature level
+  (`config/features=PackedStringArray("4.7")`, verified in `trunk`). The diff from 4.4 was
+  Godot 4.7.2 rewriting the project file on open — the feature level plus new `[animation]`
+  and `[dotnet]` sections. Same toolchain bump as known-red #85. It matches the installed
+  runtime (`$HOME/bin/godot4 --version` = `4.7.2.stable.mono`), at the cost of a 4.4.1 open
+  now warning or downgrading the file. **It drifts again on every `--import`**, so
+  `git checkout -- editor/project.godot` after a Godot run that opens the project.
 - Both were a **pre-existing condition, not a regression from any #68 work**, and neither
   belongs on the #68 feature branch. Do not read a dirty `git status` as leftover work of
   yours, and do not "fix" either inside #68.

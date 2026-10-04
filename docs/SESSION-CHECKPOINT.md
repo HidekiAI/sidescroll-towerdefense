@@ -57,10 +57,15 @@ has never been met on a valid pass.
 
 ### Repo state corrections
 
-- **`chore/godot-4-7-upgrade` (local, `30f55f9`) is a stale duplicate, not pending work.**
-  `git diff 30f55f9 trunk -- .gitignore editor/project.godot` is **empty** — the 4.7 feature
-  level and the addons gitignore are already in `trunk` as `f9d9047`. Deletion offered to
-  @me, not done.
+- **`chore/godot-4-7-upgrade` DELETED 2026-10-04.** It was a stale duplicate, never pending
+  work. Its single commit `30f55f9` is patch-id-identical to `f9d9047`, which is already in
+  `trunk`: both carry `git patch-id --stable = bf8f842ed4ecfc07ec8eb10c87020af5b1aa172e`,
+  both bodies are the same text, and both diff exactly two files (`.gitignore` +7,
+  `editor/project.godot` +10/-1). It was never pushed (`git ls-remote --heads origin` shows
+  only `trunk`), so there is no remote ref to delete. `git branch -d` refused because the
+  branch is not an *ancestor* of `trunk` — it is a rebase-era duplicate, not an unmerged
+  ancestor — so `-D` was correct and `-d`'s merge check was the wrong test for this case.
+  @me verified the installed runtime independently (4.7.2.stable.mono).
 - **`feat/parallax-restack`, the branch the plan names, does not exist.** Create it from
   `trunk` when scaffolding starts; the plan's header line claiming it exists is stale.
 - **`editor/tests/measure_no_camera.gd` is already gone** (the plan's working-tree disposition
@@ -287,8 +292,9 @@ files.
 ### Other open state
 
 - **Phase 2** (retire 13 old tracked PNGs, ~15 MB) **blocked on #87**.
-- **`chore/godot-4-7-upgrade`** (1 commit, local, unpushed) awaiting a landing decision; it
-  carries the gitignore keeping `editor/addons/` out.
+- **`chore/godot-4-7-upgrade`** — **DELETED 2026-10-04.** It carried the gitignore keeping
+  `editor/addons/` out, and that gitignore is already in `trunk` as `f9d9047`
+  (`git check-ignore -v editor/addons/` resolves to `.gitignore:46`). Nothing pending here.
 - **Wiki freeze**: lifted for `TDD_Parallax-Depth.md` only, then for the minimap section of
   `GDD_World-Layout.md` + its `Home.md` index row, then for the minimap zoom ladder in the
   same section + `minimap_schematic.{svg,png}`. **Nothing else in the wiki may be edited.**
