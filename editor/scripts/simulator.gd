@@ -19,12 +19,14 @@ func _ready() -> void:
     var strip := get_node_or_null("BackdropStrip") as Node2D
     if strip == null:
         return
-    _frame_backdrop(strip)
+    # Defer initial framing to avoid awaiting during tab activation (fixes #96)
+    call_deferred("_frame_backdrop", strip)
     # The tab is laid out when TabContainer selects it, and again on every window
     # resize, so both are triggers. Changing the backdrop's position does not resize
     # this Control, so this cannot loop.
     resized.connect(func() -> void: _frame_backdrop(strip))
     get_viewport().size_changed.connect(func() -> void: _frame_backdrop(strip))
+    visibility_changed.connect(func() -> void: if is_visible_in_tree(): call_deferred("_frame_backdrop", strip))
     _scroll_x.value_changed.connect(
         func(value: float) -> void:
             _set_scroll_offset_x(strip, value)
@@ -101,6 +103,10 @@ func _frame_backdrop(strip: Node2D) -> void:
         return
     var sky_sprite := sky.get_node_or_null("Sprite") as Sprite2D
     if sky_sprite == null or sky_sprite.texture == null:
+        return
+
+    # Early exit if not visible (fixes #96 - avoid awaiting while hidden)
+    if not is_visible_in_tree():
         return
 
     if not _authored_position_captured:
