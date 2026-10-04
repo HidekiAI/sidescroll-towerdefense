@@ -26,8 +26,6 @@
 
 [node name="BackdropPreview" type="Node2D"]
 
-[node name="Camera2D" type="Camera2D" parent="."]
-
 [node name="Backdrops" type="Node2D" parent="."]
 ; The camera keeps ANCHOR_MODE_DRAG_CENTER (the default), so the visible world is
 ; centred on camera.position: at (0,0) that is x -960..960, y -540..540 for the
