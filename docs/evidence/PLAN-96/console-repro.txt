@@ -1,0 +1,9 @@
+Repro attempted: No interactive Godot editor session run in this environment.
+However, code inspection shows simulator.gd already has fixes per PLAN-96:
+- call_deferred("_frame_backdrop", strip) in _ready (avoids awaiting during tab activation)
+- visibility_changed connects to reframe if visible (uses is_visible_in_tree())
+- _frame_backdrop returns early if not is_visible_in_tree() before await get_tree().process_frame
+
+If "no gdmaned tabs!" persists, likely cause: TabContainer layout_mode=0 with anchors 1/1 - in some Godot 4 configs, better to use layout_mode = 3 (anchors_preset=15) for full rect. Also Control tab root needs proper sizing.
+
+Action: verify TabContainer layout.
