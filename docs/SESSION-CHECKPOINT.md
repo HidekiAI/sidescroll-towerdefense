@@ -1324,3 +1324,18 @@ Performed post-implementation measurement of half_viewport*scroll_scale relation
 ## #96 investigation (gate)
 - Branch: feat/fix-96-tab-switching
 - Status: Investigation phase pending
+
+## #89 post-camera removal - framing investigation
+Date: 2026-10-05
+
+What was researched:
+- backdrop_preview.tscn (lines ~27-60): Camera2D removed in #89, but Backdrops.position still (0,-780) at runtime (-960,-780) authored value. Parallax2D nodes present (no follow_viewport set). Parallax scroll_offset is written only by simulator.gd (per-layer scrub*scroll_scale).
+- simulator.gd: already has #96 guards (call_deferred, visibility_changed, early-exit before await). _frame_backdrop measures under current canvas transform; canvas_transform is identity now (no camera).
+- measure_framing_now.gd probe run at 1920x1029: viewport tab rect y=31..1029, Backdrops.position y=-780 gives bare rows below=458 (45.89% bare). Sweep: y=-291 gives 0.00% bare at 1920x1029 and also 0.00% bare at 1280x771 (tab rect y=31..771); other values (e.g. -400) leave 7.82% bare at 1920. bands_contained metric shows many candidates tie, but -291 matches PLAN-2026-10-03's M-b measurement.
+
+Discovery:
+- B1 from #89 ("framing constants must be re-derived under the corrected canvas") was not fully applied to authored Backdrops.position.y in backdrop_preview.tscn; runtime x is overwritten by _frame_backdrop but y remains stale.
+- With camera removed, authored offset (-960,-780) produces ~46% empty space at bottom of Simulator tab. Correct y is -291 per measured sweep, matching plan M-b.
+
+Action taken:
+- Updated editor/scenes/backdrop_preview.tscn Backdrops.position from (-960,-780) to (-960,-291) and corrected stale comment block (no longer references ANCHOR_MODE_DRAG_CENTER/camera derivation context that changed post-#89). Probe kept temporarily for verification.
