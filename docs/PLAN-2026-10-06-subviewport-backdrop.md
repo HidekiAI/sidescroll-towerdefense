@@ -34,7 +34,8 @@ exit condition. The clauses this plan must not lose sight of:
   y = 1320 at the tab's bottom edge within ±0.5 px.
 - **A6** — `test_parallax_backdrop.gd` exits 0, a mutation reddens it, `probe_parallax_scroll.gd`
   deleted, both named in `AGENTS.md`'s gate list.
-- **A8** — the four stale comments and wiki §3 say "camera inside a `SubViewport`".
+- **A8** — the comments still asserting the camera is absent (`simulator.gd:2-14`,
+  `backdrop_preview.tscn:31-34`) and wiki §3 say "camera inside a `SubViewport`".
 
 ---
 
@@ -56,6 +57,7 @@ The plan relocates and re-wires existing structures; it invents none.
 | Scrollbar anchors | `main.tscn`, comment block above each | Both are `unique_name_in_owner = true`, so `%BackdropScroll` resolves. **Geometry is owned by `main.tscn`**, not by `simulator.gd` — the script's own header states this. |
 | `test_parallax_backdrop.gd` | `editor/tests/test_parallax_backdrop.gd` | The suite to rewrite. `EXPECTED_LAYERS` literal table, the two-independent-sample drift check, and the "pin the literal *before* deriving" discipline are all **kept**; only the driver changes. |
 | `probe_parallax_scroll.gd` | `editor/tests/probe_parallax_scroll.gd` | **Deleted.** Reads `BackdropStrip/Camera2D` (gone) and `Backdrops/L2_near` (a layer name that no longer exists), then hangs on null because nothing calls `quit()`. Verified: exit 124 under a 60 s timeout. |
+| A8 targets (A8) | `simulator.gd:2-14`, `backdrop_preview.tscn:31-34`, wiki §3 `:87-99` — the three enumerated in #101 and restated in §8 B5 | Rewritten to describe the camera inside `BackdropView/Viewport`. The `tscn:31-34` block is deleted outright by B3 with the magic offset. `test_parallax_backdrop.gd`'s camera references are covered by B4's rewrite, not by A8. |
 | Engine source of record | `godotengine/godot` 4.7 `scene/2d/parallax_2d.cpp` / `.h` | Ground truth for every formula in §6. Cited, not inferred. |
 
 ---
@@ -248,11 +250,9 @@ chosen so that `C = 0` corresponds to the strip's origin; `camera.position` is t
 `half_viewport * scroll_scale < repeat_size` must hold per layer or the registration term
 falls into the next repeat period. Worst case is Foreground (`k = 1.3`) at a wide tab:
 `half_viewport < 1920 / 1.3 ≈ 1477`, i.e. a SubViewport wider than ~2954 px. The authored
-design width is 1920 and `project.godot` sets `window/viewport_width = 1920`, so this is
-satisfied today and is a **known ceiling, not a bug**. Recorded in the code as a
-`ponytail:` comment naming the ceiling and the upgrade path (switch to FORMULA-B, which is
-bounded by `k - k_sky ≤ 1.2` and far less likely to cross), rather than silently relying on
-the window staying narrow.
+design width is 1920 and `project.godot` sets `window/viewport_width = 1920`, so this holds
+at every size A3 tests, with wide margin. It is an analysis of the formula A3 requires, not
+a change: recording it in-code sits under *Possible follow-ups* below.
 
 ### 6.8 What is explicitly not changed
 
@@ -276,7 +276,6 @@ the window staying narrow.
 | Void experiments | A parse error or a space/tab mismatch aborts a run and any output read from it is worthless | Validate stderr first; on a surprising result, hypothesise "my experiment was invalid" before "the code is wrong" |
 | A test that asserts only static properties | The wiki decision record §3 records the probe that stayed GREEN for weeks while the feature never rendered | The suite drives the scrollbars and re-measures layer displacement; part 3 additionally pins on-disk file names literally |
 | Expectation derived from the value under test | Documented in the suite's own header: deriving drift as `step * (1 - layer.scroll_scale)` let a manifest scale edit move both sides together | Literal scale pin runs **before** the derived expectation, exactly as `:151-159` does today |
-| `SubViewport` may not appear in headless capture | `capture_all_tabs.gd` reads `root.get_texture()` | M-5 verifies a SubViewport frame is non-uniform before trusting any headless capture; otherwise captures move to a windowed run |
 
 ---
 
@@ -285,13 +284,31 @@ the window staying narrow.
 | Block | What | Files |
 |---|---|---|
 | **M-1** | Measure `screen_offset` and per-layer screen x at `C = 0` for FORMULA-A/B/C, two window sizes. **Pick the formula.** | throwaway probe (never committed) |
+| **M-2** | Step the camera by `(120, 40)` twice; confirm `delta(pos) = step * (1 - scroll_scale)` on both axes survives the registration offset (A5) | throwaway probe |
 | **M-3** | Measure whether `_size_layer_repeats` still moves the bare-background percentage | throwaway probe |
-| **M-5** | Confirm a `SubViewport` renders into `root.get_texture()` headless | throwaway probe |
+| **M-4** | Hide-and-diff tables: A2's changed-pixel fractions + Foreground bottom-edge test, and A4's bare-background ≤ 2% at five x positions, at 1280x771 and 1920x1080 | throwaway probe |
+| **M-6** | Hide-and-diff each scrollbar at A7's sizes (1920x1080 and 1280x800) with a positive control | throwaway probe |
+| **A1 probe** | Snapshot root `canvas_transform`, run a full two-axis scrub, compare bytes (A1) | throwaway probe |
 | **B1** | Scene: add `BackdropView` + `Viewport` + `Camera2D`, move the `BackdropStrip` instance inside, keep both scrollbars | `editor/scenes/main.tscn` |
 | **B2** | `simulator.gd`: new node paths, scrollbar → `camera.position`, delete `_set_scroll_offset_x/_y` | `editor/scripts/simulator.gd` |
 | **B3** | `simulator.gd`: replace `_frame_backdrop`'s measured correction with the derived §6.5 form; delete `-291`/`-960` from `backdrop_preview.tscn` | `editor/scripts/simulator.gd`, `editor/scenes/backdrop_preview.tscn` |
-| **B4** | Rewrite `test_parallax_backdrop.gd` (§9.1); delete `probe_parallax_scroll.gd` | `editor/tests/` |
-| **B5** | Docs: four stale comments, wiki §3, `AGENTS.md` gate list, checkpoint | comments, wiki, `AGENTS.md`, `docs/SESSION-CHECKPOINT.md` |
+| **B4** | Rewrite `test_parallax_backdrop.gd` (§9.1, incl. all three mutation runs); delete `probe_parallax_scroll.gd` | `editor/tests/` |
+| **B5** | Docs per A6 and A8: add the suite + both mutation checks to `AGENTS.md`'s gate list; update A8's three targets | `AGENTS.md`, files below, wiki |
+
+**A8's four comment locations**, taken verbatim from #92's table so B5 is a checklist and
+not a research task:
+
+1. `editor/scenes/backdrop_preview.tscn:12-14` — justifies `repeat_size_x = 1920` with
+   "the camera can pan forever".
+2. `editor/scenes/backdrop_preview.tscn:32-44` — derives the `Backdrops` offset from
+   `ANCHOR_MODE_DRAG_CENTER` and a camera view of `x -960..960, y -540..540`.
+3. `editor/scenes/backdrop_preview.tscn:38-42` — sizes the sky's 240px overshoot against
+   "the camera's 240px vertical travel".
+4. `editor/scripts/simulator.gd:2-11` (file header) — states the `Camera2D` contract in the
+   first person as the thing #89 deleted.
+
+Plus wiki `TDD_Parallax-Background` §3 (`:87-99`), whose diagram at `:99` shows `Camera2D` as
+a child of `World`.
 
 M-blocks precede B-blocks. Each B-block is one coherent commit.
 
@@ -301,35 +318,80 @@ M-blocks precede B-blocks. Each B-block is one coherent commit.
 
 Per #88's notes and #89's B3 verification method. All with a real window.
 
-- **M-1 (blocking):** instantiate `main.tscn`, switch to the Simulator tab, set
+- **M-1 (blocking, A3):** instantiate `main.tscn`, switch to the Simulator tab, set
   `camera.position = Vector2(0,0)`, and for each of FORMULA-A/B/C write the candidate
-  `scroll_offset` then read every layer's screen-space origin. Pass: all six within ±0.5 px
-  of each other at 1920x1080 **and** 1280x771. Fail: record all three tables and re-derive
-  from the measured `screen_offset` rather than falling through to the next candidate.
+  `scroll_offset` then read every layer's screen-space origin. **Pass requires both halves
+  of A3**, at 1920x1080 **and** 1280x771:
+  - registration — all six layers within ±0.5 px of each other;
+  - placement — design x = 0 at the tab's left edge within ±0.5 px, and design baseline
+    y = 1320 at the tab's bottom edge within ±0.5 px.
+
+  Fail: record all three tables and re-derive from the measured `screen_offset` rather than
+  falling through to the next candidate.
 - **M-2:** with the winning formula, step the camera by `(120, 40)` twice and confirm
   `delta(pos) = step * (1 - scroll_scale)` for all six layers on both axes — this is the
   relationship §6.3 claims FORMULA-A preserves, and it must survive the registration offset.
 - **M-3:** set `repeat_times = 1` vs the computed value and compare bare-background at
   x = 0/1600/3200/4800/6400. Decides whether `_size_layer_repeats` is load-bearing. **If it
   is not, do not delete it here** — file it.
-- **M-4:** at 1280x771 and 1920x1080, hide/show each of Hills, Forest, Foreground and diff
-  for the changed-pixel fraction (A2, A4), plus assert Foreground's bottom edge is at or
-  above the tab's bottom edge.
-- **M-5:** confirm `root.get_texture().get_image()` is non-uniform with the SubViewport
-  populated, before any headless capture is trusted.
+- **M-4 (A2, A4):** at **1280x771 and 1920x1080**, hide/show each of Hills, Forest and
+  Foreground and diff for the changed-pixel fraction (A2's non-zero test), assert
+  Foreground's bottom edge is at or above the tab's bottom edge (A2's geometric half), and
+  compute the **bare-background percentage, asserting ≤ 2%** at x = 0, 1600, 3200, 4800,
+  6400 at both sizes (A4).
+- **M-6 (A7):** at **1920x1080 and 1280x800** — note A7's sizes differ from A4's — hide
+  `BackdropScroll` and diff, hide `BackdropScrollV` and diff, and assert each gives a
+  **non-zero** changed-pixel fraction. Include a **positive control that is known to draw**
+  (a Control already verified visible) so a zero result can be attributed to the bar rather
+  than to a broken harness.
 - **A1 probe:** snapshot `root.canvas_transform`, run a full two-axis scrub, compare bytes.
 
 ### 9.1 Test rewrite contract (B4)
 
-Kept from the current suite: `EXPECTED_LAYERS` literals, file-name assertions,
-`centered`/`repeat_size` assertions, the two-independent-sample drift check, `DRIFT_TOLERANCE_PX`,
-and the rule that the literal pin runs before the derived expectation.
+Kept from the current suite: file-name literals, `centered`/`repeat_size` assertions,
+the two-independent-sample drift check, `DRIFT_TOLERANCE_PX`, and the rule that the literal
+pin runs before the derived expectation.
+
+**Changed — the `scroll_scale` pin's source, required by A5.** A5 says the literal must be
+*pinned from `manifest.json`* so that *mutating a manifest scale reddens the suite*. Today's
+suite cannot satisfy that: `test_parallax_backdrop.gd` never reads `manifest.json`. Its
+`EXPECTED_LAYERS` (`:46-53`) is a hand-maintained copy of the manifest's numbers, so editing
+`manifest.json` reddens **nothing** — only editing `backdrop_preview.tscn` does. B4 therefore
+loads `scroll_scale` from `manifest.json` at runtime and asserts the scene's value matches it:
+
+| Mutated | Result after B4 |
+|---|---|
+| `manifest.json` scale only | **red** — pin moved, scene did not |
+| `backdrop_preview.tscn` scale only | **red** — scene moved, pin did not |
+| both, to the same new value | green — they genuinely agree (correct) |
+
+File-name assertions stay as **hardcoded literals, not read from the manifest**, because the
+suite's own header (`:37-41`) records why a shared constant cannot be its own guard: a rename
+that moves manifest and scene together must still be caught. `scroll_scale` is the one value
+where manifest-vs-scene disagreement *is* the contract, so it reads the manifest; the on-disk
+file name remains asserted literally.
 
 Changed: the driver is `Camera2D` under `BackdropView/Viewport` rather than a deleted node;
 Part 1 asserts the two bars each move `camera.position` on their own axis and leave the other
 held (the existing anti-coupling assertions at `:92-104` port directly, with `camera.position`
-in place of the current field); a new Part asserts registration (A3) using the formula picked
-in M-1, pinned as a literal per layer so a `manifest.json` scale edit reddens it.
+in place of the current field); a new Part asserts registration and placement (A3) using the
+formula picked in M-1, with each layer's registration term pinned against its own manifest
+scale.
+
+**Three mutations are explicit steps, not expectations.** After the suite is green:
+
+1. **A5, manifest side** — set one `scroll_scale_x` in `manifest.json` (Hills `0.5` →
+   `0.42`, the exact edit the header at `:39-40` records as having fooled an earlier draft),
+   run the suite, record the exit code being **non-zero**. Restore, re-run green.
+2. **A5, scene side** — set the same `scroll_scale_x` in `backdrop_preview.tscn` alone, run,
+   record **non-zero**. Restore, re-run green. This is the mutation the suite's header says
+   refuted two early drafts, so it must be demonstrated, not asserted.
+3. **A6** — break the scrollbar → `camera.position` wiring in `simulator.gd` (point one
+   bar's handler at nothing, or drop the connection), run, record **non-zero**. Restore,
+   re-run green.
+
+All six exit codes (three red, three green) go in the commit message. A green suite that
+cannot be reddened has not been shown to test anything.
 
 `probe_parallax_scroll.gd` is deleted rather than repaired: it probes a scene structure that
 no longer exists, references layer names retired by the restack, and has no `quit()` on its
@@ -345,12 +407,12 @@ Reproduced verbatim from #101; each maps to a block.
 |---|---|---|---|
 | A1 | Root viewport `canvas_transform` is byte-identical before and after a full two-axis scrub across the whole 0..6400 / 0..240 range. | B1-B2 | A1 probe |
 | A2 | At a windowed 1280x771, each of Hills, Forest and Foreground shows a non-zero changed-pixel fraction by render differencing (hide the layer, diff the frame), **and** Foreground's bottom edge is at or above the tab's bottom edge. Geometry alone is not sufficient: #88 recorded geometric coverage reporting 0/6 layers while screenshots plainly showed art. | B3, M-4 | M-4 tables |
-| A3 | For **every** layer: design x = 0 lands at the tab's left edge within ±0.5 px, and the design baseline y = 1320 lands at the tab's bottom edge within ±0.5 px. | M-1, B3 | M-1/M-4 tables |
-| A4 | Bare-background ≤ 2% at x = 0, 1600, 3200, 4800, 6400, at **both** 1280x771 and 1920x1080, measured by render differencing. | B2, M-3, M-4 | M-4 tables |
-| A5 | Each layer displaces at its own `scroll_scale` on both axes across a camera step; the expectation is `camera_step * (1 - scroll_scale)`, with the literal scale pinned from `manifest.json` *before* the expectation is derived so that mutating a manifest scale reddens the suite rather than moving both sides together. | M-2, B4 | suite exit 0 + mutation |
-| A6 | `test_parallax_backdrop.gd` exits 0; a mutation that breaks the scrollbar wiring makes it exit non-zero; `probe_parallax_scroll.gd` is deleted; both the suite and the mutation check are named in `AGENTS.md`'s gate list. | B4, B5 | exit codes |
-| A7 | Both scrollbars show a non-zero changed-pixel fraction at 1920x1080 and 1280x800, by hide-and-diff, with a positive control that is known to draw. | B2, M-4 | M-4 tables |
-| A8 | The four comments naming a root-viewport `Camera2D` and wiki `TDD_Parallax-Background` §3 describe the camera as living inside a `SubViewport` after the change. | B5 | grep + wiki read |
+| A3 | For **every** layer: design x = 0 lands at the tab's left edge within ±0.5 px, and the design baseline y = 1320 lands at the tab's bottom edge within ±0.5 px. | M-1, B3 | M-1's placement table (both window sizes) + the suite's registration Part |
+| A4 | Bare-background ≤ 2% at x = 0, 1600, 3200, 4800, 6400, at **both** 1280x771 and 1920x1080, measured by render differencing. | B2, M-3, M-4 | M-4 bare-background table, sizes and ≤ 2% asserted in the block |
+| A5 | Each layer displaces at its own `scroll_scale` on both axes across a camera step; the expectation is `camera_step * (1 - scroll_scale)`, with the literal scale pinned from `manifest.json` *before* the expectation is derived so that mutating a manifest scale reddens the suite rather than moving both sides together. *(A5's pin source changes — see §9.1; today's suite does not read the manifest.)* | M-2, B4 | M-2 table (drift law preserved), suite exit 0, and §9.1 mutation 1 recorded **non-zero** after editing `manifest.json`'s Hills `scroll_scale_x` |
+| A6 | `test_parallax_backdrop.gd` exits 0; a mutation that breaks the scrollbar wiring makes it exit non-zero; `probe_parallax_scroll.gd` is deleted; both the suite and the mutation check are named in `AGENTS.md`'s gate list. | B4, B5 | green exit, the three recorded non-zero exits from §9.1's explicit mutation runs, and a gate-list grep |
+| A7 | Both scrollbars show a non-zero changed-pixel fraction at 1920x1080 and 1280x800, by hide-and-diff, with a positive control that is known to draw. | B2, M-6 | M-6 tables (both of A7's sizes, with the positive control) |
+| A8 | Every comment still asserting the camera is absent or that the stack lives in the root viewport is corrected, and wiki `TDD_Parallax-Background` §3 describes the camera inside `BackdropView/Viewport`. Targets as enumerated in #101: `simulator.gd:2-14`, `backdrop_preview.tscn:31-34`, wiki §3 `:87-99`. | B5 | grep those three locations for "camera is no longer used" / "camera removed" returning nothing, plus a read of wiki §3 |
 
 **Not a gate here:** #100's zoom control, #90, #91, #87, #94 — all out of scope per #101.
 
@@ -360,7 +422,20 @@ Reproduced verbatim from #101; each maps to a block.
 
 - If M-1 shows **none** of FORMULA-A/B/C satisfies A3 at both window sizes: STOP, record the
   three measured tables, re-derive from the measured `screen_offset`. Do not begin B1.
-- If the SubViewport fails to render in headless capture (M-5 negative): proceed, but every
-  capture-based exit condition moves to a windowed run; say so in the commit.
 - If A1 fails after B1: the camera reached the root viewport. STOP; that is exactly the
   defect #89 fixed and the structure is wrong, not the value.
+
+---
+
+## 12. Possible follow-ups (not this ticket)
+
+Listed so they are not silently folded into #101. None of these is required by any #101
+Acceptance Criterion.
+
+- **Record §6.7's ceiling in code.** A one-line comment at the registration formula naming
+  `half_viewport * scroll_scale < repeat_size` and the FORMULA-B upgrade path. §6.7 already
+  documents the bound in full for whoever needs it.
+- **Delete `_size_layer_repeats()` if M-3 shows it is no longer load-bearing.** #101 keeps
+  it; the deletion needs its own ticket and its own measurement.
+- **#100** zoom/scale-to-fit, **#90** the sky's sun, **#91** depth-derived `scroll_scale`,
+  **#87** the Map Editor's static stack — all already filed, all out of scope here.
