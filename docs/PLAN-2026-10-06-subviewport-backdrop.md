@@ -310,15 +310,22 @@ not a research task:
 Plus wiki `TDD_Parallax-Background` §3 (`:87-99`), whose diagram at `:99` shows `Camera2D` as
 a child of `World`.
 
-**Ordering — the M-blocks do not all precede B.** Which side of scaffolding each runs on:
+**Ordering — and why B1/B2 come before the M-blocks that measure them.** B1 and B2 encode no
+framing value: B1 is pure scene structure (a container, a viewport, a camera, a moved
+instance) and B2 is a signal rewiring from `scroll_offset` to `camera.position`. Neither can
+be wrong in a way M-1's answer would change. B3 is the first block that *consumes* M-1's
+result — it writes the derived registration and framing — so B3 waits for M-1.
 
 | Phase | Blocks | Why that side |
 |---|---|---|
-| **Before B** | M-1, M-2, M-3 | M-1 and M-2 need only a *camera*, which the probe supplies itself (§9); M-3 is a baseline of the current canvas. The formula must be picked before B1 writes a structure it depends on. |
-| **After B** | M-4, M-6, A1 probe | These measure the *restructured* result — A2/A4's rendering, A7's rewired scrollbars, A1's root `canvas_transform`. Running them before B would measure the very defect being fixed. |
+| **Structure first** | B1, B2 | No framing value is chosen here, so nothing needs measuring first. B1 also *creates* the camera M-1 needs. |
+| **Formula** | M-1, M-2, M-3 | M-1 is blocking: FORMULA-A/B/C disagree on a sign, and §6.4 forbids settling it by re-derivation. Runs after B1 so `screen_offset` derives from the `SubViewport` (= the tab), not the root viewport. |
+| **Consume it** | B3 | First block that writes a framing constant. |
+| **Verify** | M-4, M-6, A1 probe | Measure the finished result: A2/A4 rendering, A7's rewired scrollbars, A1's root `canvas_transform`. Running these earlier would measure the defect being fixed. |
+| **Test + docs** | B4, B5 | B4's three mutation runs come last. |
 
-So the sequence is: **M-1 → M-2 → M-3 → B1 → B2 → B3 → M-4 → M-6 → A1 → B4 → B5**, with
-B4's three mutation runs last. Each B-block is one coherent commit.
+Sequence: **B1 → B2 → M-1 → M-2 → M-3 → B3 → M-4 → M-6 → A1 → B4 → B5.**
+Each B-block is one coherent commit.
 
 ---
 
@@ -326,16 +333,18 @@ B4's three mutation runs last. Each B-block is one coherent commit.
 
 Per #88's notes and #89's B3 verification method. All with a real window.
 
-- **M-1 (blocking, A3):** instantiate `main.tscn`, switch to the Simulator tab, then have the
-  probe **supply its own `Camera2D` as a child of `BackdropStrip`** and set
-  `camera.position = Vector2(0,0)`. The probe-supplied camera is what makes this run *before*
-  B1: `Parallax2D` reads `screen_offset` from whichever camera shares its viewport, and in the
-  current scene the strip is in the root viewport — exactly the arrangement
-  `test_parallax_backdrop.gd` used before #89 deleted that node, so the harness is proven
-  rather than speculative. The camera's *location* changes in B1; the registration formula
-  does not. For each of FORMULA-A/B/C, write the candidate `scroll_offset` and read every
-  layer's screen-space origin. **Pass requires both halves of A3**, at 1920x1080 **and**
-  1280x771:
+- **M-1 (blocking, A3):** with the B1 camera in place at `camera.position = Vector2(0,0)`,
+  write each of FORMULA-A/B/C into every layer's `scroll_offset`, then read each layer's
+  screen-space origin (`get_global_transform_with_canvas().origin` — the read
+  `_frame_backdrop()` already uses; **not** `layer.position`, which excludes the parent
+  translation A3 measures against).
+
+  **Must run after B1.** Only there does `screen_offset` derive from the `SubViewport`'s
+  size, which equals the tab. A pre-B1 probe camera would sit in the root viewport and yield
+  a 1920x1080 `screen_offset`: it could rank the six layers against each other, but it could
+  never satisfy A3's placement half, which is measured against the tab.
+
+  **Pass requires both halves of A3**, at 1920x1080 **and** 1280x771:
   - registration — all six layers within ±0.5 px of each other;
   - placement — design x = 0 at the tab's left edge within ±0.5 px, and design baseline
     y = 1320 at the tab's bottom edge within ±0.5 px.
