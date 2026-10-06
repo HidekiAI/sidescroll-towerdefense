@@ -7,20 +7,41 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-04 (gate iteration 5 scored 86; #89 reopened; #85 closed)_
+_Last updated: 2026-10-05 (#99 filed: Simulator ground bands clipped at windowed size; a
+five-commit bisect found no disappearing-terrain regression and is recorded in
+`docs/evidence/issue-99/bisect-log.txt`)_
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: the 4.7 upgrade is DONE and in `trunk` (`f9d9047` feature level + gitignored
-`editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on 4.7.2). #85 is CLOSED.
-#89 was wrongly closed at 2026-10-03 18:18 UTC with no fix committed and has been REOPENED.
-The #89 plan is at 86/100 against a bar of 90 and **coding is blocked on a sixth gate round,
-which is @me's decision**. No production code written yet. Phase 2 still blocked on #87.**
+**State: `trunk` is at `aebdea3`, in sync with `origin/trunk`. The 4.7 upgrade is DONE (`f9d9047`
+feature level + gitignored `editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on
+4.7.2). #85 CLOSED. #89 CLOSED — its fix landed as `81405c9` (per-layer `scroll_offset`, Camera2D
+removed) with the framing follow-up `e0e5677`, merged in #98. #96 CLOSED via `7a0edd4` (deferred
+framing, visibility-aware reframe) and `a0f0dd3` (TabContainer sizing), which was reverted by
+`497501a` and retried as `aebdea3` (`layout_mode = 1`).**
 
-### The gate, and the decision waiting on @me
+**Open: #99 — the Simulator's ground bands are clipped at windowed window sizes.**
+`editor/scenes/backdrop_preview.tscn:34` sets `Backdrops.position.y = -291`, placing the
+Hills/Forest/Foreground bands at y 709..1029, so the tab must exceed 709px tall for any of them
+to show. The value at `37d0fda` was `-780`, placing them at y 220..540. The `-291` measurement
+checked for sky gaps, not for the ground bands staying inside the tab. A value revert is likely
+the fix but must be verified against the sky-gap `-291` was chosen to close; the alternative is
+the per-layer `scroll_offset` that `simulator.gd:127` already records as not done.
+
+**A reported "terrain disappeared" regression in the Simulator tab was investigated and NOT
+reproduced.** A commit-by-commit walk of `37d0fda..aebdea3` (five steps, editor restarted each
+time) showed the terrain present at every commit. What actually changed at `e0e5677` is
+window-size *dependence*, not disappearance. Full table, asset geometry and a void-experiment
+note are in `docs/evidence/issue-99/bisect-log.txt`.
+
+### SUPERSEDED 2026-10-05 — the #89 gate and the "decision waiting on @me"
+
+> The gate below no longer blocks anything. #89 closed and its fix landed as `81405c9`, so the
+> sixth iteration was never run. Retained as the historical record of that gate, per the
+> supersession note at the top of this file. The live open item is #99 above.
 
 Bar is 90, ticket alone, evaluator never sees the planner's reasoning.
 
@@ -47,6 +68,9 @@ This is iteration 5 of a `MAX_ITERATIONS` of 3 — the loop's own STOP condition
 has never been met on a valid pass.
 
 ### Issue-state corrections made 2026-10-04 (both verified, both reversible)
+
+> Superseded 2026-10-05: #89 has since CLOSED and its fix landed. Retained as the record of
+> the 2026-10-04 corrections. #85 remains closed.
 
 - **#89 REOPENED.** It was closed as COMPLETED at 2026-10-03 18:18 UTC with no fix commit and
   no closing comment; `trunk` at `d3edd5f` has no commit touching `simulator.gd` or

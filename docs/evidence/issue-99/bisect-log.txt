@@ -1,0 +1,42 @@
+Bisect walk: Simulator terrain visibility, windowed vs full-screen
+Repo: HidekiAI/sidescroll-towerdefense  Observed: 2026-10-05, Godot 4.7.2.stable.mono
+Method: one commit at a time, restart editor each step, @me reported terrain visible/gone.
+
+STEP  COMMIT   Backdrops.position.y   TabContainer layout_mode   VERDICT
+  0   37d0fda   -780                   0                         terrain VISIBLE (windowed)
+  1   a0f0dd3   -780                   3 +anchors_preset 15      terrain VISIBLE (windowed)
+  2   23307d2   -291                   3 +anchors_preset 15      terrain VISIBLE, needs FULL-SCREEN
+  3   497501a   -291                   0                         terrain VISIBLE, needs FULL-SCREEN
+  4   aebdea3   -291                   1                         terrain VISIBLE, needs FULL-SCREEN
+
+RESULT: no commit in 37d0fda..aebdea3 makes the terrain disappear. All five steps show it.
+        The observable change is window-size DEPENDENCE, introduced at step 2.
+
+GEOMETRY (authored, from editor/scenes/backdrop_preview.tscn and the PNGs):
+  sky.png            1920 x 1320   -> design baseline y = 1320
+  high/low clouds    1920 x  320
+  hills.png          1920 x  384   authored at design y = 936
+  forest.png         1920 x  320   authored at design y = 1000
+  foreground.png     1920 x  320   authored at design y = 1000
+
+  The three ground bands therefore occupy design y 1000..1320 (hills 936..1320).
+
+  Backdrops.position.y translates the whole stack:
+    position.y = -780  ->  bands occupy y  220.. 540   needs tab height > 220
+    position.y = -291  ->  bands occupy y  709..1029   needs tab height > 709
+
+  A tab shorter than 709px clips the ground bands entirely. 709px is within a normal
+  windowed editor window; a maximised window clears it.
+
+CORROBORATION, second route (code): editor/scripts/simulator.gd:118-127 documents the same
+  band-clipping failure from measuring baseline alignment: "moves the art down by 419px and
+  pushes the lower bands off the tab: Hills fell from 11% to 1% visible and Forest from 8% to
+  0%". -780 -> -291 is +489px, the same direction and a similar magnitude, applied one commit
+  later in the scene file with no equivalent check.
+
+VOID-EXPERIMENT NOTE: the first pass of this investigation asserted e0e5677 as the cause of a
+  terrain DISAPPEARANCE before step 2 was run. Step 2 disproved it: terrain was present at
+  -291, merely below a windowed viewport. The assertion was withdrawn. Recorded because the
+  error is instructive: it imported a conclusion from an unrelated code comment about a
+  different operation (baseline alignment) and treated a measured-looking number as a
+  derivation.
