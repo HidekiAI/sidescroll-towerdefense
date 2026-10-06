@@ -812,7 +812,46 @@ Under: —"
 layout_mode = 2
 script = ExtResource("10")
 
-[node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator"]
+; #101 B1 -- the parallax stack moves into its own viewport so it can have its own
+; camera. parallax_2d.cpp joins __cameras_<viewport_rid> on NOTIFICATION_ENTER_TREE,
+; so camera coupling is keyed PER VIEWPORT: a Camera2D inside this SubViewport
+; rewrites only this viewport's canvas transform and cannot reach the root canvas
+; the editor UI draws on. That is why #89 was right to delete the root-viewport
+; camera, and why one is allowed back in, scoped like this.
+;
+; stretch = true makes the container drive Viewport.size to its own rect on every
+; resize, so the parallax viewport always equals the tab content rect and
+; simulator.gd needs no size bookkeeping. The container also bounds what it draws,
+; which is the first clipping this strip has ever had: clip_contents is set nowhere
+; in this file or in backdrop_preview.tscn, so until now the Node2D strip painted
+; unclipped across the whole window.
+;
+; Both scrollbars stay OUTSIDE BackdropView, in the root canvas at z_index = 20 --
+; above the container's own z0 draw.
+; The full-rect anchors are what make this container fill the tab: anchor_right and
+; anchor_bottom 1.0, grow both ways. Dropping them was the blank-tab bug -- no anchors
+; means a 0x0 rect, the SubViewport follows it to 2x2, and nothing draws. Measured with
+; a real window while the tab was selected: Simulator was (1152, 617) and BackdropScroll
+; (1136, 16), while BackdropView sat at (0, 0).
+;
+; layout_mode = 1 is only the editor's hint for "anchored child of a plain Control" and
+; matches BackdropScroll/BackdropScrollV below. It is NOT what does the sizing: mutating
+; it to 2 with the anchors left in place still lays out correctly (verified), so do not
+; read the fix into it. Simulator above uses layout_mode = 2 because its parent IS the
+; TabContainer -- copying that value here is harmless, but it is not what fixes anything.
+[node name="BackdropView" type="SubViewportContainer" parent="TabContainer/Simulator"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+stretch = true
+
+[node name="Viewport" type="SubViewport" parent="TabContainer/Simulator/BackdropView"]
+
+[node name="Camera2D" type="Camera2D" parent="TabContainer/Simulator/BackdropView/Viewport"]
+
+[node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator/BackdropView/Viewport"]
 visible = true
 layout_mode = 2
 metadata/_tab_index = 4
