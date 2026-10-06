@@ -7,29 +7,73 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-05 (#99 filed: Simulator ground bands clipped at windowed size; a
-five-commit bisect found no disappearing-terrain regression and is recorded in
-`docs/evidence/issue-99/bisect-log.txt`)_
+_Last updated: 2026-10-06 (#101 filed; plan written and passed the plan-ticket gate at
+97/100; branch `refactor/subviewport-backdrop` opened — **local only, not pushed**)_
+
+**NEXT MOVE: start block B1 of the plan** — `editor/scenes/main.tscn` gains
+`BackdropView` (`SubViewportContainer`, stretch) → `Viewport` (`SubViewport`) → `Camera2D`,
+and the `BackdropStrip` instance moves inside. Read
+`docs/PLAN-2026-10-06-subviewport-backdrop.md` §8 (block map + ordering) and §10 (the eight
+exit conditions) before touching a file. Sequence: B1 → B2 → M-1 → M-2 → M-3 → B3 → M-4 →
+M-6 → A1 → B4 → B5. **Do not start B3 before M-1** — B3 is the first block that consumes
+M-1's registration formula, and §6.4 forbids settling its sign by re-deriving it.
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: `trunk` is at `aebdea3`, in sync with `origin/trunk`. The 4.7 upgrade is DONE (`f9d9047`
+**State: `trunk` is at `4458ef7`, in sync with `origin/trunk` (0 ahead, 0 behind). Work is
+on branch `refactor/subviewport-backdrop`, branched from `4458ef7`; its HEAD moves with every
+commit, so read `git log --oneline -- docs/PLAN-2026-10-06-subviewport-backdrop.md` for the
+current tip. **Local only — not pushed, no permission asked yet.** The 4.7 upgrade is DONE (`f9d9047`
 feature level + gitignored `editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on
 4.7.2). #85 CLOSED. #89 CLOSED — its fix landed as `81405c9` (per-layer `scroll_offset`, Camera2D
 removed) with the framing follow-up `e0e5677`, merged in #98. #96 CLOSED via `7a0edd4` (deferred
 framing, visibility-aware reframe) and `a0f0dd3` (TabContainer sizing), which was reverted by
 `497501a` and retried as `aebdea3` (`layout_mode = 1`).**
 
+**DECIDED 2026-10-06 — restructure, do not re-tune `Backdrops.position`. #101 filed.**
+The stack lives in the editor's **root** viewport, and that one fact causes both open
+parallax defects. `parallax_2d.cpp` `NOTIFICATION_ENTER_TREE` joins
+`__cameras_<viewport_rid>`, so camera coupling is keyed **per viewport**: a `Camera2D` in the
+root viewport rewrites that viewport's `canvas_transform` and displaces every Control (why
+#89 deleted it — that call was correct), while a `Camera2D` inside a `SubViewport` cannot
+reach the root canvas at all. So the camera can return, scoped. With no camera,
+`_camera_moved` never fires and `screen_offset` stays at its zero-initialised default, so
+`_update_scroll()` reduces to `pos = -fposmod(-scroll_offset, repeat_size)` per layer and the
+six bands wrap at six different rates — **#88's stagger, and unfixable by a parent
+translation**. Fixing it means deriving the framing instead of measuring it.
+
+- **Ticket: #101** (refactor, 8 acceptance criteria A1–A8). **Plan:
+  `docs/PLAN-2026-10-06-subviewport-backdrop.md`**, gated against #101 at **97/100** across
+  three iterations (59 → 95 → 97). Gate lessons in `.rsi_memory/plan-ticket-gate.md`, task
+  playbook in `.rsi_memory/sstd-parallax-subviewport-restructure.md` (workspace root, outside
+  both repos).
+- **The gate found two defects in the ticket, not the plan.** A5 was unachievable: the suite
+  never reads `manifest.json` (`EXPECTED_LAYERS` is a hand-maintained copy), so mutating the
+  manifest reddened nothing — B4 now loads `scroll_scale` from the manifest while texture
+  file names stay hardcoded literals. A8's "four comments" was inherited from #92, whose
+  ranges predate `81405c9`; the real target set is three (`simulator.gd:2-14`,
+  `backdrop_preview.tscn:31-34`, wiki §3).
+- **#92 needs re-scoping** — its count and line ranges are stale after #89. Follow-up, not
+  part of #101.
+- **Interim RED, recorded deliberately:** `test_parallax_backdrop.gd` exits 1 on `trunk`
+  (`BackdropStrip has no Camera2D to drive`, line 69; assertions at 114–198 never run) and
+  `probe_parallax_scroll.gd` hangs (exit 124 under `timeout 60`, reads `L2_near`, a layer name
+  retired by the restack). Neither is in `AGENTS.md`'s gate list, which is why nothing caught
+  them. B4 rewrites the first and **deletes** the second. The four AGENTS.md-gated suites are
+  green.
+
 **Open: #99 — the Simulator's ground bands are clipped at windowed window sizes.**
 `editor/scenes/backdrop_preview.tscn:34` sets `Backdrops.position.y = -291`, placing the
 Hills/Forest/Foreground bands at y 709..1029, so the tab must exceed 709px tall for any of them
 to show. The value at `37d0fda` was `-780`, placing them at y 220..540. The `-291` measurement
-checked for sky gaps, not for the ground bands staying inside the tab. A value revert is likely
-the fix but must be verified against the sky-gap `-291` was chosen to close; the alternative is
-the per-layer `scroll_offset` that `simulator.gd:127` already records as not done.
+checked for sky gaps, not for the ground bands staying inside the tab.
+~~A value revert is likely the fix~~ **SUPERSEDED 2026-10-06:** #88 measured that the uniform
+zoom behind a revert collapses the bands (Hills 11% → 1%), and the `-291`/`-780` choice was
+never a free parameter — it is the symptom #101's B3 replaces with a derived value. #99 closes
+under #101's A3, not by picking a better constant.
 
 **A reported "terrain disappeared" regression in the Simulator tab was investigated and NOT
 reproduced.** A commit-by-commit walk of `37d0fda..aebdea3` (five steps, editor restarted each
