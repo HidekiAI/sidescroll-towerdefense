@@ -602,6 +602,28 @@ per-rep canon from `_canonical_flat` when the bridge produced it. Real catalog
 - Map editor writes `placed_entities: []`; `_merge_placed_entities()` re-attaches the cached entity array on save/clone so entity work isn't wiped.
 - World coordinates: `world_x = screen_pos.x * grid_w + local_x` (wiki [TDD_Map-World § World Coordinates](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Map-World)).
 
+## Godot Scene Layout — a Control under a Control needs ANCHORS (2026-10-06, #101 B1)
+
+Found when B1 added `BackdropView` to `editor/scenes/main.tscn`: the Simulator tab came up
+**blank**. Reproduced and measured, then mutation-verified.
+
+- **Anchors are what size a nested `Control`.** Full-rect fill is `anchor_right = 1.0` +
+  `anchor_bottom = 1.0` with `grow_horizontal = 2` / `grow_vertical = 2`. With no anchors the
+  rect is `0x0`, and a `SubViewportContainer` then drives its `SubViewport` to `2x2` — nothing
+  draws and nothing errors.
+- **`layout_mode` is an editor hint only; it sizes nothing at runtime.** Proven by mutation:
+  flipping `layout_mode` back to `2` with the anchors kept still laid out correctly. Do not
+  read a fix into it. (`layout_mode = 2` is the *right* value for a child of a `Container`
+  such as `TabContainer`, but that is an editor-semantics question, not a sizing one.)
+- **A `TabContainer` does not lay out an unselected child.** Reading sizes while the tab is
+  hidden always returns `0x0`. That is a false measurement, not a defect: select the tab, then
+  `await process_frame` twice.
+- **A probe that assigns the value it then asserts on proves nothing.** The first B1 probe set
+  `backdrop_view.size` by hand before checking `Viewport.size`, so it passed while the real app
+  was blank. Assert on what layout produced, never on what you wrote.
+- **Measure on a real window** (`DISPLAY=:0.0`, no `--headless`): the headless renderer is
+  `RendererDummy`, so it cannot answer "does it actually draw".
+
 ## Tech Stack
 
 - **Game/Editor Engine**: Godot 4 with Rust GDExtension (gdext)
