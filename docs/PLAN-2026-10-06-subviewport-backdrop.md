@@ -310,7 +310,15 @@ not a research task:
 Plus wiki `TDD_Parallax-Background` §3 (`:87-99`), whose diagram at `:99` shows `Camera2D` as
 a child of `World`.
 
-M-blocks precede B-blocks. Each B-block is one coherent commit.
+**Ordering — the M-blocks do not all precede B.** Which side of scaffolding each runs on:
+
+| Phase | Blocks | Why that side |
+|---|---|---|
+| **Before B** | M-1, M-2, M-3 | M-1 and M-2 need only a *camera*, which the probe supplies itself (§9); M-3 is a baseline of the current canvas. The formula must be picked before B1 writes a structure it depends on. |
+| **After B** | M-4, M-6, A1 probe | These measure the *restructured* result — A2/A4's rendering, A7's rewired scrollbars, A1's root `canvas_transform`. Running them before B would measure the very defect being fixed. |
+
+So the sequence is: **M-1 → M-2 → M-3 → B1 → B2 → B3 → M-4 → M-6 → A1 → B4 → B5**, with
+B4's three mutation runs last. Each B-block is one coherent commit.
 
 ---
 
@@ -318,10 +326,16 @@ M-blocks precede B-blocks. Each B-block is one coherent commit.
 
 Per #88's notes and #89's B3 verification method. All with a real window.
 
-- **M-1 (blocking, A3):** instantiate `main.tscn`, switch to the Simulator tab, set
-  `camera.position = Vector2(0,0)`, and for each of FORMULA-A/B/C write the candidate
-  `scroll_offset` then read every layer's screen-space origin. **Pass requires both halves
-  of A3**, at 1920x1080 **and** 1280x771:
+- **M-1 (blocking, A3):** instantiate `main.tscn`, switch to the Simulator tab, then have the
+  probe **supply its own `Camera2D` as a child of `BackdropStrip`** and set
+  `camera.position = Vector2(0,0)`. The probe-supplied camera is what makes this run *before*
+  B1: `Parallax2D` reads `screen_offset` from whichever camera shares its viewport, and in the
+  current scene the strip is in the root viewport — exactly the arrangement
+  `test_parallax_backdrop.gd` used before #89 deleted that node, so the harness is proven
+  rather than speculative. The camera's *location* changes in B1; the registration formula
+  does not. For each of FORMULA-A/B/C, write the candidate `scroll_offset` and read every
+  layer's screen-space origin. **Pass requires both halves of A3**, at 1920x1080 **and**
+  1280x771:
   - registration — all six layers within ±0.5 px of each other;
   - placement — design x = 0 at the tab's left edge within ±0.5 px, and design baseline
     y = 1320 at the tab's bottom edge within ±0.5 px.
