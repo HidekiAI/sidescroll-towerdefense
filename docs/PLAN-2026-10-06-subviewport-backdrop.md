@@ -448,7 +448,9 @@ Reproduced verbatim from #101; each maps to a block.
 ## 11. Stop conditions
 
 - If M-1 shows **none** of FORMULA-A/B/C satisfies A3 at both window sizes: STOP, record the
-  three measured tables, re-derive from the measured `screen_offset`. Do not begin B1.
+  three measured tables, re-derive from the measured `screen_offset`. Do not begin **B3** —
+  it is the first block that writes a framing constant. (B1 and B2 have already run: they
+  carry no framing value, which is why §8 puts them ahead of M-1.)
 - If A1 fails after B1: the camera reached the root viewport. STOP; that is exactly the
   defect #89 fixed and the structure is wrong, not the value.
 
