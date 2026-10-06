@@ -8,7 +8,8 @@
 > and stop.
 
 _Last updated: 2026-10-06 (#101 filed; plan written and passed the plan-ticket gate at
-97/100; branch `refactor/subviewport-backdrop` opened — **local only, not pushed**)_
+97/100; plan + checkpoint pushed and ff-merged into `trunk`; both interim branches deleted,
+including `~/scripts`' `docs/rules-parallel-edit-loss`)_
 
 **NEXT MOVE: start block B1 of the plan** — `editor/scenes/main.tscn` gains
 `BackdropView` (`SubViewportContainer`, stretch) → `Viewport` (`SubViewport`) → `Camera2D`,
@@ -23,10 +24,12 @@ M-1's registration formula, and §6.4 forbids settling its sign by re-deriving i
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: `trunk` is at `4458ef7`, in sync with `origin/trunk` (0 ahead, 0 behind). Work is
-on branch `refactor/subviewport-backdrop`, branched from `4458ef7`; its HEAD moves with every
-commit, so read `git log --oneline -- docs/PLAN-2026-10-06-subviewport-backdrop.md` for the
-current tip. **Local only — not pushed, no permission asked yet.** The 4.7 upgrade is DONE (`f9d9047`
+**State: `trunk` is the only branch in the code repo** and holds both this checkpoint and
+`docs/PLAN-2026-10-06-subviewport-backdrop.md`; `origin/trunk` is in step with it, and no
+push permission is pending. The interim branch `refactor/subviewport-backdrop` was pushed,
+ff-merged into `trunk`, and deleted — so **B1 must start on a NEW branch cut from `trunk`**
+and must not be committed on `trunk`. Nothing has been written to `editor/` yet: the plan's
+`Status` line still reads *plan only, no production code written*. The 4.7 upgrade is DONE (`f9d9047`
 feature level + gitignored `editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on
 4.7.2). #85 CLOSED. #89 CLOSED — its fix landed as `81405c9` (per-layer `scroll_offset`, Camera2D
 removed) with the framing follow-up `e0e5677`, merged in #98. #96 CLOSED via `7a0edd4` (deferred

@@ -3,7 +3,11 @@
 **Date:** 2026-10-06
 **Ticket:** [#101](https://github.com/HidekiAI/sidescroll-towerdefense/issues/101) (OPEN, refactor)
 **Parent feature:** [#68](https://github.com/HidekiAI/sidescroll-towerdefense/issues/68) (OPEN)
-**Branch:** `refactor/subviewport-backdrop` (code repo), created from `trunk` at `4458ef7`
+**Work branch:** B1–B5 run on a **new** branch cut from `trunk` when B1 starts. The
+pre-implementation branch `refactor/subviewport-backdrop` was pushed, ff-merged into `trunk`
+at `f7e70bc`, and deleted — it carried only this plan and the checkpoint update, so `trunk`
+is where both now live. Do not commit B1 on `trunk`; branch-then-merge has no small-change
+carve-out.
 **Design of record (read-only):** wiki `TDD_Parallax-Background`, §3 *Rendering* and §3.1 *Node contract*
 **Status:** plan only, no production code written. Section 9 runs before any framing value is
 authored; section 10's exit conditions are the gates.
