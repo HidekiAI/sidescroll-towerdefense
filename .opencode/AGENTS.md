@@ -823,12 +823,15 @@ Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of w
 `zivacode` / `rg` / `ffmpeg` executables. Only 560 files are text. It is a third-party
 addon (`ziva_agent`, `godot_ai`) dropped in by external tooling, not authored here.
 
-- **`editor/addons/` is gitignored in `trunk`**, as of `f9d9047`. Verified by
-  `git check-ignore -v editor/addons/`, which resolves to `.gitignore:46`. The branch that
-  first carried this rule, `chore/godot-4-7-upgrade`, was a patch-id-identical duplicate and
-  was **deleted 2026-10-04**; its content is in `trunk`, not pending anywhere. `git status`
-  is therefore clean with respect to addons, and a `git add -An editor/` dry run stages none
-  of the 795 files.
+- **`editor/addons/` is gitignored in `trunk`**, rule `editor/addons/*` (since #103's
+  bridge_autobuild exception; the pre-exception `editor/addons/` rule dates from `f9d9047`).
+  Verified by `git check-ignore -v editor/addons/`, which resolves to `.gitignore:47`. The
+  branch that first carried this rule, `chore/godot-4-7-upgrade`, was a patch-id-identical
+  duplicate and was **deleted 2026-10-04**; its content is in `trunk`, not pending anywhere.
+  One exception is authored in-repo: `editor/addons/bridge_autobuild/` is re-included via
+  `!editor/addons/bridge_autobuild/` (local pre-Run bridge rebuild plugin, #103). `git
+  status` is therefore clean with respect to the 795 vendored addon files, and a
+  `git add -An editor/` dry run stages only bridge_autobuild — none of the vendored blobs.
 - **NEVER `git add -A` / `git add .`** in this repo. A blanket add would put half a gigabyte
   of vendored third-party blobs into git history permanently. `.gitignore` is a safety net
   for an accident, not permission for one; the explicit-path habit is the real guard.

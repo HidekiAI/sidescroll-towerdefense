@@ -29,7 +29,7 @@ project/assembly_name="SSTD World Editor"
 
 [editor_plugins]
 
-enabled=PackedStringArray()
+enabled=PackedStringArray("res://addons/bridge_autobuild/plugin.cfg")
 
 [rendering]
 

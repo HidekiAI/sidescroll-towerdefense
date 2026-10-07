@@ -43,7 +43,9 @@ editor/*.json
 # 223 Chromium .pak data packs plus libcef.so, libvulkan.so.1, and the ziva_agent
 # / godot_ai shipped binaries. Committing these puts half a gigabyte of vendored
 # third-party blobs into git history permanently. Reinstall via the addon provider.
-editor/addons/
+# Exception: bridge_autobuild/ is authored in this repo, not vendored.
+editor/addons/*
+!editor/addons/bridge_autobuild/
 
 # Runtime-generated stamp catalog exports (materialized by editor tests/prune runs)
 editor/assets/tiles/stamp_*.png
