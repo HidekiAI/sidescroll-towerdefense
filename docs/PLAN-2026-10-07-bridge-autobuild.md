@@ -45,9 +45,11 @@ skill (result recorded in "Plan gate" at the bottom).
    checks that the test goes red when `build_bridge()` is no-op'd (mtime assertion) and when
    it returns `false` (return-value assertion).
 7. **`.opencode/AGENTS.md` repo-hygiene bullet update** — ticket *Grounding* bullet 5 changes
-   the exact `.gitignore:46` line that bullet documents ("resolves to `.gitignore:46`",
-   "is therefore clean with respect to addons"); that bullet must stay true after item 1
-   (exception path + shifted line number).
+   the exact `.gitignore:46` line the AGENTS bullet documents ("Verified by
+   `git check-ignore -v editor/addons/`, which resolves to `.gitignore:46`", "is therefore
+   clean with respect to addons"); the bullet's cited rule form and line number shift with
+   item 1 (exception path + rule now `editor/addons/*` at `.gitignore:47`), and doc
+   consistency with that mandated change is the item's support.
 
 ## Grounding record (already executed, no work remains)
 
@@ -62,6 +64,20 @@ skill (result recorded in "Plan gate" at the bottom).
 - `EditorProgress` + `Thread` non-blocking build — ticket *Design* names it only as the
   upgrade path behind the deliberate `OS.execute` ceiling.
 - Windows support for the bash-based command — ticket is Linux-targeted (repo OS bias).
+
+## Addendum — found by executing the plan, after the gate passed
+
+8. **`scripts/build-bridge.sh`: atomic replace of the installed `.so`** — running item 6's
+   headless guard (the ticket's *Test* scenario with two real builds) crashed Godot with
+   exit 139 (SIGSEGV), reproducibly. Root cause: `cp` over `editor/rust/libsstd_editor_bridge.so`
+   truncates-and-rewrites the inode that the current process has mmap'd — the headless
+   guard here, and **the editor itself in production**, since the editor loads the bridge at
+   startup — so teardown/hot-reload reads replaced pages. Fix: `cp` to a `.tmp` file then
+   `mv` (rename swaps the directory entry; the old inode stays valid for mapped consumers,
+   new processes open the fresh inode). Verified: exit 0 after the fix, mtime still strictly
+   advances across builds. Serves the ticket's *Test* paragraph (the guard must be
+   headless-runnable, therefore the build must not kill the process that runs it) and
+   *Verify* steps 2-3 (the editor must survive every Run's rebuild).
 
 ## Repo process (applies to every change here; outside the ticket's scope)
 
@@ -84,5 +100,9 @@ skill (result recorded in "Plan gate" at the bottom).
   process" footnote; probe moved to "Grounding record (already executed)"; item 1 cites the
   comment it invalidates; Verify enumerated (a)-(d). Refinements applied: 6(b) softened to
   observed-stdout wording, manual @me counterpart appended.
+- Iteration 3: **98/100** — passed, after executing the plan surfaced a defect (exit 139:
+  `cp` over the mapped bridge `.so`) that became Addendum item 8 and the ticket's "Shipped
+  change" sub-bullet. Same-score re-gate: no CRITICAL, no UNCOVERED. Refinement applied:
+  item 7 quotes the AGENTS bullet it keeps true.
 - Items removed from ticket-traced scope: branch/commit mechanics, four-suite re-run (both
   retained as repo process, still executed). No ticket scope dropped.
