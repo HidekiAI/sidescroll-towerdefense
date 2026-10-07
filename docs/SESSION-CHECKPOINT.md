@@ -7,19 +7,20 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-06 (B1 committed as `2e3145b` on `refactor/backdrop-subviewport`;
-the blank-tab defect found and fixed inside B1; three throwaway probes deleted)_
+_Last updated: 2026-10-07 (B2 committed as `8846444`, verified by hand in the editor —
+scrollbars drive the backdrop, no stagger; B1 `2e3145b`; both on
+`refactor/backdrop-subviewport`, unpushed)_
 
-**NEXT MOVE: start block B2** — `editor/scripts/simulator.gd` repoints
-`get_node_or_null("BackdropStrip")` to `BackdropView/Viewport/BackdropStrip`, rewires both
-scrollbars to `camera.position`, and deletes `_set_scroll_offset_x/_y` (lines 143–161). Read
-`docs/PLAN-2026-10-06-subviewport-backdrop.md` §8 (block map + ordering) and §10 (the eight
-exit conditions) before touching a file. Sequence: **B1 done** → B2 → M-1 → M-2 → M-3 → B3 →
-M-4 → M-6 → A1 → B4 → B5. **B1 and B2 must reach `trunk` in ONE merge**: until B2 lands,
-`simulator.gd:19` cannot find `BackdropStrip` and returns silently at line 20, so the tab
-renders art but neither scrollbar moves anything (confirmed by hand, 2026-10-06).
+**NEXT MOVE: start block M-1** — read `docs/PLAN-2026-10-06-subviewport-backdrop.md` §8
+(block map + ordering) and §10 (the eight exit conditions) before touching a file.
+Sequence: B1 done → **B2 done** → **M-1** → M-2 → M-3 → B3 → M-4 → M-6 → A1 → B4 → B5.
+**B1 and B2 must reach `trunk` in ONE merge** (both ride `refactor/backdrop-subviewport`,
+still unpushed; the push and ff-merge run the `push-checklist` first).
 **Do not start B3 before M-1** — B3 is the first block that consumes M-1's registration
 formula, and §6.4 forbids settling its sign by re-deriving it.
+Framing and scroll_scale correctness are M-1/B3's job — the 2026-10-07 hand check only
+confirmed the B2 mechanism (scrollbars move the camera, bands scroll together, no #88
+stagger), not the final framing.
 
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
@@ -27,13 +28,13 @@ formula, and §6.4 forbids settling its sign by re-deriving it.
 scroll.
 
 **State: the code repo has ONE open branch, `refactor/backdrop-subviewport`, cut from `trunk`
-and holding B1 as `2e3145b` — not pushed yet.** `trunk` is at `96cd6f1` and in step with
-`origin/trunk`. Push permission for this work was granted once, but the branch push and the
-ff-merge still run the `push-checklist` first, and both B1 and B2 ride the same branch, so
-nothing goes up until B2 is done. The three throwaway probes used to verify B1
-(`tmp_b1_structure.gd`, `tmp_teardown_probe.gd`, `tmp_simulator_shot.gd`) were deleted — the
+and holding B1 (`2e3145b`) + B2 (`8846444`) — not pushed yet.** `trunk` is at `96cd6f1` and
+in step with `origin/trunk`. Push permission for this work was granted once, but the branch
+push and the ff-merge still run the `push-checklist` first; B1+B2 are now both on the branch,
+so nothing blocks the merge except that checklist. The three throwaway probes used to verify
+B1 (`tmp_b1_structure.gd`, `tmp_teardown_probe.gd`, `tmp_simulator_shot.gd`) were deleted — the
 plan's M-block rows record that these probes are never committed. The four AGENTS.md-gated
-suites and `cargo test -p sstd-core` are green at this commit. The 4.7 upgrade is DONE (`f9d9047`
+suites and `cargo test -p sstd-core` are green at `8846444` (re-run 2026-10-07). The 4.7 upgrade is DONE (`f9d9047`
 feature level + gitignored `editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on
 4.7.2). #85 CLOSED. #89 CLOSED — its fix landed as `81405c9` (per-layer `scroll_offset`, Camera2D
 removed) with the framing follow-up `e0e5677`, merged in #98. #96 CLOSED via `7a0edd4` (deferred
