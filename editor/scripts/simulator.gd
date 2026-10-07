@@ -1,7 +1,10 @@
 extends Control
-# ref #68 #74 #89 — Simulator tab: two scrollbars scrub per-layer Parallax2D.scroll_offset.
-# Each layer's scroll_offset is set to scrub * layer.scroll_scale per axis. Two-axis
-# parallax is preserved; camera is no longer used (removed to fix UI displacement).
+# ref #68 #74 #89 #101 — Simulator tab: two scrollbars scrub Camera2D.position.
+# The camera lives with BackdropStrip inside the SubViewport
+# (BackdropView/Viewport, added in #101), so it moves only the six Parallax2D
+# bands and can never displace the editor UI. Each band multiplies the camera
+# move by its own scroll_scale; this script writes the raw camera position, it
+# does not tick per-layer scroll_offset the way #89's deleted code did.
 #
 # The scrollbar nodes are declared in main.tscn as "BackdropScroll" and
 # "BackdropScrollV"; this script only wires the value edges, it does not own either
@@ -16,8 +19,11 @@ var _authored_backdrops_position := Vector2.ZERO
 var _authored_position_captured := false
 
 func _ready() -> void:
-    var strip := get_node_or_null("BackdropStrip") as Node2D
+    var strip := get_node_or_null("BackdropView/Viewport/BackdropStrip") as Node2D
     if strip == null:
+        return
+    var camera: Camera2D = strip.get_parent().get_node_or_null("Camera2D") as Camera2D
+    if camera == null:
         return
     # Defer initial framing to avoid awaiting during tab activation (fixes #96)
     call_deferred("_frame_backdrop", strip)
@@ -29,11 +35,11 @@ func _ready() -> void:
     visibility_changed.connect(func() -> void: if is_visible_in_tree(): call_deferred("_frame_backdrop", strip))
     _scroll_x.value_changed.connect(
         func(value: float) -> void:
-            _set_scroll_offset_x(strip, value)
+            _scrub_camera_x(camera, value)
     )
     _scroll_v.value_changed.connect(
         func(value: float) -> void:
-            _set_scroll_offset_y(strip, value)
+            _scrub_camera_y(camera, value)
     )
     # Strip is 6400px wide; scrub spans the full band.
     _scroll_x.max_value = 6400.0
@@ -140,22 +146,13 @@ func _frame_backdrop(strip: Node2D) -> void:
         tab_rect.position.x - sky_rect.position.x,
         0.0)
 
-func _set_scroll_offset_x(strip: Node2D, value: float) -> void:
-    var backdrops := strip.get_node_or_null("Backdrops") as Node2D
-    if backdrops == null:
-        return
-    for layer in backdrops.get_children():
-        var parallax := layer as Parallax2D
-        if parallax == null:
-            continue
-        parallax.scroll_offset.x = value * parallax.scroll_scale.x
+# The scrollbar writes the raw camera position; each Parallax2D band multiplies it
+# by its own scroll_scale (per axis), so no per-layer bookkeeping is needed here.
+# The camera home stays (0, 0): the C = 0 -> strip-origin mapping is established by
+# M-1's registration formula and B3's derived framing, and a non-zero home would be
+# a framing value that B2 deliberately does not encode.
+func _scrub_camera_x(camera: Camera2D, value: float) -> void:
+    camera.position.x = value
 
-func _set_scroll_offset_y(strip: Node2D, value: float) -> void:
-    var backdrops := strip.get_node_or_null("Backdrops") as Node2D
-    if backdrops == null:
-        return
-    for layer in backdrops.get_children():
-        var parallax := layer as Parallax2D
-        if parallax == null:
-            continue
-        parallax.scroll_offset.y = value * parallax.scroll_scale.y
+func _scrub_camera_y(camera: Camera2D, value: float) -> void:
+    camera.position.y = value
