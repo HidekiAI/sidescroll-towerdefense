@@ -9,9 +9,11 @@ at `f7e70bc`, and deleted — it carried only this plan and the checkpoint updat
 is where both now live. Do not commit B1 on `trunk`; branch-then-merge has no small-change
 carve-out.
 **Design of record (read-only):** wiki `TDD_Parallax-Background`, §3 *Rendering* and §3.1 *Node contract*
-**Status:** B1 committed as `2e3145b` on `refactor/backdrop-subviewport` — scene structure
-only, no framing value authored, so nothing here needed re-measuring. B2 is next. Section 9
-runs before any framing value is authored; section 10's exit conditions are the gates.
+**Status:** B1 committed as `2e3145b` and B2 as `8846444` on `refactor/backdrop-subviewport` —
+scene structure only, no framing value authored, so nothing here needed re-measuring. M-1 is
+next; see the session checkpoint for the known-red `test_parallax_backdrop.gd` (B4 rewrites
+it). Section 9 runs before any framing value is authored; section 10's exit conditions are
+the gates.
 
 ---
 

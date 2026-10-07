@@ -22,6 +22,15 @@ Framing and scroll_scale correctness are M-1/B3's job — the 2026-10-07 hand ch
 confirmed the B2 mechanism (scrollbars move the camera, bands scroll together, no #88
 stagger), not the final framing.
 
+**KNOWN RED at HEAD — `test_parallax_backdrop.gd` hangs (exit 124), run it with
+`timeout 60`.** B1 moved `BackdropStrip` to `BackdropView/Viewport/BackdropStrip`, so the
+script's `get_node("BackdropStrip")` at line 66 returns null and line 67 null-indexes
+before any `quit()` — the same hang mechanism the plan documents for
+`probe_parallax_scroll.gd` (§3). On trunk it exited 1 instead (no `Camera2D` then, so the
+explicit `camera == null` → `quit(1)` branch fired). It is NOT one of the four
+AGENTS.md-gated suites, which are green. Do NOT patch it on this branch — plan §8 assigns
+the rewrite to B4; a path patch at B2 is scope creep.
+
 **Objective:** restack the #68 parallax background on the official
 [2D Parallax tutorial](https://docs.godotengine.org/en/stable/tutorials/2d/2d_parallax.html)
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
