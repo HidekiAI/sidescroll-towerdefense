@@ -7,20 +7,57 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-07 (B2 committed as `8846444`, verified by hand in the editor —
-scrollbars drive the backdrop, no stagger; B1 `2e3145b`; both on
-`refactor/backdrop-subviewport`, unpushed)_
+_Last updated: 2026-10-10 (parallax restructure re-planned and fully ticketed as #104-#110;
+no code for the new plan has been written)_
 
-**NEXT MOVE: start block M-1** — read `docs/PLAN-2026-10-06-subviewport-backdrop.md` §8
-(block map + ordering) and §10 (the eight exit conditions) before touching a file.
-Sequence: B1 done → **B2 done** → **M-1** → M-2 → M-3 → B3 → M-4 → M-6 → A1 → B4 → B5.
-**B1 and B2 must reach `trunk` in ONE merge** (both ride `refactor/backdrop-subviewport`,
-still unpushed; the push and ff-merge run the `push-checklist` first).
-**Do not start B3 before M-1** — B3 is the first block that consumes M-1's registration
-formula, and §6.4 forbids settling its sign by re-deriving it.
-Framing and scroll_scale correctness are M-1/B3's job — the 2026-10-07 hand check only
-confirmed the B2 mechanism (scrollbars move the camera, bands scroll together, no #88
-stagger), not the final framing.
+**NEXT MOVE: implement step 1, #104** — `crates/sstd-core/src/parallax.rs` (`place_layer`
+plus the `Stack`/`Layer`/`Depth` data model, `validate`, and the legacy `manifest.json`
+migration), following `TDD_Parallax-Scrolling.Math` §2 and the `.Verification` tests U1-U12.
+Then step 2 (#105) and step 3 (#106). Steps 4-7 wait on the first slice landing.
+
+**Design of record is the 2026-10-09 wiki set, not this file's older restack narrative:**
+[TDD_Parallax-Scrolling](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling)
+and its [.Evaluation](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Evaluation) /
+[.Math](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Math) /
+[.Data](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Data) /
+[.Verification](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Verification)
+sub-pages, with the run record
+[PostMortem_Parallax-Scrolling-2026-10-09](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/PostMortem_Parallax-Scrolling-2026-10-09).
+It supersedes `TDD_Parallax-Background`'s `Parallax2D` contract and, with it, the B1/B2/M-1
+narrative kept below: the work is now seven steps, one ticket each.
+
+| Step | Issue | Closes |
+|---|---|---|
+| 1 owned parallax math in `sstd-core::parallax` | #104 | #91 |
+| 2 `gen-backdrop` emits `stack.json` | #105 | #90 |
+| 3 bridge `parallax_placements` | #106 | — |
+| 4 `WorldView` + `ParallaxDraw` in the Simulator | #107 | #88, #99, #101 |
+| 5 Map Editor live parallax on `WorldView` | #108 | #87, #100 |
+| 6 world archive `backdrop.json` + legacy reader | #109 | — |
+| 7 per-corridor stack and anchor (deferred) | #110 | — |
+
+Epic stay-open hub is #68; step 4 is what closes the old #101 restructure. **First slice is
+steps 1-3, Rust only — no Godot scene change.** @me writes the non-trivial logic with the
+`coding-assistant` skill and the assistant scaffolds `TODO(human)` blocks. The Bevy (O3a) /
+Fyrox (O5a) fallback fires only if, after step 4, gate G5 is still red under the per-copy
+fallback OR editor zoom filtering is unacceptable; it then touches step 4 and S1 only.
+
+**Known-red file, unchanged by the replan:** `editor/tests/test_parallax_backdrop.gd` is not
+one of the four AGENTS.md-gated suites and is rewritten wholesale by step 4 (#107), which also
+deletes `probe_parallax_scroll.gd`. Do not patch it before then — a path patch is scope creep
+the ticket already owns.
+
+**Doc conflict found 2026-10-10, needs its own ticket:** `AGENTS.md` (workspace and code repo)
+still says `test_screen_store` is "currently RED ... (issue #85)". #85 is CLOSED and the suite
+**exits 0** on 4.7.2 (`4.7.2.stable.mono`, re-run 2026-10-10). The AGENTS.md baseline line is
+stale and misleads every cold session. Not fixed here — scope is the parallax tickets.
+
+---
+
+### Pre-#104 record (history, not state)
+
+Everything from here to the next `##` heading describes the retired B1/B2/M-1 restack plan
+and the branches it rode. Read it for history only.
 
 **KNOWN RED at HEAD — `test_parallax_backdrop.gd` hangs (exit 124), run it with
 `timeout 60`.** B1 moved `BackdropStrip` to `BackdropView/Viewport/BackdropStrip`, so the
@@ -36,19 +73,16 @@ the rewrite to B4; a path patch at B2 is scope creep.
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: the code repo has ONE open branch, `refactor/backdrop-subviewport`, cut from `trunk`
-and holding B1 (`2e3145b`) + B2 (`8846444`) — not pushed yet.** `trunk` is at `96cd6f1` and
-in step with `origin/trunk`. Push permission for this work was granted once, but the branch
-push and the ff-merge still run the `push-checklist` first; B1+B2 are now both on the branch,
-so nothing blocks the merge except that checklist. The three throwaway probes used to verify
-B1 (`tmp_b1_structure.gd`, `tmp_teardown_probe.gd`, `tmp_simulator_shot.gd`) were deleted — the
-plan's M-block rows record that these probes are never committed. The four AGENTS.md-gated
-suites and `cargo test -p sstd-core` are green at `8846444` (re-run 2026-10-07). The 4.7 upgrade is DONE (`f9d9047`
-feature level + gitignored `editor/addons/`, `ecbf893` fixes #85, `test_screen_store` exits 0 on
-4.7.2). #85 CLOSED. #89 CLOSED — its fix landed as `81405c9` (per-layer `scroll_offset`, Camera2D
-removed) with the framing follow-up `e0e5677`, merged in #98. #96 CLOSED via `7a0edd4` (deferred
-framing, visibility-aware reframe) and `a0f0dd3` (TabContainer sizing), which was reverted by
-`497501a` and retried as `aebdea3` (`layout_mode = 1`).**
+**State: `trunk` = `af14b64` (`current snapshot`), ONE commit ahead of `origin/trunk` and
+unpushed.** That commit is not Conventional-Commits conforming and is not mine to rewrite —
+noted, not touched. `bcb612c` (the bridge `.so` atomic-rename fix, ref #103) is its parent.
+Local branches: `docs/m1-probe` (`493b5fe`, unpushed) and `docs/fix-readme-godot-version`
+(`594cffb`); `refactor/backdrop-subviewport` no longer exists, so the B1/B2 paragraphs below
+are history, not state. The wiki `master` is at `2bf2c9b`, level with its remote. The parallax
+work that this block now tracks has **no code yet** — #104-#110 are the plan, filed
+2026-10-10. #85, #89, #96 are all CLOSED (see the pre-#104 record below for their commits).
+The four AGENTS.md-gated suites: three green, and `test_screen_store` verified green on 4.7.2
+on 2026-10-10 — note its AGENTS.md baseline line is stale (see the conflict note above).**
 
 **DECIDED 2026-10-06 — restructure, do not re-tune `Backdrops.position`. #101 filed.**
 The stack lives in the editor's **root** viewport, and that one fact causes both open
@@ -62,7 +96,7 @@ reach the root canvas at all. So the camera can return, scoped. With no camera,
 six bands wrap at six different rates — **#88's stagger, and unfixable by a parent
 translation**. Fixing it means deriving the framing instead of measuring it.
 
-- **Ticket: #101** (refactor, 8 acceptance criteria A1–A8). **Plan:
+- **Ticket: #101** (refactor, 8 acceptance criteria A1-A8). **Plan:
   `docs/PLAN-2026-10-06-subviewport-backdrop.md`**, gated against #101 at **97/100** across
   three iterations (59 → 95 → 97). Gate lessons in `.rsi_memory/plan-ticket-gate.md`, task
   playbook in `.rsi_memory/sstd-parallax-subviewport-restructure.md` (workspace root, outside
@@ -76,7 +110,7 @@ translation**. Fixing it means deriving the framing instead of measuring it.
 - **#92 needs re-scoping** — its count and line ranges are stale after #89. Follow-up, not
   part of #101.
 - **Interim RED, recorded deliberately:** `test_parallax_backdrop.gd` exits 1 on `trunk`
-  (`BackdropStrip has no Camera2D to drive`, line 69; assertions at 114–198 never run) and
+  (`BackdropStrip has no Camera2D to drive`, line 69; assertions at 114-198 never run) and
   `probe_parallax_scroll.gd` hangs (exit 124 under `timeout 60`, reads `L2_near`, a layer name
   retired by the restack). Neither is in `AGENTS.md`'s gate list, which is why nothing caught
   them. B4 rewrites the first and **deletes** the second. The four AGENTS.md-gated suites are
