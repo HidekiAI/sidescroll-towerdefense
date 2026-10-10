@@ -73,12 +73,13 @@ the rewrite to B4; a path patch at B2 is scope creep.
 — in-repo generated layers, a visible and correctly framed backdrop, provable two-axis
 scroll.
 
-**State: `trunk` = `af14b64` (`current snapshot`), ONE commit ahead of `origin/trunk` and
-unpushed.** That commit is not Conventional-Commits conforming and is not mine to rewrite —
-noted, not touched. `bcb612c` (the bridge `.so` atomic-rename fix, ref #103) is its parent.
-Local branches: `docs/m1-probe` (`493b5fe`, unpushed) and `docs/fix-readme-godot-version`
-(`594cffb`); `refactor/backdrop-subviewport` no longer exists, so the B1/B2 paragraphs below
-are history, not state. The wiki `master` is at `2bf2c9b`, level with its remote. The parallax
+**State: `trunk` = `353d15d`, level with `origin/trunk`.** It went up via the working branch
+`docs/parallax-tickets`, merged 2026-10-10; the range `bcb612c..353d15d` also carried the
+pre-existing `af14b64` ("current snapshot", non-Conventional, not authored here, not
+rewritten). Local branches still open, both unpushed and neither mine: `docs/m1-probe`
+(`493b5fe`) and `docs/fix-readme-godot-version` (`594cffb`). `refactor/backdrop-subviewport`
+no longer exists, so the B1/B2 paragraphs below are history, not state. The wiki `master` is
+at `67850b1`, level with its remote. The parallax
 work that this block now tracks has **no code yet** — #104-#110 are the plan, filed
 2026-10-10. #85, #89, #96 are all CLOSED (see the pre-#104 record below for their commits).
 The four AGENTS.md-gated suites: three green, and `test_screen_store` verified green on 4.7.2
