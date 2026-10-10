@@ -63,10 +63,10 @@ func _init() -> void:
     var sim: Control = main.get_node(SIM_PATH) as Control
 
     # --- the strip must actually be shown; this is the bug that started it all ---
-    var strip: Node2D = sim.get_node(STRIP) as Node2D
+    var strip: Node2D = sim.get_node("BackdropView/Viewport/BackdropStrip") as Node2D
     if not strip.visible:
         _fail("BackdropStrip is hidden; the backdrop renders nothing at all")
-    var camera: Camera2D = strip.get_node("Camera2D") as Camera2D
+    var camera: Camera2D = sim.get_node_or_null("BackdropView/Viewport/Camera2D") as Camera2D
     if camera == null:
         _fail("BackdropStrip has no Camera2D to drive")
         _report()
@@ -116,7 +116,7 @@ func _init() -> void:
     for entry in EXPECTED_LAYERS:
         var layer_name: String = entry[0]
         var found: Parallax2D = sim.get_node_or_null(
-            "%s/%s/%s" % [STRIP, BACKDROPS, layer_name]) as Parallax2D
+            "BackdropView/Viewport/BackdropStrip/Backdrops/%s" % layer_name) as Parallax2D
         if found == null:
             _fail("backdrop layer %s is missing from the stack" % layer_name)
             layers.append(null)
