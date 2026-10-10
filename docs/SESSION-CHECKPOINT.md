@@ -7,13 +7,25 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-10 (parallax restructure re-planned and fully ticketed as #104-#110;
-no code for the new plan has been written)_
+_Last updated: 2026-10-10 (step 1 #104 scaffolded to the coding-assistant handoff; 18
+`TODO(human)` blocks are open and none has been written yet)_
 
-**NEXT MOVE: implement step 1, #104** — `crates/sstd-core/src/parallax.rs` (`place_layer`
-plus the `Stack`/`Layer`/`Depth` data model, `validate`, and the legacy `manifest.json`
-migration), following `TDD_Parallax-Scrolling.Math` §2 and the `.Verification` tests U1-U12.
-Then step 2 (#105) and step 3 (#106). Steps 4-7 wait on the first slice landing.
+**NEXT MOVE: @me writes block 1/18 in `crates/sstd-core/src/parallax.rs`** — the module is
+already scaffolded with every type, constant, signature and the whole `#[cfg(test)] mod tests`;
+each non-trivial body is an empty `TODO(human)` block, so the editor flags it with `E0308`
+deliberately (an empty body against a real return type, not `todo!()`, which would silence the
+LSP). Working branch `local/feat/parallax-step1`, unpushed, commits `b388c5d` .. `0c6d026`.
+Gated plan is `docs/PLAN-2026-10-10-parallax-step1.md` — section 11 is the block map (18 rows),
+section 13 the gate record (final score 92, no CRITICAL).
+
+Red evidence at the handoff: `cargo test -p sstd-core parallax` is **22 failed / 2 passed**, the
+two passes being the round-trip tests for the assistant-written `Serialize` impls; before the
+blocks replaced the stubs it was the same 22/2 after a vacuity tripwire was added to the
+`resolved()` helper (U1, U2 and U5 had passed vacuously over the stub `resolve`'s empty layer
+list). `cargo check -p sstd-core` reports **exactly 18 mismatched-types errors, one per block**.
+
+Then step 2 (#105) and step 3 (#106), still Rust-only. Steps 4-7 wait on the first slice
+landing. Verification tests are U1-U23 (`TDD_Parallax-Scrolling.Verification`), not U1-U12.
 
 **Design of record is the 2026-10-09 wiki set, not this file's older restack narrative:**
 [TDD_Parallax-Scrolling](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling)
