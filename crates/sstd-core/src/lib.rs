@@ -6,6 +6,7 @@ pub mod error;
 pub mod items;
 pub mod luckbot;
 pub mod map;
+pub mod parallax;
 pub mod resurrection;
 pub mod storage;
 pub mod terrain;
@@ -27,6 +28,12 @@ pub use luckbot::{
 pub use map::{
     pixel_to_tile, tile_to_world, world_to_screen, ClearanceResult, PlacedEntity, Screen,
     TileEntry, TileGrid,
+};
+pub use parallax::{
+    anchor_clamp_line, camera_bound, clamp_anchor, clamp_center, default_anchor, journal_line,
+    map_rectangle, place_layer, snap, snap_center, Anchor, Depth, Fill, Layer, LayerArt,
+    LegacyLayer, LegacyManifest, MapRect, Placement, Plane, RefView, ResolvedLayer, ResolvedStack,
+    Stack, ViewState, MAX_LAYERS, SCREEN_H_PX, SCREEN_W_PX, VIEW_H_PX, VIEW_W_PX,
 };
 pub use resurrection::{
     apply_damage_absorb_turn, damage_absorb_turn, is_affordable, maseki_percent_payment, mp_to_hp,
