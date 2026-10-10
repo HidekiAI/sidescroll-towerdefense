@@ -47,10 +47,11 @@ one of the four AGENTS.md-gated suites and is rewritten wholesale by step 4 (#10
 deletes `probe_parallax_scroll.gd`. Do not patch it before then — a path patch is scope creep
 the ticket already owns.
 
-**Doc conflict found 2026-10-10, needs its own ticket:** `AGENTS.md` (workspace and code repo)
+**Doc conflict found 2026-10-10 and filed as #111:** `AGENTS.md` (workspace and code repo)
 still says `test_screen_store` is "currently RED ... (issue #85)". #85 is CLOSED and the suite
-**exits 0** on 4.7.2 (`4.7.2.stable.mono`, re-run 2026-10-10). The AGENTS.md baseline line is
-stale and misleads every cold session. Not fixed here — scope is the parallax tickets.
+**exits 0** on 4.7.2 (`4.7.2.stable.mono`, re-run 2026-10-10). Three passages are stale (two in
+the committed `.opencode/AGENTS.md`, one in the workspace `AGENTS.md`, which is not under
+version control). Fixed by #111, not here.
 
 ---
 
