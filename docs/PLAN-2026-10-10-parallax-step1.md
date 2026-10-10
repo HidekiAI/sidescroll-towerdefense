@@ -72,6 +72,7 @@ pub struct LayerArt {
     pub width_px: u32,
     pub height_px: u32,
     pub is_rgba: bool,
+    pub fully_opaque: bool,       // alpha 255 at every pixel of the whole PNG
     pub top_row_opaque: bool,     // alpha 255 at every pixel of row 0
     pub bottom_row_opaque: bool,  // alpha 255 at every pixel of the last row
 }
@@ -97,9 +98,8 @@ function of the view"), it makes U17's fixture constructible without a PNG on di
 makes "PNG is RGBA" a measurement made once by the tool that produced the PNG rather than
 re-derived per load.
 
-Cost: the wiki wording needs a one-line amendment (`Data` section 4 gains the "facts are
-supplied by the caller" sentence, `Math` section 2's signature sample is already correct).
-Tracked in section 9.
+Cost: the wiki wording needs a one-line amendment, which is tracked as its own doc follow-up
+(section 9), not as an action in this branch.
 
 ### 3.2 Journal lines are formatted by the caller, from `ValidationMessage`
 
@@ -140,26 +140,26 @@ pub const SCREEN_W_PX: i32 = 1920;      // R1: 60 x 33 tiles at 32 px
 pub const SCREEN_H_PX: i32 = 1056;
 pub const VIEW_W_PX: i32 = 1920;        // R2: view is one screen wide plus 24 px
 pub const VIEW_H_PX: i32 = 1080;
-pub const REF_VIEW_W_PX: i32 = 1920;    // Data 1: ref outer view the art was composed for
-pub const REF_VIEW_H_PX: i32 = 1080;
 pub const MAX_LAYERS: usize = 7;        // Data 4: parallax.max_layers, never seeded in config
+const LEGACY_FRONT_Z_INDEX: i32 = 10;   // Data 5: foreground threshold in manifest.json
 
-// model (serde)
-pub enum Depth { Finite(f64), Infinity }
+// model (serde), exactly Data 1's shape
+pub enum Depth { Finite(f64), Infinite }        // "inf" parses to Infinite
 pub enum Plane { Back, Front }
 pub enum Fill { Transparent, Rgba(u8, u8, u8, u8) }
-pub struct Layer { .. }                 // exactly Data 1's seven fields plus name/file/plane
-pub struct Stack { .. }                 // schema_version, generator_seed, layers: Vec<Layer>
+pub struct RefView { pub width: f64, pub height: f64 }
+pub struct Layer { .. }
+pub struct Stack { .. }   // schema_version, stack_key, palette_key, generator_seed, ref_view, layers
 
-// resolved, validated form
+// resolved, validated form: Math section 2's `Layer`, with the rate and the period precomputed
 pub struct ResolvedLayer { .. }
-pub struct ResolvedStack { layers: Vec<ResolvedLayer> }
+pub struct ResolvedStack { ref_view: RefView, layers: Vec<ResolvedLayer> }
 pub struct LayerArt { .. }              // section 3.1
 
 // view / geometry
 pub struct ViewState { cam_center_world_px_x, cam_center_world_px_y, zoom, view_w_px, view_h_px }
 pub struct Anchor { world_px_x, world_px_y }
-pub struct Placement { art_screen_left: i32, art_screen_top: i32, copy_count: u32, scale: f64 }
+pub struct Placement { first_copy_left_px: i32, copy_count: u32, screen_top_px: i32, scale: f64 }
 pub struct MapRect { left, top, right, bottom }   // world px, right/bottom exclusive
 
 // functions
@@ -190,48 +190,48 @@ impl Stack {
 pub struct LegacyManifest { .. }        // pub so step 2/6 and the U8 fixture can build it
 ```
 
-Deliberate deviations from the names in `Math` section 2 (which is a sample, not a contract):
+Departures from `Math` section 2's sketch, all collected in section 9's callout table:
 
-- `Placement` gains `art_screen_left`/`art_screen_top` and drops `first_copy_left` /
-  `screen_top_px`. The sample's names describe the pre-repeat copy, but the drawing step
-  (`Math` section 7) needs the *art* left plus the copy count, because
-  `draw_set_transform(Vector2(first_copy_left_px, screen_top_px))` then
-  `draw_texture_rect(0,0, period_px*copy_count, art_h)` — the single call the design wants.
-  Keeping both names for one number invites the two to drift.
-- `place_layer` takes `&ResolvedLayer`, not `&Layer`: the rate, the period and the art height
-  are derived once in `resolve`, not per frame. `ResolvedLayer` / `ResolvedStack` are derivation
-  caches, not ticket-mandated types — the ticket names `Layer`, `Stack`, `ViewState`, `Anchor`
-  and `Placement`, and those all exist here unchanged.
-- U23's assertion names `first_copy_left_px` / `screen_top_px`; under the names above it asserts
-  `art_screen_left` / `art_screen_top` are integers, plus `cam_center` on the zoom grid.
+- `ResolvedLayer` keeps the sketch's field names and variants (`Depth::Infinite`,
+  `first_copy_left_px`, `screen_top_px`) but is the resolved form: `rate_x`/`rate_y`
+  precomputed from `depth` + `vertical_damping`, `period_px` from the PNG width, the stack's
+  `ref_view` copied in, plus `art_h_px` and the two fills, which section 7's drawing needs.
+  `ResolvedLayer` / `ResolvedStack` are derivation caches, not ticket-mandated types.
+- `place_layer` takes `&ResolvedLayer`, not the raw `&Layer`, so nothing is recomputed per
+  frame; otherwise the body is the sketch line for line (section 5).
 
 ## 5. Algorithm: `place_layer`
 
-Verbatim from `Math` section 2, per axis, with the names of section 1:
+Verbatim from `Math` section 2's Rust sketch (lines 80-94), with `ref_view` read from the
+resolved layer instead of a module constant:
 
-```
-rate_x        = if Infinity { 0 } else { 1 / (1 + parallax_depth) }
-rate_y        = rate_x * vertical_damping
-layer_cam     = anchor + (cam_center - anchor) * rate
-art_left_world = anchor_x + ref_screen_left_px - REF_VIEW_W_PX / 2
-art_screen_left = (art_left_world - layer_cam_x) * zoom + view_w_px / 2
-art_screen_top  = (art_top_world  - layer_cam_y) * zoom + view_h_px / 2
-if repeat_x:
-    period_screen = period_px * zoom
-    first_copy    = fposmod(art_screen_left, period_screen)      // = rem_euclid
-    copy_count    = ceil((view_w_px - first_copy) / period_screen)
-else:
-    copy_count    = 1
-return Placement { snap(art_screen_left), snap(art_screen_top), copy_count, zoom }
+```rust
+pub fn place_layer(view: &ViewState, anchor: &Anchor, layer: &ResolvedLayer) -> Placement {
+    let layer_cam_x = anchor.world_px_x + (view.cam_center_world_px_x - anchor.world_px_x) * layer.rate_x;
+    let layer_cam_y = anchor.world_px_y + (view.cam_center_world_px_y - anchor.world_px_y) * layer.rate_y;
+    let art_left_world = anchor.world_px_x + layer.ref_screen_left_px - layer.ref_view.width / 2.0;
+    let art_top_world  = anchor.world_px_y + layer.ref_screen_top_px  - layer.ref_view.height / 2.0;
+    let art_screen_left = (art_left_world - layer_cam_x) * view.zoom + view.view_w_px / 2.0;
+    let art_screen_top  = (art_top_world  - layer_cam_y) * view.zoom + view.view_h_px / 2.0;
+    let (first_copy_left, copy_count) = if layer.repeat_x {
+        let period_screen = layer.period_px * view.zoom;
+        let first_copy_left = art_screen_left.rem_euclid(period_screen) - period_screen;
+        (first_copy_left, ((view.view_w_px - first_copy_left) / period_screen).ceil() as u32)
+    } else {
+        (art_screen_left, 1)
+    };
+    Placement { first_copy_left_px: snap(first_copy_left), copy_count,
+                screen_top_px: snap(art_screen_top), scale: view.zoom }
+}
 ```
 
 Notes that matter for correctness and that a reader will otherwise get wrong:
 
 - The repeat is computed on the **unsnapped** left, and only the returned value is snapped
   (`Math` section 3's zoom-0.25 example: `copy_count` is always 5 there).
-- `rem_euclid` is the `fposmod`. It returns the sign of the divisor, so `first_copy` is in
-  `[0, period)`; `copy_count` is then `ceil((view_w - first_copy)/period)`, which covers
-  `[0, view_w)`.
+- `rem_euclid` is the `fposmod`, and it is then shifted by one period: `first_copy_left` lies in
+  `[-period_screen, 0)`, never `[0, period_screen)`. `copy_count` is
+  `ceil((view_w - first_copy_left) / period_screen)`, which covers `[0, view_w)`.
 - `zoom` is optical (`Math` section 6): it multiplies only the projection, never the rate,
   so relative motion is zoom-independent and a `rate 0` layer is pinned on pan but scales on
   zoom (U21).
@@ -254,7 +254,7 @@ problem. `code` is the `rule=` value in the journal line.
 | within a plane, `draw_order` unique | `draw_order_unique` |
 | ascending `draw_order` has non-increasing depth on the back plane (base exempt) | `draw_order_depth` |
 | layer count `<= MAX_LAYERS` | `max_layers` |
-| the lowest-`draw_order` back layer is fully opaque (PNG + both fills) | `base_opaque` |
+| the lowest-`draw_order` back layer has an all-opaque PNG (`fully_opaque`) and opaque `fill_above` / `fill_below` | `base_opaque` |
 | a non-`transparent` fill needs that edge row fully opaque | `fill_edge_opaque` |
 | `file` is an RGBA PNG | `file_rgba` |
 | `LayerArt` count equals `layers.len()` | `art_count` |
@@ -303,6 +303,9 @@ what lets a `Sun` at `"inf"` sit above the opaque `Sky` and below the rest.
 | `z_index < 0 or >= 1` up to the foreground | `draw_order` | order preserved |
 | the foreground (`z_index 10`) | `plane: front` | `z_index >= 10` is a documented threshold, not a magic number in the body; it gets a named constant |
 | `width_px`, `overscan_px`, `height_px` | dropped | read from the PNG, fills replace overscan |
+| (absent in the legacy file) | `stack_key`, `palette_key` | parameters: `from_legacy_manifest(m, stack_key, palette_key)`. The legacy file has neither, and only the caller knows the stack's key and palette |
+| `width_px` | `ref_view.width` | the legacy ref width is `1920` |
+| (absent in the legacy file) | `ref_view.height` | `VIEW_H_PX` (1080): the legacy sky is 1320 = 1080 + the 240 px overscan, so 1080 is the view height the old art was composed against |
 
 The twelve rates of the on-disk manifest (`editor/assets/backdrop_layers/manifest.json`,
 6 layers x 2 axes) reproduce the `Data` section 1 depths and dampings to within `1e-4`: e.g.
@@ -325,13 +328,13 @@ parameter), one placement-field rename, and two derived helper types.
 
 | Item | Tickets line it serves | Action |
 |---|---|---|
-| Ticket Scope reads `validate(&Stack) -> ValidationResult`; the plan writes `validate(&Stack, &[LayerArt])` | same ticket line; the extra argument is the PNG facts that line's rules are written against | stated in section 3.1; needs the one-sentence wiki amendment below |
-| Ticket Scope reads the screen size is "passed in (1920 x 1056)"; the plan makes it the constants `SCREEN_W_PX` / `SCREEN_H_PX` and passes the *view* size in `ViewState` | same ticket line, and its stated anti-goal: never read the stale `Screen::default()` / `GridConfig::default()` | `R1` fixes the screen at 1920 x 1056, so a parameter would be false flexibility; the anti-goal is met either way |
-| Ticket Scope reads `place_layer(view, anchor, layer) -> Placement`; the plan passes a `ResolvedLayer` and adds `ResolvedLayer` / `ResolvedStack` | same ticket line | the rate, period and art height are derived once in `resolve` instead of per frame; same function, same inputs |
+| Ticket Scope reads `validate(&Stack) -> ValidationResult`; the plan writes `validate(&Stack, &[LayerArt])` | that Scope line, plus AC `validate emits one ValidationMessage per failing rule, carrying field and value`, and `Data` section 4's `file` / `fill_edge_opaque` rows | stated in section 3.1; the wiki sentence is corrected by its own doc follow-up, not by this branch |
+| Ticket Scope reads the screen size is "passed in (1920 x 1056)"; the plan makes it the constants `SCREEN_W_PX` / `SCREEN_H_PX` and passes the *view* size in `ViewState` | that Scope line, plus its stated anti-goal: never read the stale `Screen::default()` / `GridConfig::default()` | `R1` fixes the screen at 1920 x 1056, so a parameter would be false flexibility; the anti-goal is met either way |
+| Ticket Scope reads `place_layer(view, anchor, layer) -> Placement`; the plan passes a `ResolvedLayer` and adds `ResolvedLayer` / `ResolvedStack` | that Scope line | same function, same field names and variants as `Math` section 2's sketch; only the type *name* differs, because the resolved form drops `depth`/`vertical_damping` in favour of the rates the sketch's own `impl` computes |
 | `Fill::from_edge_row` | AC `U22` (the fill equals the edge-row mean, else transparent) | step 1's U22 test is the **pure half only**, permitted by the wiki's own U22 title, which marks the emitted-layer and sky-haze assertions as a `` `gen-backdrop` `` test; that half is #105 |
 | The journal formatters (`journal_line`, `anchor_clamp_line`) | AC `validate ... carrying field and value`; `Data` line 146; U7, U19 | they live in `parallax.rs`, so no file outside the new module changes |
 | `Data` section 4 implies `validate` reads the PNG | the two rule rows it states (`file_rgba`, `fill_edge_opaque`) | the code side is section 3.1; the wiki sentence is corrected by its own doc follow-up, not by this branch |
-| `Math` section 2's `Placement` field names | the placement function's return value | renamed in section 4, for the reason given there |
+| `Math` section 2's sketch and `Math` section 7's draw call both use `first_copy_left_px` / `screen_top_px`; the plan keeps those names and variants verbatim (`Depth::Infinite`, `rem_euclid(..) - period`) | the placement function's return value; U23 asserts those exact names | no divergence: the first draft of this plan renamed them and was corrected against the sketch |
 | config keys `parallax.*` | the `max_layers` rule | never seeded (`Data` section 5), so `MAX_LAYERS` is a module constant |
 
 ### Possible follow-ups (not this ticket)
@@ -375,8 +378,8 @@ U12 is blocked and U18 is excluded by that same AC line (it is a `gen-backdrop` 
 | U17 | `LayerArt` with one alpha-0 pixel in the bottom row | rejected with `rule=fill_edge_opaque`; same with `transparent` loads |
 | U19 | anchor `(5000, -300)` then `(960, 1000)` | clamped to `(960, 540)`, one `anchor_clamp_line` |
 | U20 | two-row map, player at y `3000` then `-500` | camera clamp |
-| U22 | synthetic RGBA edge rows | `Fill::from_edge_row` returns the mean, else `Transparent`; the emitted-PNG and sky-haze half is #105 |
-| U23 | fractional player position | camera snap; `art_screen_left`/`art_screen_top` integers |
+| U22 | synthetic RGBA edge rows | step 1 satisfies AC1's `U22` by its pure half: `Fill::from_edge_row` returns the mean, else `Transparent`. The wiki's U22 title marks the emitted-PNG and sky-haze half a `` `gen-backdrop` `` test, which is #105 |
+| U23 | fractional player position | camera snap; `first_copy_left_px`/`screen_top_px` integers |
 | U12 | - | blocked until the Phase 2 simulator exists (ticket says so) |
 | U18 | - | not this step: `gen-backdrop` test, excluded by the AC line (#105) |
 
@@ -449,6 +452,23 @@ doc follow-up rather than an action in this branch.
 
 No CRITICAL item was reported in either iteration, so nothing was removed for being
 ticket-unsupported.
+
+### Addendum: post-gate correction (same day)
+
+Reading `Math` section 2's sketch and section 7's draw call side by side showed the plan's
+first draft had paraphrased the algorithm wrongly: it invented `art_screen_left` /
+`art_screen_top` in `Placement` where the sketch and U23 both say `first_copy_left_px` /
+`screen_top_px`, used `Depth::Infinity` for `Depth::Infinite`, and dropped the
+`rem_euclid(..) - period` shift that puts `first_copy_left` in `[-period, 0)`. All three are
+now verbatim from the sketch, and the placement function is copied line for line from it.
+
+A third scoring pass after the correction returned 92 again, with the `Placement` rename
+reported resolved and two new items raised, both fixed: section 8 now states how
+`from_legacy_manifest` fills `stack_key`, `palette_key` and `ref_view` (parameters plus
+`VIEW_H_PX`), and the `Layer` -> `ResolvedLayer` rename moved into section 9's callout table.
+
+Lesson worth keeping: a plan that paraphrases a cited code sketch can diverge from it in ways
+the gate cannot see, because the gate reads the plan, not the sketch. Copy the sketch.
 
 Lessons for the playbook (`<plan-docs-dir>/.rsi_memory/plan-ticket-gate.md`):
 - A ticket AC that names a test range (`U19-U23`) is a per-test contract: enumerate every ID in
