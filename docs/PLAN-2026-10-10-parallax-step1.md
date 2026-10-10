@@ -304,6 +304,7 @@ what lets a `Sun` at `"inf"` sit above the opaque `Sky` and below the rest.
 | the foreground (`z_index 10`) | `plane: front` | `z_index >= 10` is a documented threshold, not a magic number in the body; it gets a named constant |
 | `width_px`, `overscan_px`, `height_px` | dropped | read from the PNG, fills replace overscan |
 | (absent in the legacy file) | `stack_key`, `palette_key` | parameters: `from_legacy_manifest(m, stack_key, palette_key)`. The legacy file has neither, and only the caller knows the stack's key and palette |
+| (absent in the legacy file) | `ref_screen_left_px`, `ref_screen_top_px`, `fill_above`, `fill_below` | neutral values (`0`, `Transparent`); `gen-backdrop` (step 2) supplies the derived placements and fills, which the legacy file does not contain |
 | `width_px` | `ref_view.width` | the legacy ref width is `1920` |
 | (absent in the legacy file) | `ref_view.height` | `VIEW_H_PX` (1080): the legacy sky is 1320 = 1080 + the 240 px overscan, so 1080 is the view height the old art was composed against |
 
@@ -312,11 +313,14 @@ The twelve rates of the on-disk manifest (`editor/assets/backdrop_layers/manifes
 Sky `0.10` -> `parallax_depth 9`, `0.08/0.10 -> 0.8`; Hills `0.50 -> 1`, `0.42/0.50 -> 0.84`;
 Foreground `1.30 -> -0.2308`, `1.15/1.30 -> 0.8846`. That file is the U8 fixture.
 
-`ref_screen_left_px` / `ref_screen_top_px` are **not** derivable from the legacy manifest (the
-legacy framing lived in `backdrop_preview.tscn`, not in the manifest) — `Data` section 1 derives
-them from the old design frame. So `from_legacy_manifest` sets them to the derived band values
-(`old_sprite_y - 240`) and the sun disc is a separate emitted layer (step 2). Recorded so
-nobody expects the migration to invent the foreground framing.
+`ref_screen_left_px` / `ref_screen_top_px` and the fills are **not** derivable from the legacy
+manifest (the legacy framing lived in `backdrop_preview.tscn`, not in the manifest, and the
+fills want the PNG's edge rows) — `Data` section 1 derives them from the old design frame, and
+`Data` section 5 gives `ref_screen_top_px = old_sprite_y - 240` with the sprite y read from the
+scene. The migration therefore sets them to their neutral values (`0`, `Transparent`) and
+`gen-backdrop` (step 2) supplies the derived ones, which is why U8 asserts the twelve **rates**
+and nothing about placements. Stated here so nobody expects `from_legacy_manifest` to invent
+the foreground framing or the fills.
 
 ## 9. Divergences from the ticket's literal wording, and possible follow-ups (not this ticket)
 
@@ -392,25 +396,41 @@ applied and seen red. That verification pass is part of this step, not a follow-
 ## 11. Block map (what the coding-assistant hands to @me)
 
 Assistant writes: the module skeleton (constants, struct and field definitions, `serde`
-attributes, the `lib.rs` wiring), and the whole `#[cfg(test)] mod tests`. @me writes the logic:
+attributes, the two `Serialize` impls, the `lib.rs` wiring), and the whole
+`#[cfg(test)] mod tests`. @me writes the logic:
 
-| Block | Where | What to write (not how) | Depends on |
-|---|---|---|---|
-| 1/M | `parallax.rs`, `Depth` | deserialize a number or the string `"inf"`, reject the rest | - |
-| 2/M | `parallax.rs`, `Fill` | deserialize `"transparent"` or `"#RRGGBBAA"`; `from_edge_row` mean | - |
-| 3/M | `parallax.rs`, `Layer::rate_x/rate_y` | the rate from depth, damped on y | 1 |
-| 4/M | `parallax.rs`, `snap`, `snap_center` | the pixel-grid snap, camera variant | - |
-| 5/M | `parallax.rs`, `place_layer` | the section 5 algorithm, repeat included | 3, 4 |
-| 6/M | `parallax.rs`, `map_rectangle` | the screen-set bounding box | - |
-| 7/M | `parallax.rs`, `camera_bound`, `clamp_center` | the bound rect and the centre clamp | 6 |
-| 8/M | `parallax.rs`, `default_anchor`, `clamp_anchor` | the home-view default and the clamp | 6, 7 |
-| 9/M | `parallax.rs`, `journal_line`, `anchor_clamp_line` | the two line formats of section 3.2 | - |
-| 10/M | `parallax.rs`, `Stack::validate` | the section 6 rule table | 1, 2, 3 |
-| 11/M | `parallax.rs`, `Stack::resolve` | validate, then build the resolved layers | 10 |
-| 12/M | `parallax.rs`, `Stack::from_legacy_manifest` | the section 8 table | 1, 3 |
+| Block | Where | What to write (not how) | Depends on | Tests that go green |
+|---|---|---|---|---|
+| 1/18 | `Depth` `Deserialize` | a number or the string `"inf"`, reject the rest | - | `depth_parses_a_number_and_infinity_only` |
+| 2/18 | `Fill` `Deserialize` | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
+| 3/18 | `Fill::from_edge_row` | the edge-row mean, else `Transparent` | - | U22 |
+| 4/18 | `Layer::rate_x` | the rate from depth | - | U2, U6 |
+| 5/18 | `Layer::rate_y` | damped on y | 4 | U1, U4 |
+| 6/18 | `snap` | the pixel-grid snap | - | U13 |
+| 7/18 | `snap_center` | the camera variant, pass-through below zoom 1 | 6 | U23 |
+| 8/18 | `place_layer` | section 5, repeat included | 4, 5, 6 | U1-U6, U16, U21 |
+| 9/18 | `map_rectangle` | the screen-set bounding box | - | U10 |
+| 10/18 | `camera_bound` | the one-screen editor margin | - | U11 |
+| 11/18 | `clamp_center` | the bound clamp and the small-bound branch | - | U9, U20 |
+| 12/18 | `default_anchor` | the home-view default | 11, 13 | U14 |
+| 13/18 | `clamp_anchor` | clamp the authored anchor, report the move | 11 | U19 |
+| 14/18 | `journal_line` | the `Data` line 146 format | - | U7 |
+| 15/18 | `anchor_clamp_line` | the `Data` line 156 format | - | U19 |
+| 16/18 | `Stack::validate` | the section 6 rule table, all failures at once | 1, 2, 3, 4, 5 | U7, U15, U17 |
+| 17/18 | `Stack::resolve` | validate, then build the resolved layers | 16 | every placement test |
+| 18/18 | `Stack::from_legacy_manifest` | the section 8 table | 4, 5 | U8 |
 
-Twelve blocks, dependency-ordered. Approval of this map is required before any marker is
-inserted (coding-assistant Phase 1 step 3).
+Eighteen blocks, dependency-ordered - one per function, so each block is independently
+checkable and none is a two-function edit. The two `Serialize` impls and everything in the
+type definitions are scaffolding the assistant writes, not blocks: they are declared as such
+in the handoff. Approval of this map is required before any marker is inserted
+(coding-assistant Phase 1 step 3); the markers are inserted only after the tests exist and
+have been seen red (Phase 1 step 0, "tests come first").
+
+The handed-off state was observed exactly as this section predicts: `cargo test -p sstd-core
+parallax` gave 22 failed / 2 passed (the two passes are the round-trip tests for the
+assistant-written `Serialize` impls), and `cargo check` then reported exactly 18
+`mismatched types` errors, one per block, on the block lines.
 
 ## 12. Exit conditions for this step
 
