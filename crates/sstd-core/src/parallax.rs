@@ -58,7 +58,7 @@ pub enum Depth {
 }
 
 /// A layer's declared edge fill: one RGBA colour drawn from the art edge to the view edge, or
-/// nothing. Written as `"transparent"` or `"#RRGGBBAA"`.
+/// nothing. Written as the `FILL_TRANSPARENT` token or as `"#RRGGBBAA"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fill {
     Transparent,
@@ -227,46 +227,47 @@ impl<'de> Deserialize<'de> for Fill {
     where
         D: Deserializer<'de>,
     {
-        // TODO(human) begin 1/17: Fill deserialization
-        //
-        // Intent: a fill is written as the exact string "transparent", or as one "#RRGGBBAA"
-        // colour (hash, then eight hex digits, alpha last). Anything else is a load error.
-        // The parse must be strict: "#8A98AC" (six digits) and "#8A98ACGG" (not hex) are
-        // rejected, not defaulted, or a typo silently becomes a transparent band.
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     struct FillVisitor;
-        //
-        //     impl<'de> Visitor<'de> for FillVisitor {
-        //         type Value = Fill;
-        //
-        //         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        //             write!(formatter, "\"{FILL_TRANSPARENT}\" or a #RRGGBBAA colour")
-        //         }
-        //
-        //         fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-        //             if value == FILL_TRANSPARENT {
-        //                 return Ok(Fill::Transparent);
-        //             }
-        //             let digits = value.strip_prefix('#').ok_or_else(|| {
-        //                 E::custom(format!("\"{FILL_TRANSPARENT}\" or #RRGGBBAA, found {value:?}"))
-        //             })?;
-        //             if digits.len() != 8 {
-        //                 return Err(E::custom(format!("#RRGGBBAA takes 8 digits, found {digits:?}")));
-        //             }
-        //             let channel = |start: usize| -> Result<u8, E> {
-        //                 u8::from_str_radix(&digits[start..start + 2], 16)
-        //                     .map_err(|_| E::custom(format!("not a hex colour: {value:?}")))
-        //             };
-        //             Ok(Fill::Rgba(channel(0)?, channel(2)?, channel(4)?, channel(6)?))
-        //         }
-        //     }
-        //
-        //     deserializer.deserialize_str(FillVisitor)
-        //
-        // Test: fill_parses_transparent_and_hex.
-        // TODO(human) end 1/17
+        // Strict: a fill is exactly `FILL_TRANSPARENT`, or one 8-digit `#RRGGBBAA` colour
+        // (hash, then eight hex digits, alpha last). Anything else is a load error, so a
+        // typo never silently becomes a transparent band. Guarded by the
+        // `fill_parses_transparent_and_hex` test.
+        struct FillVisitor;
+
+        impl<'de> Visitor<'de> for FillVisitor {
+            type Value = Fill;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(formatter, "\"{FILL_TRANSPARENT}\" or a #RRGGBBAA colour")
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                if value == FILL_TRANSPARENT {
+                    return Ok(Fill::Transparent);
+                }
+                let digits = value.strip_prefix('#').ok_or_else(|| {
+                    E::custom(format!(
+                        "\"{FILL_TRANSPARENT}\" or #RRGGBBAA, found {value:?}"
+                    ))
+                })?;
+                if digits.len() != 8 {
+                    return Err(E::custom(format!(
+                        "#RRGGBBAA takes 8 digits, found {digits:?}"
+                    )));
+                }
+                let channel = |start: usize| -> Result<u8, E> {
+                    u8::from_str_radix(&digits[start..start + 2], 16)
+                        .map_err(|_| E::custom(format!("not a hex colour: {value:?}")))
+                };
+                Ok(Fill::Rgba(
+                    channel(0)?,
+                    channel(2)?,
+                    channel(4)?,
+                    channel(6)?,
+                ))
+            }
+        }
+
+        deserializer.deserialize_str(FillVisitor)
     }
 }
 
