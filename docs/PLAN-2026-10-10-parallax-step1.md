@@ -144,7 +144,7 @@ pub const MAX_LAYERS: usize = 7;        // Data 4: parallax.max_layers, never se
 const LEGACY_FRONT_Z_INDEX: i32 = 10;   // Data 5: foreground threshold in manifest.json
 
 // model (serde), exactly Data 1's shape
-pub enum Depth { Finite(f64), Infinite }        // "inf" parses to Infinite
+pub enum Depth { Finite(f64), Infinite }        // tagged: {"kind":"finite","value":n} / {"kind":"infinite"}
 pub enum Plane { Back, Front }
 pub enum Fill { Transparent, Rgba(u8, u8, u8, u8) }
 pub struct RefView { pub width: f64, pub height: f64 }
@@ -248,7 +248,7 @@ problem. `code` is the `rule=` value in the journal line.
 | Rule (`Data` 4) | `code` |
 |---|---|
 | `schema_version` is 2 | `schema_version` |
-| `parallax_depth > -1`, or the string `"inf"` | `parallax_depth` |
+| `parallax_depth` finite with `value > -1`, or the `infinite` tag | `parallax_depth` |
 | `vertical_damping` in `[0, 1]` | `vertical_damping` |
 | `plane = back` needs depth `>= 0`; `plane = front` needs `-0.5 <= depth < 0` | `plane_depth` |
 | within a plane, `draw_order` unique | `draw_order_unique` |
@@ -263,9 +263,9 @@ problem. `code` is the `rule=` value in the journal line.
 (loader) and **step 2** (generator) concern; `file_rgba` covers the encodable half of the
 rule. Recorded in section 9 so it is not silently dropped.
 
-Ordering rule detail worth pinning in a test: `"inf"` counts as the largest depth, and the
-base layer (lowest `draw_order` of the back plane) is exempt from the ordering rule, which is
-what lets a `Sun` at `"inf"` sit above the opaque `Sky` and below the rest.
+Ordering rule detail worth pinning in a test: the `infinite` tag counts as the largest depth,
+and the base layer (lowest `draw_order` of the back plane) is exempt from the ordering rule,
+which is what lets a `Sun` tagged `infinite` sit above the opaque `Sky` and below the rest.
 
 ## 7. Bounds, anchor and snap (`Math` section 5)
 
@@ -332,7 +332,7 @@ parameter), one placement-field rename, and two derived helper types.
 
 | Item | Tickets line it serves | Action |
 |---|---|---|
-| Ticket Scope reads `validate(&Stack) -> ValidationResult`; the plan writes `validate(&Stack, &[LayerArt])` | that Scope line, plus AC `validate emits one ValidationMessage per failing rule, carrying field and value`, and `Data` section 4's `file` / `fill_edge_opaque` rows | stated in section 3.1; the wiki sentence is corrected by its own doc follow-up, not by this branch |
+| Ticket Scope reads `validate(&Stack) -> ValidationResult`; the plan writes `validate(&Stack, &[LayerArt])`. The literal `&Stack` signature cannot check `file_rgba` / `fill_edge_opaque` (Data section 4): those rules read each layer's PNG, and the PNG facts are the only engine-free input that can express them, so the parameter is forced by the ticket's own referenced rules, not chosen | that Scope line, plus AC `validate emits one ValidationMessage per failing rule, carrying field and value`, and `Data` section 4's `file` / `fill_edge_opaque` rows | stated in section 3.1; the wiki sentence is corrected by its own doc follow-up, not by this branch |
 | Ticket Scope reads the screen size is "passed in (1920 x 1056)"; the plan makes it the constants `SCREEN_W_PX` / `SCREEN_H_PX` and passes the *view* size in `ViewState` | that Scope line, plus its stated anti-goal: never read the stale `Screen::default()` / `GridConfig::default()` | `R1` fixes the screen at 1920 x 1056, so a parameter would be false flexibility; the anti-goal is met either way |
 | Ticket Scope reads `place_layer(view, anchor, layer) -> Placement`; the plan passes a `ResolvedLayer` and adds `ResolvedLayer` / `ResolvedStack` | that Scope line | same function, same field names and variants as `Math` section 2's sketch; only the type *name* differs, because the resolved form drops `depth`/`vertical_damping` in favour of the rates the sketch's own `impl` computes |
 | `Fill::from_edge_row` | AC `U22` (the fill equals the edge-row mean, else transparent) | step 1's U22 test is the **pure half only**, permitted by the wiki's own U22 title, which marks the emitted-layer and sky-haze assertions as a `` `gen-backdrop` `` test; that half is #105 |
@@ -378,11 +378,11 @@ U12 is blocked and U18 is excluded by that same AC line (it is a `gen-backdrop` 
 | U13 | `10.5`, `-10.5`, `10.49` | each layer independently |
 | U14 | screens `"0,0"`, `"0,1"`, view 1920 x 1080 | anchor `(960, 1572)` |
 | U15 | `front` at `-0.5` and `-0.51` | ceiling |
-| U16 | `Moon` at `"inf"` | same as U3, name not special-cased |
+| U16 | `Moon` at the `infinite` tag | same as U3, name not special-cased |
 | U17 | `LayerArt` with one alpha-0 pixel in the bottom row | rejected with `rule=fill_edge_opaque`; same with `transparent` loads |
 | U19 | anchor `(5000, -300)` then `(960, 1000)` | clamped to `(960, 540)`, one `anchor_clamp_line` |
 | U20 | two-row map, player at y `3000` then `-500` | camera clamp |
-| U22 | synthetic RGBA edge rows | step 1 satisfies AC1's `U22` by its pure half: `Fill::from_edge_row` returns the mean, else `Transparent`. The wiki's U22 title marks the emitted-PNG and sky-haze half a `` `gen-backdrop` `` test, which is #105 |
+| U22 | synthetic RGBA edge rows | step 1 satisfies AC1's `U22` by its pure half: `Fill::from_edge_row` returns the mean, else `Transparent`. The wiki's U22 title marks the emitted-PNG and sky-haze half a `` `gen-backdrop` `` test, which is #105. AC1 names `U22` unqualified; the split is the wiki's own title (cited in section 9), so the gate chain AC1 -> U22 -> pure half is explicit |
 | U23 | fractional player position | camera snap; `first_copy_left_px`/`screen_top_px` integers |
 | U12 | - | blocked until the Phase 2 simulator exists (ticket says so) |
 | U18 | - | not this step: `gen-backdrop` test, excluded by the AC line (#105) |
@@ -396,53 +396,62 @@ applied and seen red. That verification pass is part of this step, not a follow-
 ## 11. Block map (what the coding-assistant hands to @me)
 
 Assistant writes: the module skeleton (constants, struct and field definitions, `serde`
-attributes, the two `Serialize` impls, the `lib.rs` wiring), and the whole
-`#[cfg(test)] mod tests`. @me writes the logic:
+attributes, `Fill`'s `Serialize` impl, the `lib.rs` wiring), and the whole
+`#[cfg(test)] mod tests`. `Depth` carries no hand-written impls at all: a `tag`/`content`
+derive on the enum generates both, which is what the tagged wire form means (amended
+2026-10-11, note below the table). @me writes the logic:
 
 | Block | Where | What to write (not how) | Depends on | Tests that go green |
 |---|---|---|---|---|
-| 1/18 | `Depth` `Deserialize` | a number or the string `"inf"`, reject the rest | - | `depth_parses_a_number_and_infinity_only` |
-| 2/18 | `Fill` `Deserialize` | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
-| 3/18 | `Fill::from_edge_row` | the edge-row mean, else `Transparent` | - | U22 |
-| 4/18 | `Layer::rate_x` | the rate from depth | - | U2, U6 |
-| 5/18 | `Layer::rate_y` | damped on y | 4 | U1, U4 |
-| 6/18 | `snap` | the pixel-grid snap | - | U13 |
-| 7/18 | `snap_center` | the camera variant, pass-through below zoom 1 | 6 | U23 |
-| 8/18 | `place_layer` | section 5, repeat included | 4, 5, 6 | U1-U6, U16, U21 |
-| 9/18 | `map_rectangle` | the screen-set bounding box | - | U10 |
-| 10/18 | `camera_bound` | the one-screen editor margin | - | U11 |
-| 11/18 | `clamp_center` | the bound clamp and the small-bound branch | - | U9, U20 |
-| 12/18 | `default_anchor` | the home-view default | 11, 13 | U14 |
-| 13/18 | `clamp_anchor` | clamp the authored anchor, report the move | 11 | U19 |
-| 14/18 | `journal_line` | the `Data` line 146 format | - | U7 |
-| 15/18 | `anchor_clamp_line` | the `Data` line 156 format | - | U19 |
-| 16/18 | `Stack::validate` | the section 6 rule table, all failures at once | 1, 2, 3, 4, 5 | U7, U15, U17 |
-| 17/18 | `Stack::resolve` | validate, then build the resolved layers | 16 | every placement test |
-| 18/18 | `Stack::from_legacy_manifest` | the section 8 table | 4, 5 | U8 |
+| 1/17 | `Fill` `Deserialize` | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
+| 2/17 | `Fill::from_edge_row` | the edge-row mean, else `Transparent` | - | U22 |
+| 3/17 | `Layer::rate_x` | the rate from depth | - | U2, U6 |
+| 4/17 | `Layer::rate_y` | damped on y | 3 | U1, U4 |
+| 5/17 | `snap` | the pixel-grid snap | - | U13 |
+| 6/17 | `snap_center` | the camera variant, pass-through below zoom 1 | 5 | U23 |
+| 7/17 | `place_layer` | section 5, repeat included | 3, 4, 5 | U1-U6, U16, U21 |
+| 8/17 | `map_rectangle` | the screen-set bounding box | - | U10 |
+| 9/17 | `camera_bound` | the one-screen editor margin | - | U11 |
+| 10/17 | `clamp_center` | the bound clamp and the small-bound branch | - | U9, U20 |
+| 11/17 | `default_anchor` | the home-view default | 10, 12 | U14 |
+| 12/17 | `clamp_anchor` | clamp the authored anchor, report the move | 10 | U19 |
+| 13/17 | `journal_line` | the `Data` line 146 format | - | U7 |
+| 14/17 | `anchor_clamp_line` | the `Data` line 156 format | - | U19 |
+| 15/17 | `Stack::validate` | the section 6 rule table, all failures at once | 1, 2, 3, 4 | U7, U15, U17 |
+| 16/17 | `Stack::resolve` | validate, then build the resolved layers | 15 | every placement test |
+| 17/17 | `Stack::from_legacy_manifest` | the section 8 table | 3, 4 | U8 |
 
-Eighteen blocks, dependency-ordered - one per function, so each block is independently
-checkable and none is a two-function edit. The two `Serialize` impls and everything in the
+Seventeen blocks, dependency-ordered - one per function, so each block is independently
+checkable and none is a two-function edit. `Fill`'s `Serialize` impl and everything in the
 type definitions are scaffolding the assistant writes, not blocks: they are declared as such
-in the handoff. Approval of this map is required before any marker is inserted
-(coding-assistant Phase 1 step 3); the markers are inserted only after the tests exist and
-have been seen red (Phase 1 step 0, "tests come first").
+in the handoff. `Depth` is the one type whose serialization is a plain derive: the wire form
+is the tagged object from `Data` section 1, and the derive needs no `alloc` feature on serde
+1.0.229 (verified 2026-10-11). The tag costs a map and a key per layer at load time only;
+kind-first order (as serde emits) buffers nothing, so the runtime cost is a one-time
+per-stack parse, never in the frame loop. Approval of this map is required before any marker
+is inserted (coding-assistant Phase 1 step 3); the markers are inserted only after the tests
+exist and have been seen red (Phase 1 step 0, "tests come first").
 
 The handed-off state was observed exactly as this section predicts: `cargo test -p sstd-core
 parallax` gave 22 failed / 2 passed (the two passes are the round-trip tests for the
 assistant-written `Serialize` impls), and `cargo check` then reported exactly 18
-`mismatched types` errors, one per block, on the block lines.
+`mismatched types` errors, one per block, on the block lines (17 once the user had written
+block 1/18). The 2026-10-11 amendment deletes that block, so after the re-scaffold the same
+check reports 17 `mismatched types` errors, and the derive is covered by assistant-written
+round-trip tests, not by a block.
 
 ## 12. Exit conditions for this step
 
-1. `cargo test -p sstd-core parallax` (the ticket's command) green, with U1-U11 and U13-U17,
+1. `cargo build -p sstd-core` green, with no Godot linkage (AC4 verbatim).
+2. `cargo test -p sstd-core parallax` (the ticket's command) green, with U1-U11 and U13-U17,
    U19-U23 present and named as above; the full `cargo test -p sstd-core` stays green too.
-2. Every U-test named in condition 1 shown to fail under its listed mutation.
-3. `cargo clippy -p sstd-core -- -D warnings` and `cargo fmt --check` clean.
-4. `cargo test -p sstd-core` still reports the pre-existing 110 tests plus the new ones, no
+3. Every U-test named in condition 2 shown to fail under its listed mutation.
+4. `cargo clippy -p sstd-core -- -D warnings` and `cargo fmt --check` clean.
+5. `cargo test -p sstd-core` still reports the pre-existing 110 tests plus the new ones, no
    test deleted or weakened.
-5. No Godot file touched; no new dependency in `crates/sstd-core/Cargo.toml`; no file outside
+6. No Godot file touched; no new dependency in `crates/sstd-core/Cargo.toml`; no file outside
    `src/parallax.rs` and `src/lib.rs` edited.
-6. The four GDScript suites unchanged (this step cannot affect them).
+7. The four GDScript suites unchanged (this step cannot affect them).
 
 ## 13. Plan gate
 
@@ -453,6 +462,7 @@ Run 2026-10-10 against #104 (ticket fetched in full, zero comments). Independent
 |---|---|---|
 | 1 | 86 | below the bar: U22 had no plan item, and section 12's exit list contradicted AC1 |
 | 2 | 92 | pass |
+| 3 | 94 | pass (2026-10-11: tagged wire-form amendment; no CRITICAL, no UNCOVERED, three REFINEMENTS applied) |
 
 Iteration 1 findings and how each was closed:
 
@@ -497,3 +507,23 @@ Lessons for the playbook (`<plan-docs-dir>/.rsi_memory/plan-ticket-gate.md`):
   ticket asks for the output: put it in the new module instead.
 - When the ticket's stated signature cannot express what the ticket's own acceptance rules
   need, say so in one visible table row with the ticket line it serves, not in prose.
+
+### Amendment 2026-10-11 (tagged wire form), gate iteration 3
+
+The 2026-10-11 amendment retired the bare `"inf"` token in favour of the tagged object
+`{ "kind": "finite", "value": n }` / `{ "kind": "infinite" }` (user directive; the ticket
+Scope line was amended and a comment posted the same day). The plan was rewritten in five
+places (the `Depth` sketch, the validation rule, the ordering note, U16, the block map) and
+block 1/18 (`Depth` `Deserialize`) was deleted: `Depth` is now a plain `tag`/`content`
+derive, so the map is 17 blocks and the check target is 17 `mismatched types` errors.
+
+Iteration 3 (fresh evaluator, same rubric, MIN_SCORE 90) reported no CRITICAL and no
+UNCOVERED at 94. Three REFINEMENTS were applied in the same pass: exit condition 1 now gates
+`cargo build -p sstd-core` green (AC4 verbatim), section 9's `validate` row leads with the
+inoperability argument (the literal signature cannot check `file_rgba` / `fill_edge_opaque`),
+and section 10's U22 row records the AC1 -> U22 -> pure-half chain explicitly.
+
+Wire-form facts verified 2026-10-11 against serde 1.0.229 (scratch `tagprobe` probe): a unit
+variant serializes with no `value` key; an unintended `value` on the `infinite` tag and an
+unknown `kind` are rejected; the derive needs no `alloc` feature (the earlier claim was
+wrong); kind-first order buffers nothing.
