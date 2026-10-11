@@ -31,8 +31,6 @@ pub const VIEW_H_PX: i32 = 1080;
 pub const MAX_LAYERS: usize = 7;
 /// The legacy manifest's foreground threshold: `z_index` at or above this is the front plane.
 const LEGACY_FRONT_Z_INDEX: i32 = 10;
-/// The one string `parallax_depth` accepts besides a number.
-const DEPTH_INFINITE: &str = "inf";
 /// The one word `fill_above` / `fill_below` accept besides an RGBA colour.
 const FILL_TRANSPARENT: &str = "transparent";
 
@@ -46,8 +44,14 @@ pub enum Plane {
 }
 
 /// Distance from the play plane. `Finite` drives the rate through `1 / (1 + depth)`;
-/// `Infinite` is written as the string `"inf"` and pins the layer (the sun and moon).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// `Infinite` pins the layer (the sun and moon).
+///
+/// Wire form: `{ "kind": "finite", "value": n }` / `{ "kind": "infinite" }` (user directive
+/// 2026-10-11; the bare string `"inf"` is retired). The tag costs one map and one key per
+/// layer at load time, once per stack, never in the frame loop; kind-first order (as serde
+/// emits) buffers nothing, and the derive needs no `alloc` feature (serde 1.0.229, verified).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "lowercase")]
 pub enum Depth {
     Finite(f64),
     Infinite,
@@ -203,74 +207,6 @@ pub struct MapRect {
     pub bottom: f64,
 }
 
-impl Serialize for Depth {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Depth::Finite(depth) => serializer.serialize_f64(*depth),
-            Depth::Infinite => serializer.serialize_str(DEPTH_INFINITE),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Depth {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // TODO(human) begin 1/18: Depth deserialization
-        //
-        // Intent: a depth is written either as a JSON number, or as the exact string "inf".
-        // Anything else (null, "infinite", a bool, an object) is a load error, so the reader
-        // must be strict and not fall back to a default. This is the only place the two wire
-        // forms are turned into the enum; value rules (depth > -1, plane vs depth) belong to
-        // validate, not here, so that one stack can be rejected with every rule listed.
-        //
-        // Why a visitor and not #[serde(untagged)]: untagged cannot match a unit variant to the
-        // string "inf" - it only ever yields the payload form, and a failed untagged match
-        // reports "data did not match any variant" with no mention of the offending value.
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     struct DepthVisitor;
-        //
-        //     impl<'de> Visitor<'de> for DepthVisitor {
-        //         type Value = Depth;
-        //
-        //         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        //             formatter.write_str("a number or the string \"inf\"")
-        //         }
-        //
-        //         fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
-        //             Ok(Depth::Finite(value))
-        //         }
-        //
-        //         fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
-        //             Ok(Depth::Finite(value as f64))
-        //         }
-        //
-        //         fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
-        //             Ok(Depth::Finite(value as f64))
-        //         }
-        //
-        //         fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-        //             if value == DEPTH_INFINITE {
-        //                 Ok(Depth::Infinite)
-        //             } else {
-        //                 Err(E::custom(format!("expected \"inf\", found {value:?}")))
-        //             }
-        //         }
-        //     }
-        //
-        //     deserializer.deserialize_any(DepthVisitor)
-        //
-        // Test: depth_parses_a_number_and_infinity_only (red until this is written).
-        // TODO(human) end 1/18
-    }
-}
-
 impl Serialize for Fill {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -291,7 +227,7 @@ impl<'de> Deserialize<'de> for Fill {
     where
         D: Deserializer<'de>,
     {
-        // TODO(human) begin 2/18: Fill deserialization
+        // TODO(human) begin 1/17: Fill deserialization
         //
         // Intent: a fill is written as the exact string "transparent", or as one "#RRGGBBAA"
         // colour (hash, then eight hex digits, alpha last). Anything else is a load error.
@@ -306,7 +242,7 @@ impl<'de> Deserialize<'de> for Fill {
         //         type Value = Fill;
         //
         //         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        //             formatter.write_str("\"transparent\" or a #RRGGBBAA colour")
+        //             write!(formatter, "\"{FILL_TRANSPARENT}\" or a #RRGGBBAA colour")
         //         }
         //
         //         fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
@@ -314,7 +250,7 @@ impl<'de> Deserialize<'de> for Fill {
         //                 return Ok(Fill::Transparent);
         //             }
         //             let digits = value.strip_prefix('#').ok_or_else(|| {
-        //                 E::custom(format!("\"transparent\" or #RRGGBBAA, found {value:?}"))
+        //                 E::custom(format!("\"{FILL_TRANSPARENT}\" or #RRGGBBAA, found {value:?}"))
         //             })?;
         //             if digits.len() != 8 {
         //                 return Err(E::custom(format!("#RRGGBBAA takes 8 digits, found {digits:?}")));
@@ -330,7 +266,7 @@ impl<'de> Deserialize<'de> for Fill {
         //     deserializer.deserialize_str(FillVisitor)
         //
         // Test: fill_parses_transparent_and_hex.
-        // TODO(human) end 2/18
+        // TODO(human) end 1/17
     }
 }
 
@@ -338,7 +274,7 @@ impl Fill {
     /// The fill a PNG edge row implies: the per-channel mean of the row, rounded, when every
     /// pixel is opaque; `Transparent` otherwise. `Data` section 1, test U22.
     pub fn from_edge_row(row: &[u8], width_px: usize) -> Fill {
-        // TODO(human) begin 3/18: Fill::from_edge_row
+        // TODO(human) begin 2/17: Fill::from_edge_row
         //
         // Intent: the layout tool records a generated PNG's edge fill so the loader can trust
         // it. A fill is only legal if the row it extends is fully opaque (Data section 4,
@@ -369,7 +305,7 @@ impl Fill {
         //     Fill::Rgba(mean(red_total), mean(green_total), mean(blue_total), u8::MAX)
         //
         // Test: u22_fill_is_the_edge_row_mean.
-        // TODO(human) end 3/18
+        // TODO(human) end 2/17
     }
 }
 
@@ -377,12 +313,12 @@ impl Layer {
     /// The horizontal rate: how far the layer's camera moves for one pixel of real camera
     /// movement. `1 / (1 + depth)`, and `0` at infinity.
     pub fn rate_x(&self) -> f64 {
-        // TODO(human) begin 4/18: Layer::rate_x
+        // TODO(human) begin 3/17: Layer::rate_x
         //
         // Intent: the one formula the rest of the module is built on, from Math section 2:
         // a layer sees a camera that moved `rate` times as far, and `rate` falls off with
         // depth. Depth is signed: 0 is the tile plane (rate 1), positive is farther (slower),
-        // negative is nearer (faster). A depth of "inf" is not "very far", it is the limit:
+        // negative is nearer (faster). An infinite depth is not "very far", it is the limit:
         // rate exactly 0, which is what pins the sun so it never moves on pan (U3, U16).
         //
         // Sample (uncomment, then adapt):
@@ -393,13 +329,13 @@ impl Layer {
         //     }
         //
         // Tests: u2_shift_ratio_is_the_rate, u3_u21_..., u6_repeat_is_seamless_in_motion.
-        // TODO(human) end 4/18
+        // TODO(human) end 3/17
     }
 
     /// The vertical rate, damped so the backdrop does not move as far vertically as it does
     /// horizontally.
     pub fn rate_y(&self) -> f64 {
-        // TODO(human) begin 5/18: Layer::rate_y
+        // TODO(human) begin 4/17: Layer::rate_y
         //
         // Intent: vertical travel is deliberately a fraction of horizontal travel, otherwise a
         // tall backdrop band swings out of view on the first jump. The damping factor is the
@@ -411,14 +347,14 @@ impl Layer {
         //     self.rate_x() * self.vertical_damping
         //
         // Tests: u1 (top axis), u2 (y ratio), u4 (coverage across the camera range).
-        // TODO(human) end 5/18
+        // TODO(human) end 4/17
     }
 }
 
 /// The pixel snap: to the nearest whole pixel, ties away from the zero floor, so `-10.5` snaps
 /// to `-10` (test U13).
 pub fn snap(value: f64) -> i32 {
-    // TODO(human) begin 6/18: pixel snap
+    // TODO(human) begin 5/17: pixel snap
     //
     // Intent: every layer's final left/top is rounded to a whole screen pixel so the art does
     // not shimmer as the camera creeps. `floor(value + 0.5)` is the rule Math section 2 states,
@@ -434,14 +370,14 @@ pub fn snap(value: f64) -> i32 {
     //     (value + 0.5).floor() as i32
     //
     // Test: u13_pixel_snap_ties_away_from_the_floor.
-    // TODO(human) end 6/18
+    // TODO(human) end 5/17
 }
 
 /// The camera snap: round the camera centre to a multiple of `1 / zoom` world px, so the tile
 /// layer and the backdrops land on one screen pixel grid. Left alone at `zoom < 1`, which is
 /// editor-only (test U23).
 pub fn snap_center(value: f64, zoom: f64) -> f64 {
-    // TODO(human) begin 7/18: camera snap
+    // TODO(human) begin 6/17: camera snap
     //
     // Intent: the tiles are drawn on the pixel grid, so if the camera centre is fractional the
     // tiles land off-grid and the backdrops land on a second, different grid - two grids, which
@@ -460,12 +396,12 @@ pub fn snap_center(value: f64, zoom: f64) -> f64 {
     //     snap(value * zoom) as f64 / zoom
     //
     // Test: u23_camera_snap_puts_one_grid_under_everything.
-    // TODO(human) end 7/18
+    // TODO(human) end 6/17
 }
 
 /// Where a layer is drawn this frame. The one function the whole design rests on.
 pub fn place_layer(view: &ViewState, anchor: &Anchor, layer: &ResolvedLayer) -> Placement {
-    // TODO(human) begin 8/18: place_layer
+    // TODO(human) begin 7/17: place_layer
     //
     // Intent: the whole point of owning the math. Registration (U1) is defined at the anchor:
     // at the anchor every layer must land at the same screen place for any window size, which
@@ -517,13 +453,13 @@ pub fn place_layer(view: &ViewState, anchor: &Anchor, layer: &ResolvedLayer) -> 
     //
     // Tests: u1 (registration), u2 (ratio), u3/u21 (infinity), u4 (coverage),
     // u5 (copies cover the view), u6 (seamless), u16 (a moon), u23 (one grid).
-    // TODO(human) end 8/18
+    // TODO(human) end 7/17
 }
 
 /// The bounding box of the occupied screens, from their `(col, row)` cells. Columns may be
 /// negative; the rectangle is exclusive on the right and bottom.
 pub fn map_rectangle(screens: &[(i32, i32)]) -> Option<MapRect> {
-    // TODO(human) begin 9/18: map_rectangle
+    // TODO(human) begin 8/17: map_rectangle
     //
     // Intent: the map's extent comes from which screens exist, not from a hand-typed size
     // (`Data` section 3). A screen at cell (col, row) occupies world px [col*1920, (col+1)*1920)
@@ -551,13 +487,13 @@ pub fn map_rectangle(screens: &[(i32, i32)]) -> Option<MapRect> {
     //     })
     //
     // Tests: u10_map_rectangle_is_the_screen_bounding_box.
-    // TODO(human) end 9/18
+    // TODO(human) end 8/17
 }
 
 /// The camera's bound: the map in the game, the map grown by one screen on every side in the
 /// editor, so the map's edges are visible with the margin cells around them.
 pub fn camera_bound(map: &MapRect, editor: bool) -> MapRect {
-    // TODO(human) begin 10/18: camera_bound
+    // TODO(human) begin 9/17: camera_bound
     //
     // Intent: the game camera is pinned to the map, so the player can never see past the first
     // or last screen row. The editor is different on purpose: it grows the bound by one screen
@@ -578,13 +514,13 @@ pub fn camera_bound(map: &MapRect, editor: bool) -> MapRect {
     //     }
     //
     // Tests: u11_editor_bound_grows_by_one_screen, u4 (uses the editor bound).
-    // TODO(human) end 10/18
+    // TODO(human) end 9/17
 }
 
 /// Clamp a centre to a bound. When the bound is smaller than the view on this axis, the centre
 /// is fixed so the view's top-left equals the bound's top-left.
 pub fn clamp_center(center: f64, view_extent: f64, bound_low: f64, bound_high: f64) -> f64 {
-    // TODO(human) begin 11/18: clamp_center
+    // TODO(human) begin 10/17: clamp_center
     //
     // Intent: two cases, and the second is the one that gets written wrong.
     //
@@ -610,13 +546,13 @@ pub fn clamp_center(center: f64, view_extent: f64, bound_low: f64, bound_high: f
     //     center.clamp(bound_low + half_extent, bound_high - half_extent)
     //
     // Tests: u9 (one-row map pins the centre), u20 (game camera clamped).
-    // TODO(human) end 11/18
+    // TODO(human) end 10/17
 }
 
 /// The anchor a world gets when it declares none: the camera centre at the home view, which is
 /// screen column 0 (or the left-most column), bottom row, clamped.
 pub fn default_anchor(map: &MapRect, view: &ViewState) -> Anchor {
-    // TODO(human) begin 12/18: default_anchor
+    // TODO(human) begin 11/17: default_anchor
     //
     // Intent: a world that declares no anchor gets a sensible one, so a fresh world already
     // looks right (Data section 3). The "home view" is the map's left-most screen column and
@@ -636,12 +572,12 @@ pub fn default_anchor(map: &MapRect, view: &ViewState) -> Anchor {
     //     clamp_anchor(home, map, view).0
     //
     // Test: u14_default_anchor_is_the_home_view_center.
-    // TODO(human) end 12/18
+    // TODO(human) end 11/17
 }
 
 /// Clamp an authored anchor into the game camera bound, returning whether it moved.
 pub fn clamp_anchor(anchor: Anchor, map: &MapRect, view: &ViewState) -> (Anchor, bool) {
-    // TODO(human) begin 13/18: clamp_anchor
+    // TODO(human) begin 12/17: clamp_anchor
     //
     // Intent: an authored anchor is a request, not a guarantee - a world carries an anchor the
     // editor never validated against the map it later became. Clamp it into the *game* bound
@@ -673,12 +609,12 @@ pub fn clamp_anchor(anchor: Anchor, map: &MapRect, view: &ViewState) -> (Anchor,
     //     (clamped, moved)
     //
     // Tests: u19_anchor_override_is_clamped, u14 (via default_anchor).
-    // TODO(human) end 13/18
+    // TODO(human) end 12/17
 }
 
 /// One validation failure as the loader's journal line, `Data` line 146 (test U7).
 pub fn journal_line(msg: &ValidationMessage, stack_key: &str, layer: &str) -> String {
-    // TODO(human) begin 14/18: journal_line
+    // TODO(human) begin 13/17: journal_line
     //
     // Intent: a rejected stack must be diagnosable from the journal alone, without a debugger:
     // which stack, which layer, which field, what value, which rule. Data line 146 fixes the
@@ -700,12 +636,12 @@ pub fn journal_line(msg: &ValidationMessage, stack_key: &str, layer: &str) -> St
     //     )
     //
     // Test: u7_each_validation_rule_fires (asserts the prefix and the rule= field).
-    // TODO(human) end 14/18
+    // TODO(human) end 13/17
 }
 
 /// One anchor clamp as the loader's journal line, `Data` line 156 (test U19).
 pub fn anchor_clamp_line(stack_key: &str, from: &Anchor, to: &Anchor) -> String {
-    // TODO(human) begin 15/18: anchor_clamp_line
+    // TODO(human) begin 14/17: anchor_clamp_line
     //
     // Intent: the same journalling rule as journal_line, for the one *warning* this module
     // produces: an anchor that had to be moved. Record where it was asked to be and where it
@@ -727,14 +663,14 @@ pub fn anchor_clamp_line(stack_key: &str, from: &Anchor, to: &Anchor) -> String 
     //     )
     //
     // Test: u19_anchor_override_is_clamped (asserts the exact line).
-    // TODO(human) end 15/18
+    // TODO(human) end 14/17
 }
 
 impl Stack {
     /// Every rule of `Data` section 4. One message per failure, carrying the field and the
     /// value, so the loader can log one journal line each.
     pub fn validate(&self, art: &[LayerArt]) -> ValidationResult {
-        // TODO(human) begin 16/18: Stack::validate
+        // TODO(human) begin 15/17: Stack::validate
         //
         // Intent: every rule in Data section 4, and *all* of them in one pass. Do not return on
         // the first failure - a stack with three problems must be loggable in one go, which is
@@ -750,17 +686,18 @@ impl Stack {
         //   file_rgba        per layer, art.is_rgba
         //   fill_edge_opaque per layer, a non-transparent fill_above needs art.top_row_opaque,
         //                    non-transparent fill_below needs art.bottom_row_opaque
-        //   parallax_depth   Depth::Finite(depth) needs depth > -1 (the string "inf" is fine;
-        //                    a depth of -1 is a layer at the camera)
+        //   parallax_depth   Depth::Finite(depth) needs depth > -1; the infinite tag passes
+        //                    (a depth of -1 is a layer at the camera)
         //   vertical_damping in [0, 1] - it damps, it is not a rate
         //   plane_depth      Back needs depth >= 0; Front needs -0.5 <= depth < 0. The front
         //                    ceiling exists because the rate runs away as depth nears -1
         //                    (-0.99 gives rate 100)
         //   draw_order_unique within a plane, draw_order is unique
         //   draw_order_depth  within a plane, ascending draw_order has non-increasing depth,
-        //                    with "inf" counting as the largest depth; EXEMPT the base layer,
-        //                    which is the lowest draw_order of the back plane (it is the opaque
-        //                    canvas under everything, so a sun at "inf" may sit above it)
+        //                    with the infinite tag counting as the largest depth; EXEMPT the base
+        //                    layer, which is the lowest draw_order of the back plane (it is the
+        //                    opaque canvas under everything, so a sun tagged infinite may sit
+        //                    above it)
         //   base_opaque      the base layer has art.fully_opaque AND both fills non-transparent
         //
         // Every message carries .with_field(...) and .with_value(...) so journal_line can render
@@ -831,13 +768,13 @@ impl Stack {
         //
         // Tests: u7_each_validation_rule_fires (one fixture per rule), u15 (front ceiling),
         // u17 (opaque edge row), u8 (the migrated stack is not validated here).
-        // TODO(human) end 16/18
+        // TODO(human) end 15/17
     }
 
     /// Validate, then derive. `Err` carries every failure rather than the first, so one load
     /// reports the whole stack.
     pub fn resolve(&self, art: &[LayerArt]) -> Result<ResolvedStack, ValidationResult> {
-        // TODO(human) begin 17/18: Stack::resolve
+        // TODO(human) begin 16/17: Stack::resolve
         //
         // Intent: validate first, and if anything is wrong hand back the whole result so the
         // caller logs every failure at once - never a partial set of layers. `Err` carries the
@@ -882,7 +819,7 @@ impl Stack {
         //     })
         //
         // Tests: every placement test goes through this (u1..u6), u7/u15/u17 (rejection).
-        // TODO(human) end 17/18
+        // TODO(human) end 16/17
     }
 
     /// Migrate the retired `manifest.json` v1.0. `Data` section 5; test U8.
@@ -891,7 +828,7 @@ impl Stack {
         stack_key: &str,
         palette_key: &str,
     ) -> Stack {
-        // TODO(human) begin 18/18: Stack::from_legacy_manifest
+        // TODO(human) begin 17/17: Stack::from_legacy_manifest
         //
         // Intent: Data section 5's table, and only the rows the legacy file actually contains.
         // The legacy file stores rates, not depths, so invert the relationship
@@ -905,8 +842,8 @@ impl Stack {
         //     front plane's draw_order restarts at 0 (the legacy 10 is not an order).
         //   - repeat_x is `repeat_size_x > 0`; the period is not stored here, it becomes the
         //     PNG width when the art is measured.
-        //   - a legacy rate_x of 0 would be a division by zero; "inf" is the honest reading.
-        //     Guard both the depth and the damping.
+        //   - a legacy rate_x of 0 would be a division by zero; an infinite depth is the honest
+        //     reading. Guard both the depth and the damping.
         //
         // ref_view comes from the legacy width and VIEW_H_PX (1080): the legacy sky is 1320 px
         // tall, which is 1080 plus the 240 px overscan, so 1080 is the view the art was made
@@ -962,7 +899,7 @@ impl Stack {
         //     }
         //
         // Tests: u8_migration_reproduces_twelve_rates (reads the tracked manifest.json).
-        // TODO(human) end 18/18
+        // TODO(human) end 17/17
     }
 }
 
@@ -1210,28 +1147,38 @@ mod tests {
     }
 
     #[test]
-    fn depth_parses_a_number_and_infinity_only() {
+    fn depth_parses_the_tagged_wire_form_only() {
         assert_eq!(
-            serde_json::from_str::<Depth>("9").expect("a number parses"),
+            serde_json::from_str::<Depth>(r#"{"kind":"finite","value":9}"#)
+                .expect("a finite tag parses"),
             Depth::Finite(9.0)
         );
+        // The one literal that pins the on-disk spelling (wire-token rule): a round-trip
+        // cannot catch a rename of a tag both serde sides share, so the contract is asserted
+        // verbatim once. A respelling makes this assertion fail - that is the point.
         assert_eq!(
-            serde_json::from_str::<Depth>("\"inf\"").expect("\"inf\" parses"),
+            serde_json::from_str::<Depth>(r#"{"kind":"infinite"}"#)
+                .expect("the infinite tag parses"),
             Depth::Infinite
         );
+        assert!(serde_json::from_str::<Depth>(r#"{"kind":"inf"}"#).is_err());
+        assert!(serde_json::from_str::<Depth>(r#"{"kind":"infinite","value":5}"#).is_err());
+        assert!(serde_json::from_str::<Depth>(r#"{"kind":"finite"}"#).is_err());
+        assert!(serde_json::from_str::<Depth>("9").is_err());
+        assert!(serde_json::from_str::<Depth>(r#""inf""#).is_err());
         assert!(serde_json::from_str::<Depth>("null").is_err());
-        assert!(serde_json::from_str::<Depth>("\"infinite\"").is_err());
     }
 
     #[test]
     fn depth_serializes_back_to_its_wire_form() {
         assert_eq!(
             serde_json::to_string(&Depth::Finite(2.5)).expect("serializes"),
-            "2.5"
+            r#"{"kind":"finite","value":2.5}"#
         );
+        // On-disk pin, as above.
         assert_eq!(
             serde_json::to_string(&Depth::Infinite).expect("serializes"),
-            "\"inf\""
+            r#"{"kind":"infinite"}"#
         );
     }
 
