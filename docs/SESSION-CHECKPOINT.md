@@ -7,22 +7,33 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-10 (step 1 #104 scaffolded to the coding-assistant handoff; 18
-`TODO(human)` blocks are open and none has been written yet)_
+_Last updated: 2026-10-11 (tagged wire form landed; `Depth` is a serde `tag`/`content` derive;
+17 `TODO(human)` blocks open, block 1/17 next)_
 
-**NEXT MOVE: @me writes block 1/18 in `crates/sstd-core/src/parallax.rs`** — the module is
-already scaffolded with every type, constant, signature and the whole `#[cfg(test)] mod tests`;
-each non-trivial body is an empty `TODO(human)` block, so the editor flags it with `E0308`
-deliberately (an empty body against a real return type, not `todo!()`, which would silence the
-LSP). Working branch `local/feat/parallax-step1`, unpushed, commits `b388c5d` .. `0c6d026`.
-Gated plan is `docs/PLAN-2026-10-10-parallax-step1.md` — section 11 is the block map (18 rows),
-section 13 the gate record (final score 92, no CRITICAL).
+**NEXT MOVE: @me writes block 1/17 (`Fill` `Deserialize`) in `crates/sstd-core/src/parallax.rs`**
+— the module is scaffolded with every type, constant, signature, the derives (incl. `Depth`) and
+the whole `#[cfg(test)] mod tests`; each non-trivial body is an empty `TODO(human)` block, so the
+editor flags it with `E0308` deliberately (an empty body against a real return type, not
+`todo!()`, which would silence the LSP). Working branch `local/feat/parallax-step1`, unpushed.
+Gated plan is `docs/PLAN-2026-10-10-parallax-step1.md` — section 11 is the block map (17 rows,
+`1/17..17/17`), section 13 the gate record (iteration 3 = 94, no CRITICAL, no UNCOVERED).
 
-Red evidence at the handoff: `cargo test -p sstd-core parallax` is **22 failed / 2 passed**, the
-two passes being the round-trip tests for the assistant-written `Serialize` impls; before the
-blocks replaced the stubs it was the same 22/2 after a vacuity tripwire was added to the
-`resolved()` helper (U1, U2 and U5 had passed vacuously over the stub `resolve`'s empty layer
-list). `cargo check -p sstd-core` reports **exactly 18 mismatched-types errors, one per block**.
+**2026-10-11 wire-form decision (landed):** `Depth` no longer uses the string `"inf"` — it is
+the tagged object `{ "kind": "finite", "value": n }` / `{ "kind": "infinite" }` via a serde
+`tag`/`content` derive (user directive; @me recorded tagged objects as a PREFERRED shape for
+future decisions in `~/scripts/LLM`, commit `d3cb399`). No literal token survives in any error
+or `expecting` text; the round-trip tests pin the on-disk spelling. Verified against serde
+1.0.229: a unit variant writes no `value` key, a wrong `kind` and an extra `value` on a unit
+variant are rejected, no `alloc` feature is needed, and kind-first order buffers nothing.
+Ticket #104 Scope was amended and a record comment posted the same day; the wiki (wiki repo
+branch `docs/depth-tagged-wire-form`, commit `4df7833`) was updated across 6 pages.
+
+Red evidence at the handoff: `cargo check -p sstd-core` reports **exactly 17 mismatched-types
+errors, one per block** (`1/17..17/17`). The two `Depth` round-trip tests cannot run until the
+17 bodies are written (the crate does not compile); their shapes were proven by the `tagprobe`
+scratch probe, and they pin the on-disk spelling so a respell goes red. Historical baseline for
+the old form: `cargo test -p sstd-core parallax` was 22 failed / 2 passed at the `todo!()`
+stage, then 18 E0308, then 17 once block 1/18 was written and the derive removed it.
 
 Then step 2 (#105) and step 3 (#106), still Rust-only. Steps 4-7 wait on the first slice
 landing. Verification tests are U1-U23 (`TDD_Parallax-Scrolling.Verification`), not U1-U12.
