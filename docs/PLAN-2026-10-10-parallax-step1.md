@@ -405,9 +405,9 @@ derive on the enum generates both, which is what the tagged wire form means (ame
 |---|---|---|---|---|
 | 1/17 | `Fill` `Deserialize` | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
 | 2/17 | `Fill::from_edge_row` (done 2026-10-12) | the edge-row mean, else `Transparent` | - | U22 |
-| 3/17 | `Layer::rate_x` | the rate from depth | - | U2, U6 |
-| 4/17 | `Layer::rate_y` | damped on y | 3 | U1, U4 |
-| 5/17 | `snap` | the pixel-grid snap | - | U13 |
+| 3/17 | `Layer::rate_x` (done 2026-10-12) | the rate from depth | - | U2, U6 |
+| 4/17 | `Layer::rate_y` (done 2026-10-12) | damped on y | 3 | U1, U4 |
+| 5/17 | `snap` (done 2026-10-12) | the pixel-grid snap | - | U13 |
 | 6/17 | `snap_center` | the camera variant, pass-through below zoom 1 | 5 | U23 |
 | 7/17 | `place_layer` | section 5, repeat included | 3, 4, 5 | U1-U6, U16, U21 |
 | 8/17 | `map_rectangle` | the screen-set bounding box | - | U10 |

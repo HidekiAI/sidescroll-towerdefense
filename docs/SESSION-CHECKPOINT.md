@@ -7,10 +7,10 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-12 (block 2/17 `Fill::from_edge_row` written, validated and committed; 15
-`TODO(human)` blocks open, block 3/17 next)_
+_Last updated: 2026-10-12 (blocks 3/17-5/17 written: `rate_x`, `rate_y`, `snap`; 12
+`TODO(human)` blocks open, block 6/17 next)_
 
-**NEXT MOVE: @me writes block 3/17 (`Layer::rate_x`) in `crates/sstd-core/src/parallax.rs`**
+**NEXT MOVE: @me writes block 6/17 (`snap_center`) in `crates/sstd-core/src/parallax.rs`**
 — the module is scaffolded with every type, constant, signature, the derives (incl. `Depth`) and
 the whole `#[cfg(test)] mod tests`; each unwritten body is an empty `TODO(human)` block, so the
 editor flags it with `E0308` deliberately (an empty body against a real return type, not
@@ -29,8 +29,10 @@ variant are rejected, no `alloc` feature is needed, and kind-first order buffers
 Ticket #104 Scope was amended and a record comment posted the same day; the wiki (wiki repo
 branch `docs/depth-tagged-wire-form`, commit `4df7833`) was updated across 6 pages.
 
-Red evidence now: `cargo check -p sstd-core --tests` reports **exactly 15 mismatched-types
-errors, one per unwritten block** (`3/17..17/17`; first at `Layer::rate_x`, line 321). Block 2/17
+Red evidence now: `cargo check -p sstd-core --tests` reports **exactly 12 mismatched-types
+errors, one per unwritten block** (`6/17..17/17`; first at `snap_center`, line 361). Blocks
+4/17 (`rate_y`) and 5/17 (`snap`) were written by @me ahead of the walk and swept into the
+block-3 capture; the commit was amended so the history names all three blocks. Block 2/17
 (2026-10-12, ref #104) shipped with the u22 test extended by a tie row
 (`[100,255,0,255, 101,255,0,255]`) so the half-up rounding is discriminable. Block 1/17's
 five-case parse behaviour (`fill_parses_transparent_and_hex`'s assertions) was proven by the
