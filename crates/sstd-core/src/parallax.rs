@@ -275,8 +275,6 @@ impl Fill {
     /// The fill a PNG edge row implies: the per-channel mean of the row, rounded, when every
     /// pixel is opaque; `Transparent` otherwise. `Data` section 1, test U22.
     pub fn from_edge_row(row: &[u8], width_px: usize) -> Fill {
-        // TODO(human) begin 2/17: Fill::from_edge_row
-        //
         // Intent: the layout tool records a generated PNG's edge fill so the loader can trust
         // it. A fill is only legal if the row it extends is fully opaque (Data section 4,
         // rule fill_edge_opaque), so a row with any pixel below alpha 255 yields Transparent
@@ -284,29 +282,36 @@ impl Fill {
         //
         // Rounding is half-up on the per-channel mean, which is what makes the value stable to
         // re-derive: the emitted art and the recorded fill agree.
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     if width_px == 0 || row.len() != width_px * 4 {
-        //         return Fill::Transparent;
-        //     }
-        //     let mut red_total: u32 = 0;
-        //     let mut green_total: u32 = 0;
-        //     let mut blue_total: u32 = 0;
-        //     for pixel in row.chunks_exact(4) {
-        //         if pixel[3] != u8::MAX {
-        //             return Fill::Transparent;
-        //         }
-        //         red_total += u32::from(pixel[0]);
-        //         green_total += u32::from(pixel[1]);
-        //         blue_total += u32::from(pixel[2]);
-        //     }
-        //     let count = width_px as u32;
-        //     let mean = |total: u32| ((total + count / 2) / count) as u8;
-        //     Fill::Rgba(mean(red_total), mean(green_total), mean(blue_total), u8::MAX)
-        //
-        // Test: u22_fill_is_the_edge_row_mean.
-        // TODO(human) end 2/17
+        if width_px == 0 || row.len() != width_px * 4 {
+            return Fill::Transparent;
+        }
+        // u32 accumulators: a row of width W sums to W * 255 per channel, which overflows u8
+        // (max 255) for any row wider than one pixel; widen once here so the adds cannot wrap.
+        let mut red_total: u32 = 0;
+        let mut green_total: u32 = 0;
+        let mut blue_total: u32 = 0;
+        // Visit each pixel exactly once, summing the channels the mean below needs.
+        // chunks_exact(4) walks the row in 4-byte windows -- one RGBA pixel each -- and the
+        // length guard above guarantees the row ends on a whole pixel, so nothing is skipped.
+        for pixel in row.chunks_exact(4) {
+            // Alpha veto: a pixel under full alpha (u8::MAX = 255) makes the edge
+            // see-through; rule fill_edge_opaque forbids a colour fill then, so return
+            // Transparent instead of averaging a row that would hide a hole.
+            if pixel[3] != u8::MAX {
+                return Fill::Transparent;
+            }
+            red_total += u32::from(pixel[0]);
+            green_total += u32::from(pixel[1]);
+            blue_total += u32::from(pixel[2]);
+        }
+        let count = width_px as u32; // though we assume width is always positive, pixel count has to be explicit on type
+        let mean = |total: u32| ((total + count / 2) / count) as u8; // half-up: +count/2 makes the integer division round a .5 tie up, never truncate
+        Fill::Rgba(
+            mean(red_total),
+            mean(green_total),
+            mean(blue_total),
+            u8::MAX,
+        )
     }
 }
 
@@ -1224,6 +1229,13 @@ mod tests {
         assert_eq!(
             Fill::from_edge_row(&mean_row, 2),
             Fill::Rgba(101, 201, 0, 255)
+        );
+
+        let tie_row = [100u8, 255, 0, 255, 101, 255, 0, 255];
+        assert_eq!(
+            Fill::from_edge_row(&tie_row, 2),
+            Fill::Rgba(101, 255, 0, 255),
+            "a .5 mean must round half-up, not truncate"
         );
 
         let translucent_row = [138u8, 152, 172, 254, 138, 152, 172, 255];
