@@ -404,7 +404,7 @@ derive on the enum generates both, which is what the tagged wire form means (ame
 | Block | Where | What to write (not how) | Depends on | Tests that go green |
 |---|---|---|---|---|
 | 1/17 | `Fill` `Deserialize` | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
-| 2/17 | `Fill::from_edge_row` | the edge-row mean, else `Transparent` | - | U22 |
+| 2/17 | `Fill::from_edge_row` (done 2026-10-12) | the edge-row mean, else `Transparent` | - | U22 |
 | 3/17 | `Layer::rate_x` | the rate from depth | - | U2, U6 |
 | 4/17 | `Layer::rate_y` | damped on y | 3 | U1, U4 |
 | 5/17 | `snap` | the pixel-grid snap | - | U13 |
