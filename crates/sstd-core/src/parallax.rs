@@ -319,49 +319,31 @@ impl Layer {
     /// The horizontal rate: how far the layer's camera moves for one pixel of real camera
     /// movement. `1 / (1 + depth)`, and `0` at infinity.
     pub fn rate_x(&self) -> f64 {
-        // TODO(human) begin 3/17: Layer::rate_x
-        //
         // Intent: the one formula the rest of the module is built on, from Math section 2:
         // a layer sees a camera that moved `rate` times as far, and `rate` falls off with
         // depth. Depth is signed: 0 is the tile plane (rate 1), positive is farther (slower),
         // negative is nearer (faster). An infinite depth is not "very far", it is the limit:
         // rate exactly 0, which is what pins the sun so it never moves on pan (U3, U16).
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     match self.parallax_depth {
-        //         Depth::Finite(depth) => 1.0 / (1.0 + depth),
-        //         Depth::Infinite => 0.0,
-        //     }
-        //
-        // Tests: u2_shift_ratio_is_the_rate, u3_u21_..., u6_repeat_is_seamless_in_motion.
-        // TODO(human) end 3/17
+        match self.parallax_depth {
+            Depth::Finite(depth) => 1.0 / (1.0 + depth), // depth > -1 by validate(); -1 is the camera, not the Infinite tag
+            Depth::Infinite => 0.0,
+        }
     }
 
     /// The vertical rate, damped so the backdrop does not move as far vertically as it does
     /// horizontally.
     pub fn rate_y(&self) -> f64 {
-        // TODO(human) begin 4/17: Layer::rate_y
-        //
         // Intent: vertical travel is deliberately a fraction of horizontal travel, otherwise a
         // tall backdrop band swings out of view on the first jump. The damping factor is the
         // layer's own `vertical_damping`, and the result still goes to 0 at infinity, so a
         // pinned layer is pinned on both axes.
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     self.rate_x() * self.vertical_damping
-        //
-        // Tests: u1 (top axis), u2 (y ratio), u4 (coverage across the camera range).
-        // TODO(human) end 4/17
+        self.rate_x() * self.vertical_damping
     }
 }
 
 /// The pixel snap: to the nearest whole pixel, ties away from the zero floor, so `-10.5` snaps
 /// to `-10` (test U13).
 pub fn snap(value: f64) -> i32 {
-    // TODO(human) begin 5/17: pixel snap
-    //
     // Intent: every layer's final left/top is rounded to a whole screen pixel so the art does
     // not shimmer as the camera creeps. `floor(value + 0.5)` is the rule Math section 2 states,
     // and its tie behaviour is the interesting part: with the +0.5-then-floor form, -10.5
@@ -370,13 +352,7 @@ pub fn snap(value: f64) -> i32 {
     //
     // Do not snap anything but the final left/top: the repeat is computed on the unsnapped
     // value (see place_layer), or the copy count drifts.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     (value + 0.5).floor() as i32
-    //
-    // Test: u13_pixel_snap_ties_away_from_the_floor.
-    // TODO(human) end 5/17
+    (value + 0.5).floor() as i32
 }
 
 /// The camera snap: round the camera centre to a multiple of `1 / zoom` world px, so the tile
