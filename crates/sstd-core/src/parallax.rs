@@ -91,6 +91,11 @@ pub struct Layer {
     pub fill_below: Fill,
 }
 
+/// The backdrop manifest's schema version: validated by `Stack::validate`, written by
+/// `Stack::from_legacy_manifest`. Distinct from `storage::CURRENT_SCHEMA_VERSION` (the
+/// storage-file format version, a `&str`) -- this names the `stack.json` wire-form version.
+const MANIFEST_SCHEMA_VERSION: u32 = 2;
+
 /// A stack: the layers once, independent of which world uses them. `Data` section 1.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Stack {
@@ -359,8 +364,6 @@ pub fn snap(value: f64) -> i32 {
 /// layer and the backdrops land on one screen pixel grid. Left alone at `zoom < 1`, which is
 /// editor-only (test U23).
 pub fn snap_center(value: f64, zoom: f64) -> f64 {
-    // TODO(human) begin 6/17: camera snap
-    //
     // Intent: the tiles are drawn on the pixel grid, so if the camera centre is fractional the
     // tiles land off-grid and the backdrops land on a second, different grid - two grids, which
     // is the shimmer U23 exists to stop. Rounding the centre to a multiple of 1/zoom puts both
@@ -369,22 +372,14 @@ pub fn snap_center(value: f64, zoom: f64) -> f64 {
     // Below zoom 1 the editor zooms out and there is no grid worth honouring, so the value is
     // passed through untouched. Reuse the pixel snap rather than writing a second rounding rule,
     // so the two can never disagree at a tie.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     if zoom < 1.0 {
-    //         return value;
-    //     }
-    //     snap(value * zoom) as f64 / zoom
-    //
-    // Test: u23_camera_snap_puts_one_grid_under_everything.
-    // TODO(human) end 6/17
+    if zoom < 1.0 {
+        return value;
+    }
+    snap(value * zoom) as f64 / zoom
 }
 
 /// Where a layer is drawn this frame. The one function the whole design rests on.
 pub fn place_layer(view: &ViewState, anchor: &Anchor, layer: &ResolvedLayer) -> Placement {
-    // TODO(human) begin 7/17: place_layer
-    //
     // Intent: the whole point of owning the math. Registration (U1) is defined at the anchor:
     // at the anchor every layer must land at the same screen place for any window size, which
     // is what a Parallax2D could not guarantee because where it landed depended on engine state
@@ -404,45 +399,35 @@ pub fn place_layer(view: &ViewState, anchor: &Anchor, layer: &ResolvedLayer) -> 
     // left, then snap only the values that are returned, or the copy count drifts by one at
     // some zooms (Math section 3's zoom 0.25 example has copy_count 5).
     //
-    // Sample (uncomment, then adapt) - copied from the sketch in Math section 2:
-    //
-    //     let layer_cam_x = anchor.world_px_x
-    //         + (view.cam_center_world_px_x - anchor.world_px_x) * layer.rate_x;
-    //     let layer_cam_y = anchor.world_px_y
-    //         + (view.cam_center_world_px_y - anchor.world_px_y) * layer.rate_y;
-    //     let art_left_world =
-    //         anchor.world_px_x + layer.ref_screen_left_px - layer.ref_view.width / 2.0;
-    //     let art_top_world =
-    //         anchor.world_px_y + layer.ref_screen_top_px - layer.ref_view.height / 2.0;
-    //     let art_screen_left = (art_left_world - layer_cam_x) * view.zoom + view.view_w_px / 2.0;
-    //     let art_screen_top = (art_top_world - layer_cam_y) * view.zoom + view.view_h_px / 2.0;
-    //     let (first_copy_left, copy_count) = if layer.repeat_x {
-    //         let period_screen = layer.period_px * view.zoom;
-    //         let first_copy_left = art_screen_left.rem_euclid(period_screen) - period_screen;
-    //         (
-    //             first_copy_left,
-    //             ((view.view_w_px - first_copy_left) / period_screen).ceil() as u32,
-    //         )
-    //     } else {
-    //         (art_screen_left, 1)
-    //     };
-    //     Placement {
-    //         first_copy_left_px: snap(first_copy_left),
-    //         copy_count,
-    //         screen_top_px: snap(art_screen_top),
-    //         scale: view.zoom,
-    //     }
-    //
-    // Tests: u1 (registration), u2 (ratio), u3/u21 (infinity), u4 (coverage),
-    // u5 (copies cover the view), u6 (seamless), u16 (a moon), u23 (one grid).
-    // TODO(human) end 7/17
+    let layer_cam_x =
+        anchor.world_px_x + (view.cam_center_world_px_x - anchor.world_px_x) * layer.rate_x;
+    let layer_cam_y =
+        anchor.world_px_y + (view.cam_center_world_px_y - anchor.world_px_y) * layer.rate_y;
+    let art_left_world = anchor.world_px_x + layer.ref_screen_left_px - layer.ref_view.width / 2.0;
+    let art_top_world = anchor.world_px_y + layer.ref_screen_top_px - layer.ref_view.height / 2.0;
+    let art_screen_left = (art_left_world - layer_cam_x) * view.zoom + view.view_w_px / 2.0;
+    let art_screen_top = (art_top_world - layer_cam_y) * view.zoom + view.view_h_px / 2.0;
+    let (first_copy_left, copy_count) = if layer.repeat_x {
+        let period_screen = layer.period_px * view.zoom;
+        let first_copy_left = art_screen_left.rem_euclid(period_screen) - period_screen;
+        (
+            first_copy_left,
+            ((view.view_w_px - first_copy_left) / period_screen).ceil() as u32,
+        )
+    } else {
+        (art_screen_left, 1)
+    };
+    Placement {
+        first_copy_left_px: snap(first_copy_left),
+        copy_count,
+        screen_top_px: snap(art_screen_top),
+        scale: view.zoom,
+    }
 }
 
 /// The bounding box of the occupied screens, from their `(col, row)` cells. Columns may be
 /// negative; the rectangle is exclusive on the right and bottom.
 pub fn map_rectangle(screens: &[(i32, i32)]) -> Option<MapRect> {
-    // TODO(human) begin 8/17: map_rectangle
-    //
     // Intent: the map's extent comes from which screens exist, not from a hand-typed size
     // (`Data` section 3). A screen at cell (col, row) occupies world px [col*1920, (col+1)*1920)
     // x [row*1056, (row+1)*1056), so the rectangle is just the bounding box. Columns can be
@@ -454,56 +439,40 @@ pub fn map_rectangle(screens: &[(i32, i32)]) -> Option<MapRect> {
     //
     // Note: use min()/max() over the iterator. A running min/max needs `let mut`, and this
     // module has no other mutable state to justify it.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     let min_col = screens.iter().map(|screen| screen.0).min()?;
-    //     let max_col = screens.iter().map(|screen| screen.0).max()?;
-    //     let min_row = screens.iter().map(|screen| screen.1).min()?;
-    //     let max_row = screens.iter().map(|screen| screen.1).max()?;
-    //     Some(MapRect {
-    //         left: f64::from(min_col) * f64::from(SCREEN_W_PX),
-    //         top: f64::from(min_row) * f64::from(SCREEN_H_PX),
-    //         right: f64::from(max_col + 1) * f64::from(SCREEN_W_PX),
-    //         bottom: f64::from(max_row + 1) * f64::from(SCREEN_H_PX),
-    //     })
-    //
-    // Tests: u10_map_rectangle_is_the_screen_bounding_box.
-    // TODO(human) end 8/17
+    let min_col = screens.iter().map(|screen| screen.0).min()?;
+    let max_col = screens.iter().map(|screen| screen.0).max()?;
+    let min_row = screens.iter().map(|screen| screen.1).min()?;
+    let max_row = screens.iter().map(|screen| screen.1).max()?;
+    Some(MapRect {
+        left: f64::from(min_col) * f64::from(SCREEN_W_PX),
+        top: f64::from(min_row) * f64::from(SCREEN_H_PX),
+        right: f64::from(max_col + 1) * f64::from(SCREEN_W_PX),
+        bottom: f64::from(max_row + 1) * f64::from(SCREEN_H_PX),
+    })
 }
 
 /// The camera's bound: the map in the game, the map grown by one screen on every side in the
 /// editor, so the map's edges are visible with the margin cells around them.
 pub fn camera_bound(map: &MapRect, editor: bool) -> MapRect {
-    // TODO(human) begin 9/17: camera_bound
-    //
     // Intent: the game camera is pinned to the map, so the player can never see past the first
     // or last screen row. The editor is different on purpose: it grows the bound by one screen
     // on every side so the margin cells around the map can be authored, which is the whole
     // reason an editor has a camera bound at all. The margin is one *screen* (1920 x 1056), not
     // one view, so it does not move with the zoom.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     if !editor {
-    //         return *map;
-    //     }
-    //     MapRect {
-    //         left: map.left - f64::from(SCREEN_W_PX),
-    //         top: map.top - f64::from(SCREEN_H_PX),
-    //         right: map.right + f64::from(SCREEN_W_PX),
-    //         bottom: map.bottom + f64::from(SCREEN_H_PX),
-    //     }
-    //
-    // Tests: u11_editor_bound_grows_by_one_screen, u4 (uses the editor bound).
-    // TODO(human) end 9/17
+    if !editor {
+        return *map;
+    }
+    MapRect {
+        left: map.left - f64::from(SCREEN_W_PX),
+        top: map.top - f64::from(SCREEN_H_PX),
+        right: map.right + f64::from(SCREEN_W_PX),
+        bottom: map.bottom + f64::from(SCREEN_H_PX),
+    }
 }
 
 /// Clamp a centre to a bound. When the bound is smaller than the view on this axis, the centre
 /// is fixed so the view's top-left equals the bound's top-left.
 pub fn clamp_center(center: f64, view_extent: f64, bound_low: f64, bound_high: f64) -> f64 {
-    // TODO(human) begin 10/17: clamp_center
-    //
     // Intent: two cases, and the second is the one that gets written wrong.
     //
     // Normal case: the camera centre may range so that the view stays inside the bound, so the
@@ -518,24 +487,16 @@ pub fn clamp_center(center: f64, view_extent: f64, bound_low: f64, bound_high: f
     //
     // `view_extent` arrives already scaled by the zoom (the caller passes view/zoom), so the
     // fractional half-view at zoom 2 needs no special case here.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     let half_extent = view_extent / 2.0;
-    //     if bound_high - bound_low < view_extent {
-    //         return bound_low + half_extent;
-    //     }
-    //     center.clamp(bound_low + half_extent, bound_high - half_extent)
-    //
-    // Tests: u9 (one-row map pins the centre), u20 (game camera clamped).
-    // TODO(human) end 10/17
+    let half_extent = view_extent / 2.0;
+    if bound_high - bound_low < view_extent {
+        return bound_low + half_extent;
+    }
+    center.clamp(bound_low + half_extent, bound_high - half_extent)
 }
 
 /// The anchor a world gets when it declares none: the camera centre at the home view, which is
 /// screen column 0 (or the left-most column), bottom row, clamped.
 pub fn default_anchor(map: &MapRect, view: &ViewState) -> Anchor {
-    // TODO(human) begin 11/17: default_anchor
-    //
     // Intent: a world that declares no anchor gets a sensible one, so a fresh world already
     // looks right (Data section 3). The "home view" is the map's left-most screen column and
     // its bottom row - you start at the bottom of the map on the left - so the centre is half a
@@ -544,23 +505,15 @@ pub fn default_anchor(map: &MapRect, view: &ViewState) -> Anchor {
     // Then clamp it: the answe must be a camera position the game would allow, not merely a
     // point derived from the bound, so a one-row map gets the same centre the clamps produce.
     // Reuse clamp_anchor rather than re-deriving limits, and keep the first element of its pair.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     let home = Anchor {
-    //         world_px_x: map.left + view.view_w_px / 2.0,
-    //         world_px_y: map.bottom - view.view_h_px / 2.0,
-    //     };
-    //     clamp_anchor(home, map, view).0
-    //
-    // Test: u14_default_anchor_is_the_home_view_center.
-    // TODO(human) end 11/17
+    let home = Anchor {
+        world_px_x: map.left + view.view_w_px / 2.0,
+        world_px_y: map.bottom - view.view_h_px / 2.0,
+    };
+    clamp_anchor(home, map, view).0
 }
 
 /// Clamp an authored anchor into the game camera bound, returning whether it moved.
 pub fn clamp_anchor(anchor: Anchor, map: &MapRect, view: &ViewState) -> (Anchor, bool) {
-    // TODO(human) begin 12/17: clamp_anchor
-    //
     // Intent: an authored anchor is a request, not a guarantee - a world carries an anchor the
     // editor never validated against the map it later became. Clamp it into the *game* bound
     // (not the editor's), and report whether it moved, because the loader logs one
@@ -570,34 +523,26 @@ pub fn clamp_anchor(anchor: Anchor, map: &MapRect, view: &ViewState) -> (Anchor,
     // Each axis clamps with its own extent, and the extent is view/zoom because the world-space
     // view is bigger when zoomed out. Compare the clamped pair against the input to answer
     // "moved", rather than tracking flags.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     let clamped = Anchor {
-    //         world_px_x: clamp_center(
-    //             anchor.world_px_x,
-    //             view.view_w_px / view.zoom,
-    //             map.left,
-    //             map.right,
-    //         ),
-    //         world_px_y: clamp_center(
-    //             anchor.world_px_y,
-    //             view.view_h_px / view.zoom,
-    //             map.top,
-    //             map.bottom,
-    //         ),
-    //     };
-    //     let moved = clamped != anchor;
-    //     (clamped, moved)
-    //
-    // Tests: u19_anchor_override_is_clamped, u14 (via default_anchor).
-    // TODO(human) end 12/17
+    let clamped = Anchor {
+        world_px_x: clamp_center(
+            anchor.world_px_x,
+            view.view_w_px / view.zoom,
+            map.left,
+            map.right,
+        ),
+        world_px_y: clamp_center(
+            anchor.world_px_y,
+            view.view_h_px / view.zoom,
+            map.top,
+            map.bottom,
+        ),
+    };
+    let moved = clamped != anchor;
+    (clamped, moved)
 }
 
 /// One validation failure as the loader's journal line, `Data` line 146 (test U7).
 pub fn journal_line(msg: &ValidationMessage, stack_key: &str, layer: &str) -> String {
-    // TODO(human) begin 13/17: journal_line
-    //
     // Intent: a rejected stack must be diagnosable from the journal alone, without a debugger:
     // which stack, which layer, which field, what value, which rule. Data line 146 fixes the
     // shape, so this is formatting, not design - but the field order and the "-" for an absent
@@ -605,26 +550,18 @@ pub fn journal_line(msg: &ValidationMessage, stack_key: &str, layer: &str) -> St
     //
     // A message without field/value renders "-", never an empty gap, so the line always has
     // five key=value pairs and is machine-readable.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     format!(
-    //         "parallax.validate FAIL stack={} layer={} field={} value={} rule={}",
-    //         stack_key,
-    //         layer,
-    //         msg.field.as_deref().unwrap_or("-"),
-    //         msg.value.as_deref().unwrap_or("-"),
-    //         msg.code,
-    //     )
-    //
-    // Test: u7_each_validation_rule_fires (asserts the prefix and the rule= field).
-    // TODO(human) end 13/17
+    format!(
+        "parallax.validate FAIL stack={} layer={} field={} value={} rule={}",
+        stack_key,
+        layer,
+        msg.field.as_deref().unwrap_or("-"),
+        msg.value.as_deref().unwrap_or("-"),
+        msg.code,
+    )
 }
 
 /// One anchor clamp as the loader's journal line, `Data` line 156 (test U19).
 pub fn anchor_clamp_line(stack_key: &str, from: &Anchor, to: &Anchor) -> String {
-    // TODO(human) begin 14/17: anchor_clamp_line
-    //
     // Intent: the same journalling rule as journal_line, for the one *warning* this module
     // produces: an anchor that had to be moved. Record where it was asked to be and where it
     // ended up, so the journal shows both the author's intent and the clamped result - a line
@@ -632,35 +569,27 @@ pub fn anchor_clamp_line(stack_key: &str, from: &Anchor, to: &Anchor) -> String 
     //
     // Render the coordinates as whole numbers: they are world px, and a fractional anchor is
     // the same defect the clamp is fixing.
-    //
-    // Sample (uncomment, then adapt):
-    //
-    //     format!(
-    //         "parallax.anchor CLAMP stack={} from={},{} to={},{}",
-    //         stack_key,
-    //         from.world_px_x as i64,
-    //         from.world_px_y as i64,
-    //         to.world_px_x as i64,
-    //         to.world_px_y as i64,
-    //     )
-    //
-    // Test: u19_anchor_override_is_clamped (asserts the exact line).
-    // TODO(human) end 14/17
+    format!(
+        "parallax.anchor CLAMP stack={} from={},{} to={},{}",
+        stack_key,
+        from.world_px_x as i64,
+        from.world_px_y as i64,
+        to.world_px_x as i64,
+        to.world_px_y as i64,
+    )
 }
 
 impl Stack {
     /// Every rule of `Data` section 4. One message per failure, carrying the field and the
     /// value, so the loader can log one journal line each.
     pub fn validate(&self, art: &[LayerArt]) -> ValidationResult {
-        // TODO(human) begin 15/17: Stack::validate
-        //
         // Intent: every rule in Data section 4, and *all* of them in one pass. Do not return on
         // the first failure - a stack with three problems must be loggable in one go, which is
         // the merge-never-early-return idiom map.rs uses (`let mut result =
         // ValidationResult::valid(); result = result.with_message(...)`).
         //
         // The rules, in this module's rule codes:
-        //   schema_version   self.schema_version == 2
+        //   schema_version   self.schema_version == MANIFEST_SCHEMA_VERSION
         //   max_layers       self.layers.len() <= MAX_LAYERS
         //   art_count        art.len() == self.layers.len(). Report it and skip the per-layer
         //                    art checks; there is no art to check them against. Everything that
@@ -687,77 +616,195 @@ impl Stack {
         // Two rules from Data section 4 are deliberately not here: "file exists" (this module
         // has no filename and no filesystem) and the backdrop.json anchor warning (that is the
         // loader's, in step 6).
-        //
-        // Sample (uncomment, then adapt) - the shape, with two rules written out:
-        //
-        //     let mut result = ValidationResult::valid();
-        //     if self.schema_version != 2 {
-        //         result = result.with_message(
-        //             ValidationMessage::error("schema_version", "stack schema_version must be 2")
-        //                 .with_field("schema_version")
-        //                 .with_value(self.schema_version.to_string()),
-        //         );
-        //     }
-        //     if self.layers.len() > MAX_LAYERS {
-        //         result = result.with_message(
-        //             ValidationMessage::error("max_layers", "too many layers")
-        //                 .with_field("layers")
-        //                 .with_value(self.layers.len().to_string()),
-        //         );
-        //     }
-        //     let art_matches = art.len() == self.layers.len();
-        //     if !art_matches {
-        //         result = result.with_message(
-        //             ValidationMessage::error("art_count", "art facts do not match the layers")
-        //                 .with_field("art")
-        //                 .with_value(format!("{} for {} layers", art.len(), self.layers.len())),
-        //         );
-        //     }
-        //     for (layer_index, layer) in self.layers.iter().enumerate() {
-        //         if let Some(facts) = art.get(layer_index) {
-        //             if !facts.is_rgba {
-        //                 result = result.with_message(
-        //                     ValidationMessage::error(
-        //                         "file_rgba",
-        //                         format!("{} must be an RGBA PNG", layer.name),
-        //                     )
-        //                     .with_field("file")
-        //                     .with_value(layer.file.clone()),
-        //                 );
-        //             }
-        //             if layer.fill_above != Fill::Transparent && !facts.top_row_opaque {
-        //                 result = result.with_message(
-        //                     ValidationMessage::error(
-        //                         "fill_edge_opaque",
-        //                         format!("{} fill_above needs an opaque top row", layer.name),
-        //                     )
-        //                     .with_field("fill_above"),
-        //                 );
-        //             }
-        //             if layer.fill_below != Fill::Transparent && !facts.bottom_row_opaque {
-        //                 result = result.with_message(
-        //                     ValidationMessage::error(
-        //                         "fill_edge_opaque",
-        //                         format!("{} fill_below needs an opaque bottom row", layer.name),
-        //                     )
-        //                     .with_field("fill_below"),
-        //                 );
-        //             }
-        //         }
-        //         // ... and the rules that need no art, in the same loop ...
-        //     }
-        //     result
-        //
-        // Tests: u7_each_validation_rule_fires (one fixture per rule), u15 (front ceiling),
-        // u17 (opaque edge row), u8 (the migrated stack is not validated here).
-        // TODO(human) end 15/17
+        let mut result = ValidationResult::valid();
+        if self.schema_version != MANIFEST_SCHEMA_VERSION {
+            result = result.with_message(
+                ValidationMessage::error(
+                    "schema_version",
+                    format!("stack schema_version must be {MANIFEST_SCHEMA_VERSION}"),
+                )
+                .with_field("schema_version")
+                .with_value(self.schema_version.to_string()),
+            );
+        }
+        if self.layers.len() > MAX_LAYERS {
+            result = result.with_message(
+                ValidationMessage::error("max_layers", "too many layers")
+                    .with_field("layers")
+                    .with_value(self.layers.len().to_string()),
+            );
+        }
+        let art_matches = art.len() == self.layers.len();
+        if !art_matches {
+            result = result.with_message(
+                ValidationMessage::error("art_count", "art facts do not match the layers")
+                    .with_field("art")
+                    .with_value(format!("{} for {} layers", art.len(), self.layers.len())),
+            );
+        }
+        for (layer_index, layer) in self.layers.iter().enumerate() {
+            if let Some(facts) = art.get(layer_index) {
+                if !facts.is_rgba {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "file_rgba",
+                            format!("{} must be an RGBA PNG", layer.name),
+                        )
+                        .with_field("file")
+                        .with_value(layer.file.clone()),
+                    );
+                }
+                if layer.fill_above != Fill::Transparent && !facts.top_row_opaque {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "fill_edge_opaque",
+                            format!("{} fill_above needs an opaque top row", layer.name),
+                        )
+                        .with_field("fill_above"),
+                    );
+                }
+                if layer.fill_below != Fill::Transparent && !facts.bottom_row_opaque {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "fill_edge_opaque",
+                            format!("{} fill_below needs an opaque bottom row", layer.name),
+                        )
+                        .with_field("fill_below"),
+                    );
+                }
+            }
+            if let Depth::Finite(depth_value) = layer.parallax_depth {
+                if depth_value <= -1.0 {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "parallax_depth",
+                            format!("{} depth must be > -1", layer.name),
+                        )
+                        .with_field("parallax_depth")
+                        .with_value(depth_value.to_string()),
+                    );
+                }
+                match layer.plane {
+                    Plane::Back if depth_value < 0.0 => {
+                        result = result.with_message(
+                            ValidationMessage::error(
+                                "plane_depth",
+                                format!("{} is Back and needs depth >= 0", layer.name),
+                            )
+                            .with_field("plane_depth")
+                            .with_value(depth_value.to_string()),
+                        );
+                    }
+                    Plane::Front if depth_value < -0.5 || depth_value >= 0.0 => {
+                        result = result.with_message(
+                            ValidationMessage::error(
+                                "plane_depth",
+                                format!("{} is Front and needs -0.5 <= depth < 0", layer.name),
+                            )
+                            .with_field("plane_depth")
+                            .with_value(depth_value.to_string()),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            if !(0.0..=1.0).contains(&layer.vertical_damping) {
+                result = result.with_message(
+                    ValidationMessage::error(
+                        "vertical_damping",
+                        format!("{} vertical_damping must be in [0, 1]", layer.name),
+                    )
+                    .with_field("vertical_damping")
+                    .with_value(layer.vertical_damping.to_string()),
+                );
+            }
+        }
+
+        // The plane-level rules need the layers of a plane in draw order; base is the back
+        // plane's lowest draw_order (the opaque canvas), exempt from draw_order_depth so a sun
+        // tagged infinite may sit above it.
+        let base = self
+            .layers
+            .iter()
+            .enumerate()
+            .filter(|(_, layer)| layer.plane == Plane::Back)
+            .min_by_key(|(_, layer)| layer.draw_order);
+
+        for plane in [Plane::Back, Plane::Front] {
+            let mut ordered: Vec<(&Layer, f64)> = self
+                .layers
+                .iter()
+                .filter(|layer| layer.plane == plane)
+                .map(|layer| {
+                    (
+                        layer,
+                        match layer.parallax_depth {
+                            Depth::Finite(depth_value) => depth_value,
+                            Depth::Infinite => f64::INFINITY,
+                        },
+                    )
+                })
+                .collect();
+            ordered.sort_by(|(left, _), (right, _)| left.draw_order.cmp(&right.draw_order));
+            for pair in ordered.windows(2) {
+                let (prev_layer, prev_depth) = pair[0];
+                let (next_layer, next_depth) = pair[1];
+                if prev_layer.draw_order == next_layer.draw_order {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "draw_order_unique",
+                            format!(
+                                "{} and {} share draw_order {}",
+                                prev_layer.name, next_layer.name, prev_layer.draw_order
+                            ),
+                        )
+                        .with_field("draw_order")
+                        .with_value(prev_layer.draw_order.to_string()),
+                    );
+                }
+                if next_depth > prev_depth
+                    && !base.is_some_and(|(_, base_layer)| std::ptr::eq(prev_layer, base_layer))
+                {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "draw_order_depth",
+                            format!(
+                                "{} (depth {}) draws above the farther {} (depth {})",
+                                next_layer.name, next_depth, prev_layer.name, prev_depth
+                            ),
+                        )
+                        .with_field("draw_order")
+                        .with_value(format!(
+                            "{} then {}",
+                            prev_layer.draw_order, next_layer.draw_order
+                        )),
+                    );
+                }
+            }
+        }
+
+        if let Some((base_index, base_layer)) = base {
+            if let Some(facts) = art.get(base_index) {
+                if !facts.fully_opaque
+                    || base_layer.fill_above == Fill::Transparent
+                    || base_layer.fill_below == Fill::Transparent
+                {
+                    result = result.with_message(
+                        ValidationMessage::error(
+                            "base_opaque",
+                            format!("the base layer {} must be opaque", base_layer.name),
+                        )
+                        .with_field("base"),
+                    );
+                }
+            }
+        }
+        result
     }
 
     /// Validate, then derive. `Err` carries every failure rather than the first, so one load
     /// reports the whole stack.
     pub fn resolve(&self, art: &[LayerArt]) -> Result<ResolvedStack, ValidationResult> {
-        // TODO(human) begin 16/17: Stack::resolve
-        //
         // Intent: validate first, and if anything is wrong hand back the whole result so the
         // caller logs every failure at once - never a partial set of layers. `Err` carries the
         // ValidationResult itself, not a string, so the loader still has the codes and fields
@@ -768,40 +815,34 @@ impl Stack {
         // repeat_size_x, which the new schema drops - so it comes from the art facts. The
         // layer's own ref_view is copied into each resolved layer so place_layer needs no
         // stack argument.
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     let result = self.validate(art);
-        //     if result.has_errors() {
-        //         return Err(result);
-        //     }
-        //     let layers = self
-        //         .layers
-        //         .iter()
-        //         .zip(art.iter())
-        //         .map(|(layer, facts)| ResolvedLayer {
-        //             name: layer.name.clone(),
-        //             plane: layer.plane,
-        //             draw_order: layer.draw_order,
-        //             rate_x: layer.rate_x(),
-        //             rate_y: layer.rate_y(),
-        //             repeat_x: layer.repeat_x,
-        //             period_px: f64::from(facts.width_px),
-        //             art_h_px: f64::from(facts.height_px),
-        //             ref_screen_left_px: layer.ref_screen_left_px,
-        //             ref_screen_top_px: layer.ref_screen_top_px,
-        //             ref_view: self.ref_view_px,
-        //             fill_above: layer.fill_above,
-        //             fill_below: layer.fill_below,
-        //         })
-        //         .collect();
-        //     Ok(ResolvedStack {
-        //         ref_view_px: self.ref_view_px,
-        //         layers,
-        //     })
-        //
-        // Tests: every placement test goes through this (u1..u6), u7/u15/u17 (rejection).
-        // TODO(human) end 16/17
+        let result = self.validate(art);
+        if result.has_errors() {
+            return Err(result);
+        }
+        let layers = self
+            .layers
+            .iter()
+            .zip(art.iter())
+            .map(|(layer, facts)| ResolvedLayer {
+                name: layer.name.clone(),
+                plane: layer.plane,
+                draw_order: layer.draw_order,
+                rate_x: layer.rate_x(),
+                rate_y: layer.rate_y(),
+                repeat_x: layer.repeat_x,
+                period_px: f64::from(facts.width_px),
+                art_h_px: f64::from(facts.height_px),
+                ref_screen_left_px: layer.ref_screen_left_px,
+                ref_screen_top_px: layer.ref_screen_top_px,
+                ref_view: self.ref_view_px,
+                fill_above: layer.fill_above,
+                fill_below: layer.fill_below,
+            })
+            .collect();
+        Ok(ResolvedStack {
+            ref_view_px: self.ref_view_px,
+            layers,
+        })
     }
 
     /// Migrate the retired `manifest.json` v1.0. `Data` section 5; test U8.
@@ -810,8 +851,6 @@ impl Stack {
         stack_key: &str,
         palette_key: &str,
     ) -> Stack {
-        // TODO(human) begin 17/17: Stack::from_legacy_manifest
-        //
         // Intent: Data section 5's table, and only the rows the legacy file actually contains.
         // The legacy file stores rates, not depths, so invert the relationship
         // (Data section 1): depth = 1 / rate_x - 1 and damping = rate_y / rate_x. It stores no
@@ -830,58 +869,52 @@ impl Stack {
         // ref_view comes from the legacy width and VIEW_H_PX (1080): the legacy sky is 1320 px
         // tall, which is 1080 plus the 240 px overscan, so 1080 is the view the art was made
         // against.
-        //
-        // Sample (uncomment, then adapt):
-        //
-        //     let layers = manifest
-        //         .layers
-        //         .iter()
-        //         .map(|legacy| {
-        //             let rate_x = legacy.scroll_scale_x;
-        //             let parallax_depth = if rate_x == 0.0 {
-        //                 Depth::Infinite
-        //             } else {
-        //                 Depth::Finite(1.0 / rate_x - 1.0)
-        //             };
-        //             let vertical_damping = if rate_x == 0.0 {
-        //                 1.0
-        //             } else {
-        //                 legacy.scroll_scale_y / rate_x
-        //             };
-        //             let (plane, draw_order) = if legacy.z_index >= LEGACY_FRONT_Z_INDEX {
-        //                 (Plane::Front, legacy.z_index - LEGACY_FRONT_Z_INDEX)
-        //             } else {
-        //                 (Plane::Back, legacy.z_index)
-        //             };
-        //             Layer {
-        //                 name: legacy.name.clone(),
-        //                 file: legacy.file.clone(),
-        //                 plane,
-        //                 draw_order,
-        //                 parallax_depth,
-        //                 vertical_damping,
-        //                 repeat_x: legacy.repeat_size_x > 0,
-        //                 ref_screen_left_px: 0.0,
-        //                 ref_screen_top_px: 0.0,
-        //                 fill_above: Fill::Transparent,
-        //                 fill_below: Fill::Transparent,
-        //             }
-        //         })
-        //         .collect();
-        //     Stack {
-        //         schema_version: 2,
-        //         stack_key: stack_key.to_string(),
-        //         palette_key: palette_key.to_string(),
-        //         generator_seed: manifest.seed,
-        //         ref_view_px: RefView {
-        //             width: f64::from(manifest.width_px),
-        //             height: f64::from(VIEW_H_PX),
-        //         },
-        //         layers,
-        //     }
-        //
-        // Tests: u8_migration_reproduces_twelve_rates (reads the tracked manifest.json).
-        // TODO(human) end 17/17
+        let layers = manifest
+            .layers
+            .iter()
+            .map(|legacy| {
+                let rate_x = legacy.scroll_scale_x;
+                let parallax_depth = if rate_x == 0.0 {
+                    Depth::Infinite
+                } else {
+                    Depth::Finite(1.0 / rate_x - 1.0)
+                };
+                let vertical_damping = if rate_x == 0.0 {
+                    1.0
+                } else {
+                    legacy.scroll_scale_y / rate_x
+                };
+                let (plane, draw_order) = if legacy.z_index >= LEGACY_FRONT_Z_INDEX {
+                    (Plane::Front, legacy.z_index - LEGACY_FRONT_Z_INDEX)
+                } else {
+                    (Plane::Back, legacy.z_index)
+                };
+                Layer {
+                    name: legacy.name.clone(),
+                    file: legacy.file.clone(),
+                    plane,
+                    draw_order,
+                    parallax_depth,
+                    vertical_damping,
+                    repeat_x: legacy.repeat_size_x > 0,
+                    ref_screen_left_px: 0.0,
+                    ref_screen_top_px: 0.0,
+                    fill_above: Fill::Transparent,
+                    fill_below: Fill::Transparent,
+                }
+            })
+            .collect();
+        Stack {
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            stack_key: stack_key.to_string(),
+            palette_key: palette_key.to_string(),
+            generator_seed: manifest.seed,
+            ref_view_px: RefView {
+                width: f64::from(manifest.width_px),
+                height: f64::from(VIEW_H_PX),
+            },
+            layers,
+        }
     }
 }
 
@@ -1054,7 +1087,7 @@ mod tests {
 
     fn fixture_stack() -> Stack {
         Stack {
-            schema_version: 2,
+            schema_version: MANIFEST_SCHEMA_VERSION,
             stack_key: "neutral_default".to_string(),
             palette_key: "neutral".to_string(),
             generator_seed: 1592598566,
@@ -1283,12 +1316,18 @@ mod tests {
             let expected = -1000.0 * layer.rate_x;
             let actual = (end.first_copy_left_px - start.first_copy_left_px) as f64;
             if layer.repeat_x {
-                assert_eq!(
-                    wrap_signed(actual, layer.period_px),
-                    wrap_signed(expected, layer.period_px),
-                    "{} shift at rate {}",
+                // The copies are snapped to whole pixels, so the measured shift can sit up to a
+                // pixel off the exact rate product (LowClouds rate 0.300003... shifted -300.0,
+                // not -300.003). Wrap first, then tolerate the snap like the non-repeat branch.
+                let wrapped_actual = wrap_signed(actual, layer.period_px);
+                let wrapped_expected = wrap_signed(expected, layer.period_px);
+                assert!(
+                    (wrapped_actual - wrapped_expected).abs() <= 1.0,
+                    "{} shift at rate {}: {} should be {} within a pixel",
                     layer.name,
-                    layer.rate_x
+                    layer.rate_x,
+                    wrapped_actual,
+                    wrapped_expected,
                 );
             } else {
                 assert!(
@@ -1467,7 +1506,7 @@ mod tests {
         let art = fixture_art();
 
         let wrong_version = Stack {
-            schema_version: 3,
+            schema_version: MANIFEST_SCHEMA_VERSION + 1,
             ..fixture_stack()
         };
         assert!(has_code(&wrong_version.validate(&art), "schema_version"));
@@ -1569,7 +1608,7 @@ mod tests {
             serde_json::from_str(raw).expect("the tracked manifest parses");
         let migrated = Stack::from_legacy_manifest(&legacy, "neutral_default", "neutral");
 
-        assert_eq!(migrated.schema_version, 2);
+        assert_eq!(migrated.schema_version, MANIFEST_SCHEMA_VERSION);
         assert_eq!(migrated.stack_key, "neutral_default");
         assert_eq!(migrated.palette_key, "neutral");
         assert_eq!(migrated.generator_seed, legacy.seed);

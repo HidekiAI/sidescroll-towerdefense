@@ -403,23 +403,23 @@ derive on the enum generates both, which is what the tagged wire form means (ame
 
 | Block | Where | What to write (not how) | Depends on | Tests that go green |
 |---|---|---|---|---|
-| 1/17 | `Fill` `Deserialize` | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
+| 1/17 | `Fill` `Deserialize` (done 2026-10-11) | `"transparent"` or `"#RRGGBBAA"` | - | `fill_parses_transparent_and_hex` |
 | 2/17 | `Fill::from_edge_row` (done 2026-10-12) | the edge-row mean, else `Transparent` | - | U22 |
 | 3/17 | `Layer::rate_x` (done 2026-10-12) | the rate from depth | - | U2, U6 |
 | 4/17 | `Layer::rate_y` (done 2026-10-12) | damped on y | 3 | U1, U4 |
 | 5/17 | `snap` (done 2026-10-12) | the pixel-grid snap | - | U13 |
-| 6/17 | `snap_center` | the camera variant, pass-through below zoom 1 | 5 | U23 |
-| 7/17 | `place_layer` | section 5, repeat included | 3, 4, 5 | U1-U6, U16, U21 |
-| 8/17 | `map_rectangle` | the screen-set bounding box | - | U10 |
-| 9/17 | `camera_bound` | the one-screen editor margin | - | U11 |
-| 10/17 | `clamp_center` | the bound clamp and the small-bound branch | - | U9, U20 |
-| 11/17 | `default_anchor` | the home-view default | 10, 12 | U14 |
-| 12/17 | `clamp_anchor` | clamp the authored anchor, report the move | 10 | U19 |
-| 13/17 | `journal_line` | the `Data` line 146 format | - | U7 |
-| 14/17 | `anchor_clamp_line` | the `Data` line 156 format | - | U19 |
-| 15/17 | `Stack::validate` | the section 6 rule table, all failures at once | 1, 2, 3, 4 | U7, U15, U17 |
-| 16/17 | `Stack::resolve` | validate, then build the resolved layers | 15 | every placement test |
-| 17/17 | `Stack::from_legacy_manifest` | the section 8 table | 3, 4 | U8 |
+| 6/17 | `snap_center` (done 2026-10-13) | the camera variant, pass-through below zoom 1 | 5 | U23 |
+| 7/17 | `place_layer` (done 2026-10-13) | section 5, repeat included | 3, 4, 5 | U1-U6, U16, U21 |
+| 8/17 | `map_rectangle` (done 2026-10-13) | the screen-set bounding box | - | U10 |
+| 9/17 | `camera_bound` (done 2026-10-13) | the one-screen editor margin | - | U11 |
+| 10/17 | `clamp_center` (done 2026-10-13) | the bound clamp and the small-bound branch | - | U9, U20 |
+| 11/17 | `default_anchor` (done 2026-10-13) | the home-view default | 10, 12 | U14 |
+| 12/17 | `clamp_anchor` (done 2026-10-13) | clamp the authored anchor, report the move | 10 | U19 |
+| 13/17 | `journal_line` (done 2026-10-13) | the `Data` line 146 format | - | U7 |
+| 14/17 | `anchor_clamp_line` (done 2026-10-13) | the `Data` line 156 format | - | U19 |
+| 15/17 | `Stack::validate` (done 2026-10-13) | the section 6 rule table, all failures at once | 1, 2, 3, 4 | U7, U15, U17 |
+| 16/17 | `Stack::resolve` (done 2026-10-13) | validate, then build the resolved layers | 15 | every placement test |
+| 17/17 | `Stack::from_legacy_manifest` (done 2026-10-13) | the section 8 table | 3, 4 | U8 |
 
 Seventeen blocks, dependency-ordered - one per function, so each block is independently
 checkable and none is a two-function edit. `Fill`'s `Serialize` impl and everything in the

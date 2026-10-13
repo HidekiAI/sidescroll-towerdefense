@@ -7,17 +7,21 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-12 (blocks 3/17-5/17 written: `rate_x`, `rate_y`, `snap`; 12
-`TODO(human)` blocks open, block 6/17 next)_
+_Last updated: 2026-10-13 (all 17 blocks written; review fixes in; `cargo test -p sstd-core`
+134 passed, 0 failed — first green full-crate run of this work)_
 
-**NEXT MOVE: @me writes block 6/17 (`snap_center`) in `crates/sstd-core/src/parallax.rs`**
-— the module is scaffolded with every type, constant, signature, the derives (incl. `Depth`) and
-the whole `#[cfg(test)] mod tests`; each unwritten body is an empty `TODO(human)` block, so the
-editor flags it with `E0308` deliberately (an empty body against a real return type, not
-`todo!()`, which would silence the LSP). Working branch `local/feat/parallax-step1`, unpushed.
-Gated plan is `docs/PLAN-2026-10-10-parallax-step1.md` — section 11 is the block map (rows
-`2/17..17/17` still open; block 1/17 done), section 13 the gate record (iteration 3 = 94, no
-CRITICAL, no UNCOVERED).
+**NEXT MOVE: step 2 (#105) — `gen-backdrop` emits `stack.json`, with the writer/reader token
+single-sourced.** Step 1 (#104) ships on working branch `local/feat/parallax-step1`, unpushed.
+All seventeen blocks of `crates/sstd-core/src/parallax.rs` are written; the deliberate
+`TODO(human)` E0308 state is gone and the full crate suite is green (134 passed, 0 failed),
+exercising every U-test including the migration (U8) and the validation set (U7/U15/U17). The
+first whole-step review surfaced two findings, both fixed and walked 2026-10-13: (1)
+`Stack::validate` had only 4 of its 10 rules — `parallax_depth`, `vertical_damping`,
+`plane_depth`, `draw_order_unique`, `draw_order_depth`, `base_opaque` were a stub comment; now
+implemented. (2) U2's repeating branch demanded exact rate equality from snapped copies
+(LowClouds 0.300003... measured -300.0 vs -300.003); it now tolerates one pixel like the
+non-repeat branch. Gated plan is `docs/PLAN-2026-10-10-parallax-step1.md` — section 11 block
+map: every row `1/17..17/17` marked done; section 13 gate record unchanged (it pre-dates code).
 
 **2026-10-11 wire-form decision (landed):** `Depth` no longer uses the string `"inf"` — it is
 the tagged object `{ "kind": "finite", "value": n }` / `{ "kind": "infinite" }` via a serde
@@ -29,18 +33,14 @@ variant are rejected, no `alloc` feature is needed, and kind-first order buffers
 Ticket #104 Scope was amended and a record comment posted the same day; the wiki (wiki repo
 branch `docs/depth-tagged-wire-form`, commit `4df7833`) was updated across 6 pages.
 
-Red evidence now: `cargo check -p sstd-core --tests` reports **exactly 12 mismatched-types
-errors, one per unwritten block** (`6/17..17/17`; first at `snap_center`, line 361). Blocks
-4/17 (`rate_y`) and 5/17 (`snap`) were written by @me ahead of the walk and swept into the
-block-3 capture; the commit was amended so the history names all three blocks. Block 2/17
-(2026-10-12, ref #104) shipped with the u22 test extended by a tie row
-(`[100,255,0,255, 101,255,0,255]`) so the half-up rounding is discriminable. Block 1/17's
-five-case parse behaviour (`fill_parses_transparent_and_hex`'s assertions) was proven by the
-standalone `tagprobe` probe `/tmp/user/1000/opencode/tagprobe` before commit — verdict correct.
-The `Fill`/`Depth` round-trip tests still cannot run until every body compiles (the crate does
-not compile); they pin the on-disk spellings so a respell goes red. Historical baseline for the
-old form: `cargo test -p sstd-core parallax` was 22 failed / 2 passed at the `todo!()` stage,
-then 18 E0308, then 16 after block 1/17 was written.
+Completion evidence (2026-10-13): `cargo test -p sstd-core` is **134 passed, 0 failed** —
+the first green full-crate run of this work, with the 110-test baseline (config, etc.) passing
+alongside every U-test. `cargo check -p sstd-core --tests` reports zero errors; the old "12
+mismatched-types, one per unwritten block" state is retired. Historical baselines for
+contrast: `cargo test -p sstd-core parallax` was 22 failed / 2 passed at the `todo!()` stage,
+then 18 E0308, then 16 after block 1/17. Block 2/17 (2026-10-12, ref #104) shipped the u22
+tie row (`[100,255,0,255, 101,255,0,255]`) so the half-up rounding is discriminable, and
+block 1/17's parse behaviour was proven by the standalone `tagprobe` probe before commit.
 
 Then step 2 (#105) and step 3 (#106), still Rust-only. Steps 4-7 wait on the first slice
 landing. Verification tests are U1-U23 (`TDD_Parallax-Scrolling.Verification`), not U1-U12.
