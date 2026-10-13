@@ -7,21 +7,23 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-13 (all 17 blocks written; review fixes in; `cargo test -p sstd-core`
-134 passed, 0 failed — first green full-crate run of this work)_
+_Last updated: 2026-10-13 (step-2 plan written and GATED 90/100; step 1 code green, unpushed)_
 
-**NEXT MOVE: step 2 (#105) — `gen-backdrop` emits `stack.json`, with the writer/reader token
-single-sourced.** Step 1 (#104) ships on working branch `local/feat/parallax-step1`, unpushed.
-All seventeen blocks of `crates/sstd-core/src/parallax.rs` are written; the deliberate
-`TODO(human)` E0308 state is gone and the full crate suite is green (134 passed, 0 failed),
-exercising every U-test including the migration (U8) and the validation set (U7/U15/U17). The
-first whole-step review surfaced two findings, both fixed and walked 2026-10-13: (1)
-`Stack::validate` had only 4 of its 10 rules — `parallax_depth`, `vertical_damping`,
-`plane_depth`, `draw_order_unique`, `draw_order_depth`, `base_opaque` were a stub comment; now
-implemented. (2) U2's repeating branch demanded exact rate equality from snapped copies
-(LowClouds 0.300003... measured -300.0 vs -300.003); it now tolerates one pixel like the
-non-repeat branch. Gated plan is `docs/PLAN-2026-10-10-parallax-step1.md` — section 11 block
-map: every row `1/17..17/17` marked done; section 13 gate record unchanged (it pre-dates code).
+**NEXT MOVE: get @me's approval of the step-2 block map, then scaffold the coding-assistant
+`TODO(human)` blocks for step 2 (#105) on branch `local/feat/parallax-step2` (stacked on the
+step-1 branch, so it has the `Stack` type).** The step-2 gated plan is
+`docs/PLAN-2026-10-13-parallax-step2.md` — plan-ticket-gate PASSED 90/100 in 2 iterations
+(iteration 1 capped at 59 on five verification bars listed among exit conditions; moved to a
+"Verification hygiene" section 9b, none a follow-up ticket). Ticket #105 amended 2026-10-13
+(comment 6145606773): the body's `"inf"` line is superseded by the tagged-enum directive — the
+sun layer's depth is `Depth::Infinite`. Block map: 6 `TODO(human)` blocks for @me (`make_sun`,
+`edge_row_fill`, `layer_specs`, `make_sky` disc removal, `art_facts`, `build_stack`) plus
+assistant scaffold (`Cargo.toml` + `sstd-core` path dep, `pub MANIFEST_SCHEMA_VERSION`,
+assembly rework, full test scaffold). Branch for the remaining work is `local/feat/parallax-step2`.
+
+Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
+`cargo test -p sstd-core` 134 passed / 0 failed, both review findings fixed and walked
+2026-10-13 (`Stack::validate` full 10-rule set; U2 repeat-branch 1 px tolerance).
 
 **2026-10-11 wire-form decision (landed):** `Depth` no longer uses the string `"inf"` — it is
 the tagged object `{ "kind": "finite", "value": n }` / `{ "kind": "infinite" }` via a serde
