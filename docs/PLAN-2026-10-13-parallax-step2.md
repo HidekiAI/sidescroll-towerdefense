@@ -158,7 +158,7 @@ fallback stack must never be rejectable (Data section 4).
   the placement from the disc).
 - `make_sky(width, height, seed)`: height supplied by the Sky spec (1080); delete the sun disc
   block (centre/radius/disc lerp). Signature unchanged.
-- New `make_sun(ref_width: f64, ref_height: f64) -> RgbaImage`: `r = SUN_RADIUS_FRAC *
+- New `make_sun(ref_height: f64) -> RgbaImage`: `r = SUN_RADIUS_FRAC *
   ref_height`; image size `round(2r)`x`round(2r)` (130x130 at 1080); disc centred at `(r, r)`;
   every pixel RGB `[255, 250, 238]`; `alpha = round(255 * 0.85 * (1 - smoothstep(0.65r, r, dist)))`
   (Data section 1 / U18). `repeat_x` false, so no seam requirement and no `all_layers` seam
@@ -166,8 +166,8 @@ fallback stack must never be rejectable (Data section 4).
 - New `edge_row_fill(row: &[Rgba<u8>]) -> Fill` (section 4) and
   `art_facts(image: &RgbaImage) -> LayerArt` (section 5) — both used by the tests, both defined
   here because they are shared with the emit path.
-- New `build_stack(specs, art_per_layer, seed, ref_view) -> Stack`: fills injected from
-  `edge_row_fill` of each layer's generated PNG.
+- New `build_stack(specs, images, seed) -> Stack`: fills injected from `edge_row_fill` of each
+  layer's generated PNG (the scaffold detail is in the deviations list below).
 - `generate_layers_and_manifest` -> keep the name shape (assembly is scaffold, not a block):
   CLI drops `--overscan`, keeps `--out`/`--width`/`--seed`; default out
   `editor/assets/backdrop_stacks/neutral_default`; writes 7 PNGs + `stack.json`
@@ -197,6 +197,34 @@ tests` scaffold. @me writes the logic:
 Dependency order: 3 -> 4 -> 1 -> 2 -> 5 -> 6. Each block is one function, independently
 checkable; the scaffold provides `TODO(human)` empty bodies (E0308-flagged) exactly as step 1.
 
+### Scaffold deviations from this plan (recorded 2026-10-13, at scaffold time)
+
+TL;DR: four signature/scope adjustments were forced by the real APIs while scaffolding; the
+block contracts (1-6) and every test are unchanged. Detail below.
+
+- `make_sun(ref_height: f64)`, not `(ref_width, ref_height)` (section 6): `ref_width` is
+  unused in-image — the disc is square, sized from `r = SUN_RADIUS_FRAC * ref_height` — so an
+  unused parameter would be clutter (and the unused-arg rule forbids keeping it).
+- `build_stack(specs: &[LayerSpec], images: &[(String, RgbaImage)], seed: u64)`, not
+  `(specs, art_per_layer, seed, ref_view)`: the fills come from the PNG edge rows
+  (`edge_row_fill`), so it needs the images, not pre-measured `LayerArt`; and `ref_view_px` is
+  the module const `REF_VIEW_PX` there is exactly one reference view, so passing it would let a
+  caller write a second one that drifts.
+- `deterministic` keeps NO sun clause (section 8 listed "+ Sun determinism"): `make_sun` has no
+  seed, so its output is constant by construction and re-running it cannot prove more than
+  comparing the same two constants. The existing `deterministic` test is untouched.
+- `ImageBuffer::rows()` yields a `Pixels` iterator per row, NOT a `&[Rgba<u8>]` slice (image
+  0.25.10). So block 6 collects each edge row into a `Vec<Rgba<u8>>` before calling
+  `edge_row_fill(&row)`, and block 5 uses `rows().next().is_some_and(|row| row.into_iter()...)`.
+  The scaffold's block-5/6 samples were corrected to match; `edge_row_fill`'s slice signature
+  is kept because it is what makes the fill logic testable without an `image`.
+- Added (not in this plan, needed by the assembly): `generate_layer(spec, width, seed) -> Result<RgbaImage, String>`,
+  the single by-name dispatch table shared by the emit path; the assembly's inline `match` moved
+  in there, so a spec with no generator fails in one place.
+- Scope-adjacent, NOT this ticket: `README.md` carries an uncommitted markdown-table reformat
+  dated 2026-10-11 (before this branch). It is left unstaged and excluded from every step-2
+  commit.
+
 ## 8. Test map and mutations
 
 - U18: for the 130x130 sun, at 20 sample points (centre, `0.65r` ring, mid-ring, beyond `r`,
@@ -218,7 +246,8 @@ checkable; the scaffold provides `TODO(human)` empty bodies (E0308-flagged) exac
   is not tiled, so a seam check on it is vacuous; this is test maintenance forced by AC-1's
   7-PNG fixture),
   `sky_has_no_alpha`, `cloud_layers_have_holes`, `relief_is_absolute_not_a_fraction`,
-  `deterministic` (+ Sun determinism), `lattice_hash_*`, `value_noise_stays_in_unit_range` stay;
+  `deterministic` (no Sun clause — see the deviations list), `lattice_hash_*`,
+  `value_noise_stays_in_unit_range` stay;
   `factors_in_unit_range` / `validate_factors_rejects_bad_specs` are deleted with
   `validate_factors`.
 

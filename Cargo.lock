@@ -526,8 +526,8 @@ name = "gen-backdrop"
 version = "0.1.0"
 dependencies = [
  "image",
- "serde",
  "serde_json",
+ "sstd-core",
 ]
 
 [[package]]

@@ -92,9 +92,11 @@ pub struct Layer {
 }
 
 /// The backdrop manifest's schema version: validated by `Stack::validate`, written by
-/// `Stack::from_legacy_manifest`. Distinct from `storage::CURRENT_SCHEMA_VERSION` (the
-/// storage-file format version, a `&str`) -- this names the `stack.json` wire-form version.
-const MANIFEST_SCHEMA_VERSION: u32 = 2;
+/// `Stack::from_legacy_manifest` and by the `gen-backdrop` generator. Public so the writer
+/// single-sources the version and can never drift from what `validate` enforces. Distinct
+/// from `storage::CURRENT_SCHEMA_VERSION` (the storage-file format version, a `&str`) -- this
+/// names the `stack.json` wire-form version.
+pub const MANIFEST_SCHEMA_VERSION: u32 = 2;
 
 /// A stack: the layers once, independent of which world uses them. `Data` section 1.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

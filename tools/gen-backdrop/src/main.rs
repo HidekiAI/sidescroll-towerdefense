@@ -15,32 +15,58 @@
 //! over `[0, width)` is periodic by construction rather than by clamping.
 //!
 //! Screen geometry is derived, not chosen: 60 x 33 tiles at 32 px is a 1920 x 1056
-//! gameplay screen, so layers author 1:1 at 1920 wide and nothing is scaled or blurred.
-//! Vertical coverage is overscan plus a clamped camera-y travel, NOT a vertical
-//! `repeat_size` -- a vertical repeat leaves empty blocks above and below a
-//! horizontal-only stack.
+//! gameplay screen, plus the 24 px status HUD above it -> a 1920 x 1080 view. Layers
+//! author 1:1 at 1920 wide and nothing is scaled or blurred. Vertical coverage is each
+//! layer's edge fill (`fill_above`/`fill_below`), NOT a vertical `repeat_size` -- a
+//! vertical repeat leaves empty blocks above and below a horizontal-only stack.
 //!
 //! The FIRST pass is deliberately palette-agnostic: neutral blue-greys whose only job is
 //! to prove the mechanism. Biome palettes are a later re-tint of these same layers, never
-//! a redraw, so the layer count and the factors cannot drift from the TDD.
+//! a redraw, so the layer count and the depths cannot drift from the TDD.
 //!
 //! Usage:
-//!   gen-backdrop [--out DIR] [--width N] [--overscan N] [--seed N]
+//!   gen-backdrop [--out DIR] [--width N] [--seed N]
 //!
-//! Outputs: sky.png, clouds_high.png, clouds_low.png, hills.png, forest.png, and
-//!          manifest.json -- the single source of truth for scroll_scale, repeat_size and
-//!          z_index, consumed by the scene and by the GDScript test so a factor is never
-//!          pinned in two places and allowed to drift.
+//! Outputs: sky.png, sun.png, clouds_high.png, clouds_low.png, hills.png, forest.png,
+//!          foreground.png, and stack.json -- the `sstd_core::parallax::Stack` wire form
+//!          (schema version shared with the reader via `MANIFEST_SCHEMA_VERSION`), consumed
+//!          by the scene so a depth, damping or fill is never pinned in two places and
+//!          allowed to drift.
 //!
-//! Every run writes its inputs, per-layer dimensions, factor pairs and output paths to
-//! stdout, so an incident is replayable from the log alone.
+//! Every run writes its inputs, per-layer dimensions, depth/damping/fill values and output
+//! paths to stdout, so an incident is replayable from the log alone.
 
 use image::{Rgba, RgbaImage};
-use serde::Serialize;
+use sstd_core::parallax::{
+    Depth, Fill, Layer, LayerArt, Plane, RefView, Stack, MANIFEST_SCHEMA_VERSION,
+};
 use std::path::PathBuf;
 
-/// Version stamped into `manifest.json` so a stale manifest is detectable on disk.
-const MANIFEST_VERSION: &str = "1.0";
+/// The reference view every layer's `ref_screen_*` is authored against, and the sky's size
+/// (Data section 1): 60 x 33 tiles at 32 px is a 1920 x 1056 arena; the 24 px tall status
+/// HUD above it makes a 1920 x 1080 view.
+const REF_VIEW_PX: RefView = RefView {
+    width: 1920.0,
+    height: 1080.0,
+};
+
+/// The stack this generator emits, and its palette. One stack per `stack_key`; step 2 ships
+/// the single neutral default.
+const STACK_KEY: &str = "neutral_default";
+const PALETTE_KEY: &str = "neutral";
+
+/// Sun disc geometry in fractions of the reference view: centred at 0.68/0.24 of the sky, at
+/// a radius `r = 0.06 * view height` (Data section 1).
+const SUN_CENTER_FRAC_X: f64 = 0.68;
+const SUN_CENTER_FRAC_Y: f64 = 0.24;
+const SUN_RADIUS_FRAC: f64 = 0.06;
+
+/// The disc's falloff starts at `0.65 * r` (the Hermite inner edge), and the old baked-disc
+/// brightening factor the sun layer must reproduce within 1 level (U18). The disc RGB is the
+/// old solar tint, warm white.
+const SUN_FALLOFF_START_FRAC: f64 = 0.65;
+const SUN_BLEND_FRAC: f32 = 0.85;
+const SUN_RGB: [u8; 3] = [255, 250, 238];
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -53,94 +79,138 @@ fn main() {
     }
 }
 
-/// One backdrop plane: its texture and the node contract that consumes it.
+/// One backdrop plane: its texture, its stacked place, and the screen position it was
+/// authored at in the 1920 x 1080 reference view.
+///
+/// `fill_above`/`fill_below` are deliberately NOT here: each fill comes from the PNG's own
+/// edge rows after generation (`edge_row_fill`), so a fill can never be hand-typed and
+/// drift from the art.
+#[derive(Clone, Copy)]
 struct LayerSpec {
     name: &'static str,
     file: &'static str,
-    /// Per-axis scroll factors. `x` is the tutorial's published value for this depth;
-    /// `y` is scaled to ~0.85x of it because the backdrop must move on BOTH axes.
-    scroll_scale: (f32, f32),
-    /// Texture height in px: the band's height plus vertical overscan headroom.
-    height_px: u32,
-    /// Drawn back-to-front. The foreground plane sorts above the tile grid.
-    z_index: i32,
-}
-
-/// One layer's entry in `manifest.json`.
-#[derive(Serialize)]
-struct ManifestLayer {
-    name: String,
-    file: String,
-    scroll_scale_x: f32,
-    scroll_scale_y: f32,
-    repeat_size_x: u32,
-    repeat_size_y: u32,
-    z_index: i32,
+    plane: Plane,
+    /// Compositing order within the plane, ascending.
+    draw_order: i32,
+    /// The wire-form depth (`Stack`'s `parallax_depth`); the reader derives the rate from
+    /// it, so the generator never authors a rate.
+    parallax_depth: Depth,
+    /// Vertical rate as a fraction of the horizontal rate, in `[0, 1]`.
+    vertical_damping: f64,
+    /// Whether the layer tiles horizontally. The Sun is the one non-tiled layer.
+    repeat_x: bool,
+    ref_screen_left_px: f64,
+    ref_screen_top_px: f64,
+    /// Texture height in px.
     height_px: u32,
 }
 
-/// Serialized form of `manifest.json`.
-#[derive(Serialize)]
-struct Manifest {
-    version: String,
-    width_px: u32,
-    overscan_px: u32,
-    seed: u64,
-    layers: Vec<ManifestLayer>,
-}
-
-/// The full stack. Six planes: five backdrop layers plus a foreground drawn IN FRONT of
-/// the tile layer. That is six of the seven-layer cap.
-///
-/// `factor > 1` on the foreground is deliberate and is the tutorial's "appear closer to
-/// the camera" case, which is also why it is excluded from the `biome_backdrop_layers`
-/// schema: that table's CHECK bounds factors to `[0,1]`, so a biome backdrop row can
-/// never express a foreground.
+/// The emitted stack's layer table (Data section 1). All depths/dampings are the 4-decimal
+/// roundings of TDD_Parallax-Depth section 5.2, reproducing today's rates to within 1e-4
+/// (ticket #105 scope bullet; U8). The Sun's screen placement derives from the disc
+/// constants so a palette pass can never drift the sun away from its disc (U18).
 fn layer_specs() -> Vec<LayerSpec> {
-    vec![
-        LayerSpec {
-            name: "Sky",
-            file: "sky.png",
-            scroll_scale: (0.10, 0.08),
-            height_px: 1320,
-            z_index: 0,
-        },
-        LayerSpec {
-            name: "HighClouds",
-            file: "clouds_high.png",
-            scroll_scale: (0.20, 0.17),
-            height_px: 320,
-            z_index: 1,
-        },
-        LayerSpec {
-            name: "LowClouds",
-            file: "clouds_low.png",
-            scroll_scale: (0.30, 0.25),
-            height_px: 320,
-            z_index: 2,
-        },
-        LayerSpec {
-            name: "Hills",
-            file: "hills.png",
-            scroll_scale: (0.50, 0.42),
-            height_px: 384,
-            z_index: 3,
-        },
-        LayerSpec {
-            name: "Forest",
-            file: "forest.png",
-            scroll_scale: (0.70, 0.60),
-            height_px: 320,
-            z_index: 4,
-        },
-        LayerSpec {
-            name: "Foreground",
-            file: "foreground.png",
-            scroll_scale: (1.30, 1.15),
-            height_px: 320,
-            z_index: 10,
-        },
-    ]
+    // TODO(human): begin block 3/6
+    // INTENT: seven rows, back-to-front -- Sky, Sun, HighClouds, LowClouds, Hills, Forest,
+    // Foreground -- exactly the step-1 fixture order. `ref_screen_top_px` is bottom-anchored:
+    // 760 px on the clouds/Forest/Foreground (their ref top = view floor 1080 - height 320)
+    // and 696 on Hills (1080 - 384); Sky sits at 0 and the Sun derives from the disc
+    // centre minus its radius. Depths: 9, Infinite, 4, 2.3333, 1, 0.4286, -0.2308; dampings
+    // 0.8, 1.0, 0.85, 0.8333, 0.84, 0.8571, 0.8846 (Sky/HighClouds/... order matches the plan
+    // wire-form table). Sky height 1080 (the 240 px overscan dies with the v1 model), the
+    // Sun `height_px` is its own disc diameter.
+    //
+    // let sun_diameter_px: u32 = (2.0 * SUN_RADIUS_FRAC * REF_VIEW_PX.height).round() as u32;
+    // let sun_radius_px: f64 = SUN_RADIUS_FRAC * REF_VIEW_PX.height;
+    // vec![
+    //     LayerSpec {
+    //         name: "Sky",
+    //         file: "sky.png",
+    //         plane: Plane::Back,
+    //         draw_order: 0,
+    //         parallax_depth: Depth::Finite(9.0),
+    //         vertical_damping: 0.8,
+    //         repeat_x: true,
+    //         ref_screen_left_px: 0.0,
+    //         ref_screen_top_px: 0.0,
+    //         height_px: 1080,
+    //     },
+    //     LayerSpec {
+    //         name: "Sun",
+    //         file: "sun.png",
+    //         plane: Plane::Back,
+    //         draw_order: 1,
+    //         parallax_depth: Depth::Infinite,
+    //         vertical_damping: 1.0,
+    //         repeat_x: false,
+    //         ref_screen_left_px: (SUN_CENTER_FRAC_X * REF_VIEW_PX.width - sun_radius_px).round(),
+    //         ref_screen_top_px: (SUN_CENTER_FRAC_Y * REF_VIEW_PX.height - sun_radius_px).round(),
+    //         height_px: sun_diameter_px,
+    //     },
+    //     LayerSpec {
+    //         name: "HighClouds",
+    //         file: "clouds_high.png",
+    //         plane: Plane::Back,
+    //         draw_order: 2,
+    //         parallax_depth: Depth::Finite(4.0),
+    //         vertical_damping: 0.85,
+    //         repeat_x: true,
+    //         ref_screen_left_px: 0.0,
+    //         ref_screen_top_px: 760.0,
+    //         height_px: 320,
+    //     },
+    //     LayerSpec {
+    //         name: "LowClouds",
+    //         file: "clouds_low.png",
+    //         plane: Plane::Back,
+    //         draw_order: 3,
+    //         parallax_depth: Depth::Finite(2.3333),
+    //         vertical_damping: 0.8333,
+    //         repeat_x: true,
+    //         ref_screen_left_px: 0.0,
+    //         ref_screen_top_px: 760.0,
+    //         height_px: 320,
+    //     },
+    //     LayerSpec {
+    //         name: "Hills",
+    //         file: "hills.png",
+    //         plane: Plane::Back,
+    //         draw_order: 4,
+    //         parallax_depth: Depth::Finite(1.0),
+    //         vertical_damping: 0.84,
+    //         repeat_x: true,
+    //         ref_screen_left_px: 0.0,
+    //         ref_screen_top_px: 696.0,
+    //         height_px: 384,
+    //     },
+    //     LayerSpec {
+    //         name: "Forest",
+    //         file: "forest.png",
+    //         plane: Plane::Back,
+    //         draw_order: 5,
+    //         parallax_depth: Depth::Finite(0.4286),
+    //         vertical_damping: 0.8571,
+    //         repeat_x: true,
+    //         ref_screen_left_px: 0.0,
+    //         ref_screen_top_px: 760.0,
+    //         height_px: 320,
+    //     },
+    //     LayerSpec {
+    //         name: "Foreground",
+    //         file: "foreground.png",
+    //         plane: Plane::Front,
+    //         draw_order: 0,
+    //         parallax_depth: Depth::Finite(-0.2308),
+    //         vertical_damping: 0.8846,
+    //         repeat_x: true,
+    //         ref_screen_left_px: 0.0,
+    //         ref_screen_top_px: 760.0,
+    //         height_px: 320,
+    //     },
+    // ]
+    let table: Vec<LayerSpec> = ();
+    table
+    // TODO(human): end block 3/6
 }
 
 // ---------------------------------------------------------------------------
@@ -326,15 +396,15 @@ fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
 // 6/9 - sky
 // ---------------------------------------------------------------------------
 
-/// The sky plane: fully opaque, a vertical gradient plus fBm haze plus one sun disc.
+/// The sky plane: fully opaque, a vertical gradient plus fBm haze.
 ///
 /// INTENT (permanent): alpha is 255 at EVERY pixel. The sky is the bottom of the stack,
 /// so any hole in it would show the clear colour through the gap instead of another depth
-/// plane. `sky_has_no_alpha` asserts this.
+/// plane. `sky_has_no_alpha` asserts this. The sun is NOT here: it is its own layer
+/// (`make_sun`, `parallax_depth: Infinite`) so it never moves on screen (#105/#90).
 ///
 /// The gradient runs on `row / height` rather than on absolute pixel rows so the same
-/// function is correct at any height; the sun disc is a radial falloff, not a hard circle,
-/// so it has no aliased edge at 1:1 scale.
+/// function is correct at any height.
 ///
 /// The haze term MUST map columns to lattice coordinates as `col * cells / (width - 1)`,
 /// which lands the last column exactly on the period boundary so it wraps onto column 0.
@@ -349,9 +419,15 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
     // (width - 1) so the last column lands on the period boundary and wraps onto the
     // first. Any other divisor breaks the tiling and seams the sky.
     let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    let sun_center_x_px: f32 = width as f32 * 0.68;
-    let sun_center_y_px: f32 = height as f32 * 0.24;
-    let sun_radius_px: f32 = height as f32 * 0.06;
+    // TODO(human): begin block 4/6
+    // DELETE this pair and the disc lines inside the loop below: the sun is now its own
+    // layer (`make_sun`), so the sky must NOT brighten toward the sun's RGB anywhere --
+    // the 0.68/0.24 placement and the 0.06 radius are now the drive-consts of the Sun's
+    // `ref_screen_*` (block 3) and `make_sun` (block 1), not the sky's.
+    // was: let sun_center_x_px: f32 = width as f32 * 0.68;
+    // was: let sun_center_y_px: f32 = height as f32 * 0.24;
+    // was: let sun_radius_px: f32 = height as f32 * 0.06;
+    // TODO(human): end block 4/6
     for row in 0..height {
         let row_frac: f32 = row as f32 / height.max(1) as f32;
         let base: [u8; 3] = if row_frac < 0.55 {
@@ -361,12 +437,17 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
         };
         for col in 0..width {
             let haze: f32 = fbm(col_to_cell(col), row as f32 * 0.002, cells, 3, seed) - 0.5;
-            let sun_offset_x_px: f32 = col as f32 - sun_center_x_px;
-            let sun_offset_y_px: f32 = row as f32 - sun_center_y_px;
-            let dist_px: f32 =
-                (sun_offset_x_px * sun_offset_x_px + sun_offset_y_px * sun_offset_y_px).sqrt();
-            let disc: f32 = 1.0 - smoothstep(sun_radius_px * 0.65, sun_radius_px, dist_px);
-            let mut sky_rgb: [u8; 3] = lerp_rgb(base, [255, 250, 238], disc * 0.85);
+            // TODO(human): begin block 4/6
+            // DELETE the offset/distance/disc lines too, and start `sky_rgb` from the
+            // gradient+noise `base` (the sample, uncommented) instead of the sun disc.
+            // was: let sun_offset_x_px: f32 = col as f32 - sun_center_x_px;
+            // was: let sun_offset_y_px: f32 = row as f32 - sun_center_y_px;
+            // was: let dist_px: f32 =
+            // was:     (sun_offset_x_px * sun_offset_x_px + sun_offset_y_px * sun_offset_y_px).sqrt();
+            // was: let disc: f32 = 1.0 - smoothstep(sun_radius_px * 0.65, sun_radius_px, dist_px);
+            // let mut sky_rgb: [u8; 3] = base;
+            let mut sky_rgb: [u8; 3] = ();
+            // TODO(human): end block 4/6
             let haze_shift: f32 = (haze * 14.0).clamp(-20.0, 20.0);
             for channel in 0..3 {
                 sky_rgb[channel] = (sky_rgb[channel] as f32 + haze_shift).clamp(0.0, 255.0) as u8;
@@ -378,7 +459,82 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
 }
 
 // ---------------------------------------------------------------------------
-// 7/9 - clouds
+// Sun disc (1/6), edge-row fills (2/6) -- step 2 (#105): the sun leaves the sky
+// ---------------------------------------------------------------------------
+
+/// The sun: its own square RGBA layer at `parallax_depth: Infinite`, so it never moves on
+/// screen (#90, #105).
+///
+/// The alpha MUST reproduce the old baked-disc blend the v1 sky painted --
+/// `round(255 * 0.85 * (1 - smoothstep(0.65r, r, dist)))` with `r = SUN_RADIUS_FRAC *
+/// ref_height` -- because U18 asserts the new composite equals the old sky's within 1 level
+/// at 20 sample points. The disc is centred in its own square (`round(2r)`), `repeat_x` is
+/// false, so there is no seam requirement on it.
+fn make_sun(ref_height: f64) -> RgbaImage {
+    // TODO(human): begin block 1/6
+    // INTENT: a square disc of side `round(2r)` with the disc centre at the square's centre
+    // `r`, fixed RGB SUN_RGB, alpha `round(255 * SUN_BLEND_FRAC * falloff)` with
+    // `falloff = 1 - smoothstep(SUN_FALLOFF_START_FRAC * r, r, dist)` and `dist` the
+    // distance from the centre. Outside the image edge the alpha is 0, so the disc has a
+    // soft 0.65r..r rim and hard zeros past it -- exactly U18's expectation.
+    //
+    // let radius_px: f64 = SUN_RADIUS_FRAC * ref_height;
+    // let size_px: u32 = (2.0 * radius_px).round() as u32;
+    // let mut img: RgbaImage = RgbaImage::new(size_px, size_px);
+    // for row in 0..size_px {
+    //     for col in 0..size_px {
+    //         let offset_x_px: f64 = col as f64 - radius_px;
+    //         let offset_y_px: f64 = row as f64 - radius_px;
+    //         let dist_px: f64 = (offset_x_px * offset_x_px + offset_y_px * offset_y_px).sqrt();
+    //         let falloff: f32 = 1.0 - smoothstep(
+    //             (SUN_FALLOFF_START_FRAC * radius_px) as f32,
+    //             radius_px as f32,
+    //             dist_px as f32,
+    //         );
+    //         let alpha: u8 = (255.0 * SUN_BLEND_FRAC * falloff).round() as u8;
+    //         img.put_pixel(col, row, Rgba([SUN_RGB[0], SUN_RGB[1], SUN_RGB[2], alpha]));
+    //     }
+    // }
+    // img
+    let img: RgbaImage = ();
+    img
+    // TODO(human): end block 1/6
+}
+
+/// A layer's edge fill, computed from its art: the per-channel mean of an edge row, rounded,
+/// when that row is fully opaque; `transparent` otherwise (U22).
+///
+/// The fill extends the art's own edge colour to cover vertical travel, so it must never
+/// extend a see-through edge -- the mean is only emitted when EVERY pixel of the row is
+/// alpha 255. This also keeps `Stack::validate`'s `fill_edge_opaque` rule green (Data
+/// section 4).
+fn edge_row_fill(row: &[Rgba<u8>]) -> Fill {
+    // TODO(human): begin block 2/6
+    // INTENT: one row of an edge, ALL pixels alpha 255 -> per-channel arithmetic mean over
+    // the row's width, rounded, alpha 255 -> Fill::Rgba; otherwise Fill::Transparent.
+    //
+    // if !row.iter().all(|rgba| rgba.0[3] == 255) {
+    //     return Fill::Transparent;
+    // }
+    // let mut sums: [u64; 3] = [0, 0, 0];
+    // for rgba in row {
+    //     for channel in 0..3 {
+    //         sums[channel] += rgba.0[channel] as u64;
+    //     }
+    // }
+    // Fill::Rgba(
+    //     (sums[0] as f64 / row.len() as f64).round() as u8,
+    //     (sums[1] as f64 / row.len() as f64).round() as u8,
+    //     (sums[2] as f64 / row.len() as f64).round() as u8,
+    //     255,
+    // )
+    let fill: Fill = ();
+    fill
+    // TODO(human): end block 2/6
+}
+
+// ---------------------------------------------------------------------------
+// clouds
 // ---------------------------------------------------------------------------
 
 /// One cloud plane: alpha is a smoothstep over fBm, so the layer has GENUINE holes.
@@ -493,86 +649,115 @@ fn make_silhouette(
 }
 
 // ---------------------------------------------------------------------------
-// 9/9 - factor validation + manifest
+// assembly
 // ---------------------------------------------------------------------------
 
-/// Rejects any layer whose factors would break the node contract, and returns the first
-/// violation found.
-///
-/// INTENT (permanent): a factor outside `(0, 1]` scrolls faster than the camera (the plane
-/// runs away from the frame) or never moves at all, and `factor_x <= factor_y` would make
-/// the plane move MORE vertically than horizontally, which reads as a bug rather than as
-/// depth. `Foreground` is the one deliberate exception at 1.30, so the upper bound is
-/// `<= 1.5` rather than 1.0 and only the `x > y` rule is absolute.
-///
-/// Validating here rather than in the scene means a bad factor fails at generation time,
-/// where the manifest is written, instead of silently at runtime.
-fn validate_factors(specs: &[LayerSpec]) -> Result<(), String> {
-    for spec in specs {
-        let (scale_x, scale_y) = spec.scroll_scale;
-        if !(scale_x > 0.0 && scale_x <= 1.5) {
-            return Err(format!(
-                "layer {}: scroll_scale.x {} out of range",
-                spec.name, scale_x
-            ));
-        }
-        if !(scale_y > 0.0) {
-            return Err(format!(
-                "layer {}: scroll_scale.y {} must be positive",
-                spec.name, scale_y
-            ));
-        }
-        if scale_x <= scale_y {
-            return Err(format!(
-                "layer {}: scroll_scale.x {} must exceed y {}",
-                spec.name, scale_x, scale_y
-            ));
-        }
-    }
-    Ok(())
+/// One generator call per layer, by name -- the single dispatch table the assembly and the
+/// tests share, so a spec with no generator fails here at generation time.
+fn generate_layer(spec: &LayerSpec, width: u32, seed: u64) -> Result<RgbaImage, String> {
+    let height = spec.height_px;
+    let image: RgbaImage = match spec.name {
+        "Sky" => make_sky(width, height, seed),
+        "Sun" => make_sun(REF_VIEW_PX.height),
+        "HighClouds" => make_clouds(width, height, seed, 0.52, 0.68),
+        "LowClouds" => make_clouds(width, height, seed, 0.44, 0.60),
+        // `relief_px` is absolute, so it is scaled from the authored fraction HERE, in the
+        // one place that knows the layer's real height.
+        "Hills" => make_silhouette(width, height, seed, 0.62, height as f32 * 0.22),
+        "Forest" => make_silhouette(width, height, seed, 0.74, height as f32 * 0.18),
+        "Foreground" => make_silhouette(width, height, seed, 0.88, height as f32 * 0.12),
+        other => return Err(format!("no generator for layer '{}'", other)),
+    };
+    Ok(image)
 }
 
-/// Builds the `manifest.json` payload: the node contract for every layer, in one place.
-///
-/// INTENT (permanent): the scene and the GDScript test both read this file instead of
-/// hard-coding factors, so a factor cannot be pinned in two places and drift. `repeat_size`
-/// is `(width, 0)` -- horizontal tiling only, because vertical coverage is overscan plus a
-/// clamped camera-y travel and a vertical repeat would leave empty blocks above and below.
-///
-/// `repeat_size_y` is hard-coded 0 rather than passed in, because a vertical repeat is
-/// never correct here, and encoding that as a literal means the decision cannot be flipped
-/// by a caller.
-fn build_manifest(specs: &[LayerSpec], width: u32, overscan: u32, seed: u64) -> Manifest {
-    Manifest {
-        version: MANIFEST_VERSION.to_string(),
-        width_px: width,
-        overscan_px: overscan,
-        seed,
-        layers: specs
-            .iter()
-            .map(|spec| ManifestLayer {
-                name: spec.name.to_string(),
-                file: spec.file.to_string(),
-                scroll_scale_x: spec.scroll_scale.0,
-                scroll_scale_y: spec.scroll_scale.1,
-                repeat_size_x: width,
-                repeat_size_y: 0,
-                z_index: spec.z_index,
-                height_px: spec.height_px,
-            })
-            .collect(),
-    }
+/// The PNG facts `Stack::validate` needs, measured from the generated art itself.
+fn art_facts(image: &RgbaImage) -> LayerArt {
+    // TODO(human): begin block 5/6
+    // INTENT: every generator emits RGBA, so `is_rgba` is always true; the three opacity
+    // booleans come from the actual pixels so validate's `base_opaque` and
+    // `fill_edge_opaque` rules see the art as it really is.
+    //
+    // NOTE: `ImageBuffer::rows()` yields a `Pixels` iterator per row, NOT a slice -- so the
+    // edge checks iterate it. A slice is only needed at the `edge_row_fill` boundary, where
+    // block 6 collects that one row.
+    //
+    // LayerArt {
+    //     width_px: image.width(),
+    //     height_px: image.height(),
+    //     is_rgba: true,
+    //     fully_opaque: image.pixels().all(|rgba| rgba.0[3] == 255),
+    //     top_row_opaque: image
+    //         .rows()
+    //         .next()
+    //         .is_some_and(|row| row.into_iter().all(|rgba| rgba.0[3] == 255)),
+    //     bottom_row_opaque: image
+    //         .rows()
+    //         .next_back()
+    //         .is_some_and(|row| row.into_iter().all(|rgba| rgba.0[3] == 255)),
+    // }
+    let art: LayerArt = ();
+    art
+    // TODO(human): end block 5/6
 }
 
-// ---------------------------------------------------------------------------
-// Assembly (assistant-written; no image logic lives here)
-// ---------------------------------------------------------------------------
+/// Assembles the emitted `Stack` from the specs and their generated art.
+fn build_stack(specs: &[LayerSpec], images: &[(String, RgbaImage)], seed: u64) -> Stack {
+    // TODO(human): begin block 6/6
+    // INTENT: one `Layer` per spec, both fills computed from THAT layer's own PNG edge rows
+    // via `edge_row_fill`, and the schema version single-sourced from the shared `pub`
+    // const so the writer can never drift from what `Stack::validate` and the future reader
+    // enforce. The Sun layer carries `Depth::Infinite` straight from its spec, so the
+    // retired `"inf"` string never appears here.
+    //
+    // let mut layers: Vec<Layer> = Vec::with_capacity(specs.len());
+    // for (index, spec) in specs.iter().enumerate() {
+    //     let image: &RgbaImage = &images[index].1;
+    //     // `rows()` yields a `Pixels` iterator, so collect the edge row into a `Vec`: it is
+    //     // what lets `edge_row_fill` take a plain slice and stay testable without `image`.
+    //     let top_row: Vec<Rgba<u8>> = image
+    //         .rows()
+    //         .next()
+    //         .expect("art has row 0")
+    //         .copied()
+    //         .collect();
+    //     let bottom_row: Vec<Rgba<u8>> = image
+    //         .rows()
+    //         .next_back()
+    //         .expect("art has a last row")
+    //         .copied()
+    //         .collect();
+    //     layers.push(Layer {
+    //         name: spec.name.to_string(),
+    //         file: spec.file.to_string(),
+    //         plane: spec.plane,
+    //         draw_order: spec.draw_order,
+    //         parallax_depth: spec.parallax_depth,
+    //         vertical_damping: spec.vertical_damping,
+    //         repeat_x: spec.repeat_x,
+    //         ref_screen_left_px: spec.ref_screen_left_px,
+    //         ref_screen_top_px: spec.ref_screen_top_px,
+    //         fill_above: edge_row_fill(&top_row),
+    //         fill_below: edge_row_fill(&bottom_row),
+    //     });
+    // }
+    // Stack {
+    //     schema_version: MANIFEST_SCHEMA_VERSION,
+    //     stack_key: STACK_KEY.to_string(),
+    //     palette_key: PALETTE_KEY.to_string(),
+    //     generator_seed: seed,
+    //     ref_view_px: REF_VIEW_PX,
+    //     layers,
+    // }
+    let stack: Stack = ();
+    stack
+    // TODO(human): end block 6/6
+}
 
-/// Parses the CLI, builds every layer, writes the PNGs and the manifest.
+/// Parses the CLI, builds every layer, writes the PNGs and `stack.json`.
 fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
-    let mut out_dir = PathBuf::from("editor/assets/backdrop_layers");
+    let mut out_dir = PathBuf::from("editor/assets/backdrop_stacks/neutral_default");
     let mut width: u32 = 1920;
-    let mut overscan: u32 = 240;
     let mut seed: u64 = 0x5EED_2026;
 
     let mut arg_index = 1usize;
@@ -593,14 +778,6 @@ fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
                     .parse::<u32>()
                     .map_err(|_| "--width must be an integer".to_string())?;
             }
-            "--overscan" => {
-                arg_index += 1;
-                overscan = args
-                    .get(arg_index)
-                    .ok_or_else(|| "--overscan requires a value".to_string())?
-                    .parse::<u32>()
-                    .map_err(|_| "--overscan must be an integer".to_string())?;
-            }
             "--seed" => {
                 arg_index += 1;
                 seed = args
@@ -619,15 +796,16 @@ fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
     }
 
     let specs = layer_specs();
-    validate_factors(&specs)?;
+    // The v1 `validate_factors` is gone: the emitted stack is validated by
+    // `sstd_core::parallax::Stack::validate` with real art facts, in the test suite (the
+    // emitted `neutral_default` stack must pass its rules -- ticket #105 AC).
 
     std::fs::create_dir_all(&out_dir)
         .map_err(|err| format!("cannot create {}: {}", out_dir.display(), err))?;
 
     println!(
-        "gen-backdrop: width={} overscan={} seed={} out={} layers={}",
+        "gen-backdrop: width={} seed={} out={} layers={}",
         width,
-        overscan,
         seed,
         out_dir.display(),
         specs.len()
@@ -636,31 +814,27 @@ fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
     // One generator call per layer. Each layer's own noise seed is derived from the run
     // seed and its index, so changing the stack's order or length cannot silently alter
     // an unrelated layer's texture.
+    let mut images: Vec<(String, RgbaImage)> = Vec::with_capacity(specs.len());
     for (index, spec) in specs.iter().enumerate() {
         let layer_seed = seed
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add(index as u64);
-        let height = spec.height_px;
-        let image: RgbaImage = match spec.name {
-            "Sky" => make_sky(width, height, layer_seed),
-            "HighClouds" => make_clouds(width, height, layer_seed, 0.52, 0.68),
-            "LowClouds" => make_clouds(width, height, layer_seed, 0.44, 0.60),
-            // `relief_px` is absolute, so it is scaled from the authored fraction HERE, in
-            // the one place that knows the layer's real height. See 6/7.
-            "Hills" => make_silhouette(width, height, layer_seed, 0.62, height as f32 * 0.22),
-            "Forest" => make_silhouette(width, height, layer_seed, 0.74, height as f32 * 0.18),
-            "Foreground" => make_silhouette(width, height, layer_seed, 0.88, height as f32 * 0.12),
-            other => return Err(format!("no generator for layer '{}'", other)),
-        };
+        let image = generate_layer(spec, width, layer_seed)?;
 
-        if image.width() != width || image.height() != height {
+        // The Sun is generated at its own fixed size (its disc diameter), not the run width.
+        let expected_width: u32 = if spec.name == "Sun" {
+            spec.height_px
+        } else {
+            width
+        };
+        if image.width() != expected_width || image.height() != spec.height_px {
             return Err(format!(
                 "layer '{}' produced {}x{}, expected {}x{}",
                 spec.name,
                 image.width(),
                 image.height(),
-                width,
-                height
+                expected_width,
+                spec.height_px
             ));
         }
 
@@ -670,32 +844,37 @@ fn generate_layers_and_manifest(args: &[String]) -> Result<PathBuf, String> {
             .map_err(|err| format!("cannot write {}: {}", path.display(), err))?;
 
         let opaque = image.pixels().filter(|rgba| rgba.0[3] == 255).count();
-        let total = (width as usize) * (height as usize);
+        let total = (image.width() as usize) * (image.height() as usize);
         println!(
-            "gen-backdrop: layer={} file={} dims={}x{} scale=({:.2},{:.2}) z={} opaque={}/{} ({:.1}%)",
+            "gen-backdrop: layer={} file={} dims={}x{} depth={:?} damping={} plane={:?} \
+             order={} ref=({},{}) opaque={}/{} ({:.1}%)",
             spec.name,
             spec.file,
-            width,
-            height,
-            spec.scroll_scale.0,
-            spec.scroll_scale.1,
-            spec.z_index,
+            image.width(),
+            image.height(),
+            spec.parallax_depth,
+            spec.vertical_damping,
+            spec.plane,
+            spec.draw_order,
+            spec.ref_screen_left_px,
+            spec.ref_screen_top_px,
             opaque,
             total,
             100.0 * opaque as f64 / total as f64
         );
+        images.push((spec.name.to_string(), image));
     }
 
-    let manifest = build_manifest(&specs, width, overscan, seed);
-    let manifest_path = out_dir.join("manifest.json");
-    let json = serde_json::to_string_pretty(&manifest)
-        .map_err(|err| format!("cannot serialize manifest: {}", err))?;
-    std::fs::write(&manifest_path, format!("{}\n", json))
-        .map_err(|err| format!("cannot write {}: {}", manifest_path.display(), err))?;
+    let stack = build_stack(&specs, &images, seed);
+    let stack_path = out_dir.join("stack.json");
+    let json = serde_json::to_string_pretty(&stack)
+        .map_err(|err| format!("cannot serialize stack: {}", err))?;
+    std::fs::write(&stack_path, format!("{}\n", json))
+        .map_err(|err| format!("cannot write {}: {}", stack_path.display(), err))?;
     println!(
-        "gen-backdrop: manifest={} layers={}",
-        manifest_path.display(),
-        manifest.layers.len()
+        "gen-backdrop: stack={} layers={}",
+        stack_path.display(),
+        stack.layers.len()
     );
 
     Ok(out_dir)
@@ -765,13 +944,13 @@ mod tests {
         "buffers differ in length only".to_string()
     }
 
-    /// Every layer the crate emits, as (name, image) pairs.
-    ///
-    /// Goes through the SAME `generate_layers_and_manifest()` dispatch table by name, so a
-    /// layer added to `layer_specs()` without a generator is caught here instead of at runtime.
+    /// Every layer the crate emits, as (name, image) pairs, at the small test size.
+    /// The Sun is generated at its own fixed size (its disc diameter), because it is the one
+    /// non-tiled layer; every other layer is called with the same args the assembly passes.
     fn all_layers() -> Vec<(String, RgbaImage)> {
         vec![
             ("Sky".to_string(), make_sky(W, H, SEED)),
+            ("Sun".to_string(), make_sun(REF_VIEW_PX.height)),
             (
                 "HighClouds".to_string(),
                 make_clouds(W, H, SEED, 0.52, 0.68),
@@ -795,9 +974,26 @@ mod tests {
     ///
     /// This is the single most important assertion in the crate: it is what the x-wrap in
     /// `value_noise` exists to provide, and nothing else can detect a regression there.
+    ///
+    /// The Sun is the one non-tiled layer (`repeat_x: false`, step 2): a seam check on it
+    /// would be vacuous, so it is skipped from the spec's own repeatability flag rather
+    /// than by name. Pinning the count guards that exactly one layer is non-tiled.
     #[test]
     fn seam_is_invisible() {
+        let repeatable: Vec<&str> = layer_specs()
+            .iter()
+            .filter(|spec| spec.repeat_x)
+            .map(|spec| spec.name)
+            .collect();
+        assert_eq!(
+            repeatable.len(),
+            6,
+            "exactly six tiled layers are expected (all but the Sun)"
+        );
         for (name, img) in all_layers() {
+            if !repeatable.contains(&name.as_str()) {
+                continue;
+            }
             assert_eq!(img.width(), W, "{}: unexpected width", name);
             let first = raw_column(&img, 0);
             let last = raw_column(&img, W - 1);
@@ -887,100 +1083,6 @@ mod tests {
             None
         } else {
             Some((min, max))
-        }
-    }
-
-    /// FACTOR CONTRACT, on the shipped stack. Factors drive `scroll_scale`, so they are the
-    /// mechanism itself. `scale_x > scale_y` is absolute; the upper bound is 1.5 rather than 1.0
-    /// because `Foreground` is deliberately faster than the camera.
-    #[test]
-    fn factors_in_unit_range() {
-        let specs = layer_specs();
-        assert_eq!(
-            specs.len(),
-            6,
-            "expected five backdrop layers plus one foreground"
-        );
-        assert!(
-            validate_factors(&specs).is_ok(),
-            "shipped factors must satisfy the node contract: {:?}",
-            validate_factors(&specs)
-        );
-        for spec in &specs {
-            let (scale_x, scale_y) = spec.scroll_scale;
-            assert!(
-                scale_x > 0.0 && scale_x <= 1.5,
-                "{}: scroll_scale.x {} out of range",
-                spec.name,
-                scale_x
-            );
-            assert!(
-                scale_y > 0.0 && scale_y < scale_x,
-                "{}: scroll_scale.y {} must be below x {}",
-                spec.name,
-                scale_y,
-                scale_x
-            );
-        }
-    }
-
-    /// FACTOR CONTRACT, on the rejection path. `factors_in_unit_range` only ever feeds
-    /// `validate_factors` the shipped stack, which is valid by construction -- so mutation
-    /// M12 (disabling the `scale_x <= scale_y` check) left that test GREEN. A validator shown
-    /// valid input is untested.
-    ///
-    /// Each case asserts the specific message, not merely `is_err`, so a validator that
-    /// rejected everything for the wrong reason could not pass.
-    #[test]
-    fn validate_factors_rejects_bad_specs() {
-        /// Builds a spec whose only interesting field is the scroll scale, so each case
-        /// below varies exactly the input the validator is supposed to judge.
-        /// `file` is the one field `validate_factors` ignores, so it is derived from the
-        /// case name instead of left as a placeholder: a meaningless literal in a fixture
-        /// reads as though it were part of what is under test. The `panic` arm stops a new
-        /// case from silently inheriting another case's file name.
-        fn rejected_spec(name: &'static str, scale_x: f32, scale_y: f32) -> LayerSpec {
-            let file: &'static str = match name {
-                "Zero" => "zero.png",
-                "Neg" => "neg.png",
-                "Inverted" => "inverted.png",
-                "Runaway" => "runaway.png",
-                other => panic!("no fixture file name for case {}", other),
-            };
-            LayerSpec {
-                name,
-                file,
-                scroll_scale: (scale_x, scale_y),
-                height_px: 64,
-                z_index: 0,
-            }
-        }
-
-        let cases: [(&str, LayerSpec, &str); 4] = [
-            ("zero x", rejected_spec("Zero", 0.0, 0.0), "out of range"),
-            ("negative y", rejected_spec("Neg", 0.5, -0.1), "positive"),
-            (
-                "x below y",
-                rejected_spec("Inverted", 0.4, 0.6),
-                "must exceed",
-            ),
-            (
-                "x too fast",
-                rejected_spec("Runaway", 1.9, 1.0),
-                "out of range",
-            ),
-        ];
-        for (label, spec, expected) in cases {
-            match validate_factors(&[spec]) {
-                Ok(()) => panic!("{}: validator accepted an invalid spec", label),
-                Err(msg) => assert!(
-                    msg.contains(expected),
-                    "{}: message {:?} does not mention {:?}",
-                    label,
-                    msg,
-                    expected
-                ),
-            }
         }
     }
 
@@ -1598,63 +1700,6 @@ mod tests {
         );
     }
 
-    /// SKY SOFT-DISC CONTRACT. The doc comment says the sun is "a radial falloff, not a hard
-    /// circle", because a hard circle aliases into a stair-stepped rim. Brightening is
-    /// measured along one horizontal ray at three radii, relative to an unlit column on the
-    /// same row so that row's base colour cancels out.
-    ///
-    /// HEIGHT 256, not the module's 64: the sun radius is `height * 0.06`, so at 64 px the
-    /// whole falloff spans under 4 px and the sample points are too close together to tell a
-    /// gradient from a step.
-    ///
-    /// MEASURED at H=256: centre +89, at 0.8 radii +64, at 1.25 radii +3, against bounds
-    /// >50, <80, >15 and <15. A hard-edged disc (mutant SKY-HARDDISC) reads +89 at every
-    /// point inside the radius and fails the <80 bound.
-    #[test]
-    fn sky_sun_disc_falls_off_softly() {
-        let sky_height: u32 = 256;
-        let sky = make_sky(W, sky_height, SEED);
-        let sun_center_x_px = W as f32 * 0.68;
-        let sun_center_y_px = sky_height as f32 * 0.24;
-        let sun_radius_px = sky_height as f32 * 0.06;
-        let row = sun_center_y_px.round() as u32;
-
-        let unlit = sky.get_pixel(4, row).0[0] as i32;
-        let brightening_at = |radius_fraction: f32| -> i32 {
-            let col = (sun_center_x_px + radius_fraction * sun_radius_px).round() as u32;
-            sky.get_pixel(col, row).0[0] as i32 - unlit
-        };
-
-        let at_centre = brightening_at(0.0);
-        let inside_rim = brightening_at(0.8);
-        let beyond_rim = brightening_at(1.25);
-
-        assert!(
-            at_centre > 50,
-            "sun centre is only {} brighter than an unlit column, so the disc is not drawn",
-            at_centre
-        );
-        assert!(
-            inside_rim < 80,
-            "still {} brighter at 0.8 sun radii against {} at the centre -- the falloff is a \
-             step, not a gradient, so the rim will alias",
-            inside_rim,
-            at_centre
-        );
-        assert!(
-            inside_rim > 15,
-            "only {} brighter at 0.8 sun radii; the falloff is a cliff rather than a ramp, so \
-             it does not soften the rim the way the Hermite curve intends",
-            inside_rim
-        );
-        assert!(
-            beyond_rim.abs() < 15,
-            "{} brighter at 1.25 sun radii, outside the disc; the falloff has not finished by \
-             the outer radius",
-            beyond_rim
-        );
-    }
-
     // -----------------------------------------------------------------------
     // 7/9 - clouds
     // -----------------------------------------------------------------------
@@ -1772,104 +1817,225 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 9/9 - factor validation + manifest
+    // step 2 (#105) - sun layer (U18), edge-row fills (U22), emitted stack
     // -----------------------------------------------------------------------
 
-    /// MANIFEST NO-VERTICAL-REPEAT CONTRACT. The doc comment says `repeat_size_y` is
-    /// hard-coded rather than passed in "because a vertical repeat is never correct here, and
-    /// encoding that as a literal means the decision cannot be flipped by a caller". A
-    /// hard-coded literal that no test reads is just a constant nobody checked, so this reads
-    /// it. `repeat_size_x` must equal the authored width for the same reason.
+    /// Oracle for the U22 rule, independent of `edge_row_fill`: a row's per-channel mean,
+    /// rounded, but only when every pixel of the row is alpha 255; else `transparent`.
+    /// Written separately from the production function so a wrong fill implementation cannot
+    /// be self-consistent with its own oracle.
+    fn row_mean_or_transparent(img: &RgbaImage, row: u32) -> Fill {
+        // `rows()` yields a `Pixels` iterator per row, so collect it into owned pixels (a
+        // slice, unlike `Pixels`, has a `len()` to divide by).
+        let pixels: Vec<Rgba<u8>> = img
+            .rows()
+            .nth(row as usize)
+            .expect("sample row is in bounds")
+            .copied()
+            .collect();
+        if !pixels.iter().all(|rgba| rgba.0[3] == 255) {
+            return Fill::Transparent;
+        }
+        let mut sums: [u64; 3] = [0, 0, 0];
+        for rgba in &pixels {
+            for channel in 0..3 {
+                sums[channel] += rgba.0[channel] as u64;
+            }
+        }
+        Fill::Rgba(
+            (sums[0] as f64 / pixels.len() as f64).round() as u8,
+            (sums[1] as f64 / pixels.len() as f64).round() as u8,
+            (sums[2] as f64 / pixels.len() as f64).round() as u8,
+            255,
+        )
+    }
+
+    /// U18: the sun's alpha matches the OLD baked-disc blend within 1 level, at 20 sample
+    /// points. The v1 sky painted `lerp_rgb(base, [255,250,238], disc * 0.85)` with
+    /// `disc = 1 - smoothstep(0.65r, r, dist)`; the sun layer must alpha-over its disc onto
+    /// the same flat base to the same colour.
+    ///
+    /// FALSIFIABILITY: alpha computed as `1 - disc` (mutant) zeroes the centre of the disc,
+    /// and dropping `SUN_BLEND_FRAC` pushes the centre to full alpha -- both differ from the
+    /// old blend by far more than 1 level.
     #[test]
-    fn manifest_hard_codes_repeat_size_y_to_zero() {
-        let specs = layer_specs();
-        let authored_width: u32 = 1920;
-        let manifest = build_manifest(&specs, authored_width, 240, SEED);
-        assert_eq!(manifest.layers.len(), specs.len());
-        for layer in &manifest.layers {
+    fn sun_alpha_matches_the_old_baked_disc_within_one_level() {
+        let base: [u8; 3] = [138, 152, 172]; // the gradient's top, U22's reference sky
+        let sun = make_sun(REF_VIEW_PX.height);
+        let radius_px: f64 = SUN_RADIUS_FRAC * REF_VIEW_PX.height;
+        let centre: f64 = radius_px;
+        let sun_rgb: [u8; 3] = SUN_RGB;
+
+        let old_sky_colour = |dist_px: f64| -> [u8; 3] {
+            let disc: f32 = 1.0
+                - smoothstep(
+                    (SUN_FALLOFF_START_FRAC * radius_px) as f32,
+                    radius_px as f32,
+                    dist_px as f32,
+                );
+            lerp_rgb(base, sun_rgb, disc * SUN_BLEND_FRAC)
+        };
+        // (distance as a fraction of r, angle in degrees). Every point lands inside the
+        // 130x130 sun: along the axes the in-bounds cap is ~65.2 px, at the corners ~91.6.
+        let samples: [(f64, f64); 20] = [
+            (0.00, 0.0), // the disc centre
+            (0.40, 90.0),
+            (0.65, 0.0),
+            (0.65, 45.0),
+            (0.65, 90.0),
+            (0.65, 135.0),
+            (0.65, 180.0),
+            (0.65, 225.0),
+            (0.65, 270.0),
+            (0.65, 315.0),
+            (0.85, 22.5),
+            (0.85, 112.5),
+            (0.85, 202.5),
+            (0.85, 292.5),
+            (1.15, 45.0),
+            (1.15, 135.0),
+            (1.15, 225.0),
+            (1.15, 315.0),
+            (1.35, 45.0),
+            (1.35, 315.0),
+        ];
+        for (dist_fraction, angle_deg) in samples {
+            let (col_f, row_f) = if dist_fraction == 0.0 {
+                (centre, centre)
+            } else {
+                let radians: f64 = angle_deg.to_radians();
+                (
+                    centre + dist_fraction * radius_px * radians.cos(),
+                    centre + dist_fraction * radius_px * radians.sin(),
+                )
+            };
+            let col: u32 = col_f.round() as u32;
+            let row: u32 = row_f.round() as u32;
+            assert!(
+                col < sun.width() && row < sun.height(),
+                "sample at dist {} x {}deg falls outside the {}x{} sun",
+                dist_fraction,
+                angle_deg,
+                sun.width(),
+                sun.height()
+            );
+            let rgba = sun.get_pixel(col, row).0;
+            let alpha: f32 = rgba[3] as f32;
+            let expected = old_sky_colour(dist_fraction * radius_px);
+            for channel in 0..3 {
+                let composite: u8 = ((base[channel] as f32 * (255.0 - alpha)
+                    + rgba[channel] as f32 * alpha)
+                    / 255.0)
+                    .round() as u8;
+                assert!(
+                    (composite as i32 - expected[channel] as i32).abs() <= 1,
+                    "sample dist {:.2}r at {}deg channel {}: the sun composites to {} but the \
+                     old blend was {}",
+                    dist_fraction,
+                    angle_deg,
+                    channel,
+                    composite,
+                    expected[channel]
+                );
+            }
+        }
+    }
+
+    /// U22: every emitted `fill_above`/`fill_below` equals the REAL edge-row mean of its own
+    /// art, or `transparent` when that row is not fully opaque; and the sky's fill sits
+    /// within 20 levels of the gradient top.
+    ///
+    /// FALSIFIABILITY: a fill computed from a gradient constant differs from the oracle on
+    /// the Hills/Forest/Foreground body rows; a mean over a wrong row (e.g. the sky's
+    /// mid-gradient row) differs from row 0 by far more than 20 levels; dropping the
+    /// fully-opaque predicate emits a mean for the cloud rows the oracle calls transparent.
+    #[test]
+    fn fills_equal_the_real_edge_row_means_or_transparent() {
+        let images: Vec<(String, RgbaImage)> = all_layers();
+        let stack = build_stack(&layer_specs(), &images, SEED);
+        for (index, (name, img)) in images.iter().enumerate() {
+            let above: Fill = row_mean_or_transparent(img, 0);
+            let below: Fill = row_mean_or_transparent(img, img.height() - 1);
             assert_eq!(
-                layer.repeat_size_y, 0,
-                "layer {} has a vertical repeat of {}; vertical coverage is overscan plus a \
-                 clamped camera-y travel, and a vertical repeat leaves empty blocks above and \
-                 below a horizontal-only stack",
-                layer.name, layer.repeat_size_y
+                stack.layers[index].fill_above, above,
+                "{}: fill_above is not the real row-0 mean",
+                name
             );
             assert_eq!(
-                layer.repeat_size_x, authored_width,
-                "layer {}: repeat_size_x is {} but the texture is {} px wide, so the tiles \
-                 would not line up and the seam would reappear",
-                layer.name, layer.repeat_size_x, authored_width
+                stack.layers[index].fill_below, below,
+                "{}: fill_below is not the real last-row mean",
+                name
+            );
+        }
+        // The sky's top row is the gradient top plus zero-mean haze, so its emitted fill
+        // must sit within 20 levels of [138, 152, 172] (U22's second clause).
+        let sky_fill = match stack.layers[0].fill_above {
+            Fill::Rgba(red, green, blue, _) => [red, green, blue],
+            Fill::Transparent => {
+                panic!("the sky's top row is fully opaque; its fill must be an RGB mean")
+            }
+        };
+        let gradient_top: [u8; 3] = [138, 152, 172];
+        for channel in 0..3 {
+            assert!(
+                (sky_fill[channel] as i32 - gradient_top[channel] as i32).abs() <= 20,
+                "sky fill_above channel {} is {} but the gradient top is {}",
+                channel,
+                sky_fill[channel],
+                gradient_top[channel]
             );
         }
     }
 
-    /// MANIFEST ON-DISK KEY CONTRACT. `manifest.json` is read by literal key name from the
-    /// scene and from the GDScript test, so a renamed or dropped key is a SILENT break: the
-    /// Rust side still compiles, the JSON still parses, and the consumer just gets `null`.
-    /// Asserting the struct's fields would be a round trip and could not catch a
-    /// `#[serde(rename)]` or a `skip_serializing_if`, so this asserts the serialised keys
-    /// themselves.
-    ///
-    /// Corollary of the round-trip rule: a writer and reader that move together stay green, so
-    /// the key strings below are literals rather than derived from the struct.
+    /// AC: the emitted `neutral_default` stack must pass `sstd_core::parallax::validate`
+    /// with real art facts measured from the generated PNGs (the v1 generator's
+    /// `validate_factors` never saw the pixels).
     #[test]
-    fn manifest_json_keys_are_the_on_disk_contract() {
-        let specs = layer_specs();
-        let authored_width: u32 = 1920;
-        let overscan: u32 = 240;
-        let manifest = build_manifest(&specs, authored_width, overscan, SEED);
-        let serialised = serde_json::to_value(&manifest).expect("manifest serialises");
-        let top = serialised
-            .as_object()
-            .expect("manifest serialises to a JSON object");
+    fn emitted_stack_passes_sstd_core_validate() {
+        let images: Vec<(String, RgbaImage)> = all_layers();
+        let stack = build_stack(&layer_specs(), &images, SEED);
+        let art: Vec<LayerArt> = images.iter().map(|(_, img)| art_facts(img)).collect();
+        let result = stack.validate(&art);
+        assert!(
+            result.is_valid(),
+            "the emitted stack must pass every Data-section-4 rule; got: {:?}",
+            result
+                .errors()
+                .map(|m| m.code.clone())
+                .collect::<Vec<String>>()
+        );
+    }
 
-        for key in ["version", "width_px", "overscan_px", "seed", "layers"] {
-            assert!(
-                top.contains_key(key),
-                "manifest.json is missing the key {:?}; the scene and the GDScript test read \
-                 it by that literal name, so dropping it breaks them silently",
-                key
-            );
-        }
-        assert_eq!(top["version"].as_str(), Some(MANIFEST_VERSION));
-        assert_eq!(top["width_px"].as_u64(), Some(authored_width as u64));
-        assert_eq!(top["overscan_px"].as_u64(), Some(overscan as u64));
-        assert_eq!(top["seed"].as_u64(), Some(SEED));
+    /// The emitted `stack.json` must round-trip through its own wire type, and the on-disk
+    /// key/value spellings are pinned once as literals (the round-trip rule: a writer and
+    /// reader that move together stay green, so the wire contract is asserted by name here).
+    #[test]
+    fn emitted_stack_json_round_trips_and_pins_wire_keys() {
+        let images: Vec<(String, RgbaImage)> = all_layers();
+        let stack = build_stack(&layer_specs(), &images, SEED);
+        let json = serde_json::to_string_pretty(&stack).expect("the stack serialises");
+        let parsed: Stack = serde_json::from_str(&json).expect("the written JSON parses back");
+        assert_eq!(parsed, stack, "stack.json must round-trip");
 
-        let layers = top["layers"]
-            .as_array()
-            .expect("manifest.layers is a JSON array");
-        assert_eq!(layers.len(), specs.len());
-        for (layer_value, spec) in layers.iter().zip(specs.iter()) {
-            let layer = layer_value
-                .as_object()
-                .expect("each manifest layer is a JSON object");
-            for key in [
-                "name",
-                "file",
-                "scroll_scale_x",
-                "scroll_scale_y",
-                "repeat_size_x",
-                "repeat_size_y",
-                "z_index",
-                "height_px",
-            ] {
-                assert!(
-                    layer.contains_key(key),
-                    "manifest.json layer {:?} is missing the key {:?}",
-                    spec.name,
-                    key
-                );
-            }
-            assert_eq!(layer["name"].as_str(), Some(spec.name));
-            assert_eq!(
-                layer["file"].as_str(),
-                Some(spec.file),
-                "manifest.json layer {:?} names file {:?} but layer_specs says {:?}",
-                spec.name,
-                layer["file"].as_str(),
-                spec.file
-            );
-        }
+        let top: serde_json::Value =
+            serde_json::from_str(&json).expect("the JSON re-parses as a value");
+        assert_eq!(
+            top["schema_version"].as_u64(),
+            Some(MANIFEST_SCHEMA_VERSION as u64),
+            "on-disk schema version, pinned once"
+        );
+        assert_eq!(top["stack_key"].as_str(), Some(STACK_KEY));
+        assert_eq!(top["palette_key"].as_str(), Some(PALETTE_KEY));
+        let sun = &top["layers"][1];
+        assert_eq!(
+            sun["name"].as_str(),
+            Some("Sun"),
+            "the sun is the draw_order-1 layer"
+        );
+        assert_eq!(
+            sun["parallax_depth"]["kind"].as_str(),
+            Some("infinite"),
+            "the sun's on-disk depth tag, pinned once (the retired \"inf\" string must never appear)"
+        );
     }
 }

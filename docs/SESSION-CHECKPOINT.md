@@ -7,19 +7,23 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-13 (step-2 plan written and GATED 90/100; step 1 code green, unpushed)_
+_Last updated: 2026-10-13 (step-2 scaffold LANDED and red on its six intended holes; step 1 code green, unpushed)_
 
-**NEXT MOVE: get @me's approval of the step-2 block map, then scaffold the coding-assistant
-`TODO(human)` blocks for step 2 (#105) on branch `local/feat/parallax-step2` (stacked on the
-step-1 branch, so it has the `Stack` type).** The step-2 gated plan is
-`docs/PLAN-2026-10-13-parallax-step2.md` — plan-ticket-gate PASSED 90/100 in 2 iterations
-(iteration 1 capped at 59 on five verification bars listed among exit conditions; moved to a
-"Verification hygiene" section 9b, none a follow-up ticket). Ticket #105 amended 2026-10-13
-(comment 6145606773): the body's `"inf"` line is superseded by the tagged-enum directive — the
-sun layer's depth is `Depth::Infinite`. Block map: 6 `TODO(human)` blocks for @me (`make_sun`,
-`edge_row_fill`, `layer_specs`, `make_sky` disc removal, `art_facts`, `build_stack`) plus
-assistant scaffold (`Cargo.toml` + `sstd-core` path dep, `pub MANIFEST_SCHEMA_VERSION`,
-assembly rework, full test scaffold). Branch for the remaining work is `local/feat/parallax-step2`.
+**NEXT MOVE: walk the step-2 scaffold diff with @me (comprehension gate), then @me writes the
+six `TODO(human)` blocks in dependency order 3 -> 4 -> 1 -> 2 -> 5 -> 6.** Everything is on
+`local/feat/parallax-step2` (stacked on step 1, so it has `Stack`). `cargo check -p gen-backdrop`
+fails with EXACTLY six E0308 holes — `layer_specs` (main.rs:211), `make_sky`'s deleted disc
+(`sky_rgb` binding, :449), `make_sun` (:499), `edge_row_fill` (:531), `art_facts` (:694),
+`build_stack` (:735) — plus one transient `unused import: Layer` warning (used only by block 6's
+sample). Green arrives only when all six blocks are written; `cargo test -p gen-backdrop` is
+therefore RED as a build failure now, and its four new tests are proven false by their listed
+mutations AFTER the blocks land. The gated plan is `docs/PLAN-2026-10-13-parallax-step2.md`
+(plan-ticket-gate PASSED 90/100 in 2 iterations; a "Scaffold deviations" list there records
+`make_sun(ref_height)`, `build_stack(specs, images, seed)`, no Sun clause in `deterministic`,
+and `ImageBuffer::rows()` yielding `Pixels` rather than slices). Ticket #105 was amended
+2026-10-13 (comment 6145606773): the body's `"inf"` line is superseded by the tagged-enum
+directive — the sun layer's depth is `Depth::Infinite`. Unrelated: `README.md` carries an
+uncommitted 2026-10-11 markdown reformat; it is NOT this ticket and stays unstaged.
 
 Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
 `cargo test -p sstd-core` 134 passed / 0 failed, both review findings fixed and walked
