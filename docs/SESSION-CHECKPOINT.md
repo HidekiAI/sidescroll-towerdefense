@@ -22,8 +22,9 @@ mutations AFTER the blocks land. The gated plan is `docs/PLAN-2026-10-13-paralla
 `make_sun(ref_height)`, `build_stack(specs, images, seed)`, no Sun clause in `deterministic`,
 and `ImageBuffer::rows()` yielding `Pixels` rather than slices). Ticket #105 was amended
 2026-10-13 (comment 6145606773): the body's `"inf"` line is superseded by the tagged-enum
-directive — the sun layer's depth is `Depth::Infinite`. Unrelated: `README.md` carries an
-uncommitted 2026-10-11 markdown reformat; it is NOT this ticket and stays unstaged.
+directive — the sun layer's depth is `Depth::Infinite`. Unrelated: `README.md`'s pre-existing
+2026-10-11 markdown reformat is committed on its own commit earlier on this branch (it is NOT
+this ticket, so it stays droppable without touching step 2).
 
 Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
 `cargo test -p sstd-core` 134 passed / 0 failed, both review findings fixed and walked

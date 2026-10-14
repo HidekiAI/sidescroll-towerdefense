@@ -58,10 +58,10 @@ godot4 --path editor
 
 ## Rust Crates
 
-| Crate | Description | Depends On |
-|---|---|---|
-| `sstd-core` | Shared data model, validation, JSON I/O, physics engine | serde, serde_json |
-| `sstd-editor-bridge` | Godot GDExtension — exposes sstd-core to GDScript | sstd-core, godot (gdext) |
+| Crate                | Description                                             | Depends On               |
+| -------------------- | ------------------------------------------------------- | ------------------------ |
+| `sstd-core`          | Shared data model, validation, JSON I/O, physics engine | serde, serde_json        |
+| `sstd-editor-bridge` | Godot GDExtension — exposes sstd-core to GDScript       | sstd-core, godot (gdext) |
 
 ## License
 
@@ -70,4 +70,3 @@ MIT — see [LICENSE](LICENSE).
 ## Image Attribution
 
 All artwork in this repository (character sheets, concept art, UI mockups) is AI-generated using **Gemini 3.5** and is provided under a **Creative Commons (CC) license**. See individual file metadata for details.
-
