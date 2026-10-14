@@ -7,11 +7,12 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-13 (step-2 scaffold LANDED and red on its six intended holes; step 1 code green, unpushed)_
+_Last updated: 2026-10-14 (step-2 scaffold committed as `37cb5af` — red on its six intended holes; `d96b11d` is the unrelated README commit; step 1 code green, unpushed)_
 
 **NEXT MOVE: walk the step-2 scaffold diff with @me (comprehension gate), then @me writes the
 six `TODO(human)` blocks in dependency order 3 -> 4 -> 1 -> 2 -> 5 -> 6.** Everything is on
-`local/feat/parallax-step2` (stacked on step 1, so it has `Stack`). `cargo check -p gen-backdrop`
+`local/feat/parallax-step2` (stacked on step 1, so it has `Stack`), working tree clean, nothing
+pushed anywhere. `cargo check -p gen-backdrop`
 fails with EXACTLY six E0308 holes — `layer_specs` (main.rs:211), `make_sky`'s deleted disc
 (`sky_rgb` binding, :449), `make_sun` (:499), `edge_row_fill` (:531), `art_facts` (:694),
 `build_stack` (:735) — plus one transient `unused import: Layer` warning (used only by block 6's
