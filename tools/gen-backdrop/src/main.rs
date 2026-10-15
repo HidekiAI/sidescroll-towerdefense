@@ -37,9 +37,11 @@
 //! paths to stdout, so an incident is replayable from the log alone.
 
 use image::{Rgba, RgbaImage};
-use sstd_core::parallax::{
-    Depth, Fill, Layer, LayerArt, Plane, RefView, Stack, MANIFEST_SCHEMA_VERSION,
-};
+use sstd_core::parallax::{Depth, Fill, Layer, Plane, RefView, Stack, MANIFEST_SCHEMA_VERSION};
+// Measured by the test suite only: the emit path validates nothing, so `LayerArt` (and
+// `art_facts`, below) exist for the tests' `Stack::validate` call and not in the shipped bin.
+#[cfg(test)]
+use sstd_core::parallax::LayerArt;
 use std::path::PathBuf;
 
 /// The reference view every layer's `ref_screen_*` is authored against, and the sky's size
@@ -110,107 +112,98 @@ struct LayerSpec {
 /// (ticket #105 scope bullet; U8). The Sun's screen placement derives from the disc
 /// constants so a palette pass can never drift the sun away from its disc (U18).
 fn layer_specs() -> Vec<LayerSpec> {
-    // TODO(human): begin block 3/6
-    // INTENT: seven rows, back-to-front -- Sky, Sun, HighClouds, LowClouds, Hills, Forest,
-    // Foreground -- exactly the step-1 fixture order. `ref_screen_top_px` is bottom-anchored:
-    // 760 px on the clouds/Forest/Foreground (their ref top = view floor 1080 - height 320)
-    // and 696 on Hills (1080 - 384); Sky sits at 0 and the Sun derives from the disc
-    // centre minus its radius. Depths: 9, Infinite, 4, 2.3333, 1, 0.4286, -0.2308; dampings
-    // 0.8, 1.0, 0.85, 0.8333, 0.84, 0.8571, 0.8846 (Sky/HighClouds/... order matches the plan
-    // wire-form table). Sky height 1080 (the 240 px overscan dies with the v1 model), the
-    // Sun `height_px` is its own disc diameter.
-    //
-    // let sun_diameter_px: u32 = (2.0 * SUN_RADIUS_FRAC * REF_VIEW_PX.height).round() as u32;
-    // let sun_radius_px: f64 = SUN_RADIUS_FRAC * REF_VIEW_PX.height;
-    // vec![
-    //     LayerSpec {
-    //         name: "Sky",
-    //         file: "sky.png",
-    //         plane: Plane::Back,
-    //         draw_order: 0,
-    //         parallax_depth: Depth::Finite(9.0),
-    //         vertical_damping: 0.8,
-    //         repeat_x: true,
-    //         ref_screen_left_px: 0.0,
-    //         ref_screen_top_px: 0.0,
-    //         height_px: 1080,
-    //     },
-    //     LayerSpec {
-    //         name: "Sun",
-    //         file: "sun.png",
-    //         plane: Plane::Back,
-    //         draw_order: 1,
-    //         parallax_depth: Depth::Infinite,
-    //         vertical_damping: 1.0,
-    //         repeat_x: false,
-    //         ref_screen_left_px: (SUN_CENTER_FRAC_X * REF_VIEW_PX.width - sun_radius_px).round(),
-    //         ref_screen_top_px: (SUN_CENTER_FRAC_Y * REF_VIEW_PX.height - sun_radius_px).round(),
-    //         height_px: sun_diameter_px,
-    //     },
-    //     LayerSpec {
-    //         name: "HighClouds",
-    //         file: "clouds_high.png",
-    //         plane: Plane::Back,
-    //         draw_order: 2,
-    //         parallax_depth: Depth::Finite(4.0),
-    //         vertical_damping: 0.85,
-    //         repeat_x: true,
-    //         ref_screen_left_px: 0.0,
-    //         ref_screen_top_px: 760.0,
-    //         height_px: 320,
-    //     },
-    //     LayerSpec {
-    //         name: "LowClouds",
-    //         file: "clouds_low.png",
-    //         plane: Plane::Back,
-    //         draw_order: 3,
-    //         parallax_depth: Depth::Finite(2.3333),
-    //         vertical_damping: 0.8333,
-    //         repeat_x: true,
-    //         ref_screen_left_px: 0.0,
-    //         ref_screen_top_px: 760.0,
-    //         height_px: 320,
-    //     },
-    //     LayerSpec {
-    //         name: "Hills",
-    //         file: "hills.png",
-    //         plane: Plane::Back,
-    //         draw_order: 4,
-    //         parallax_depth: Depth::Finite(1.0),
-    //         vertical_damping: 0.84,
-    //         repeat_x: true,
-    //         ref_screen_left_px: 0.0,
-    //         ref_screen_top_px: 696.0,
-    //         height_px: 384,
-    //     },
-    //     LayerSpec {
-    //         name: "Forest",
-    //         file: "forest.png",
-    //         plane: Plane::Back,
-    //         draw_order: 5,
-    //         parallax_depth: Depth::Finite(0.4286),
-    //         vertical_damping: 0.8571,
-    //         repeat_x: true,
-    //         ref_screen_left_px: 0.0,
-    //         ref_screen_top_px: 760.0,
-    //         height_px: 320,
-    //     },
-    //     LayerSpec {
-    //         name: "Foreground",
-    //         file: "foreground.png",
-    //         plane: Plane::Front,
-    //         draw_order: 0,
-    //         parallax_depth: Depth::Finite(-0.2308),
-    //         vertical_damping: 0.8846,
-    //         repeat_x: true,
-    //         ref_screen_left_px: 0.0,
-    //         ref_screen_top_px: 760.0,
-    //         height_px: 320,
-    //     },
-    // ]
-    let table: Vec<LayerSpec> = ();
-    table
-    // TODO(human): end block 3/6
+    // `ref_screen_top_px` is bottom-anchored: each old sprite y minus the 240 px vertical
+    // travel clamp (1000 -> 760 on the clouds, Forest and Foreground; 936 -> 696 on Hills),
+    // with the Sky filling the whole 1080 px view. The Sun's placement derives from the disc
+    // centre minus its radius, so a palette pass cannot drift it away from the disc (U18).
+    let sun_diameter_px: u32 = (2.0 * SUN_RADIUS_FRAC * REF_VIEW_PX.height).round() as u32;
+    let sun_radius_px: f64 = SUN_RADIUS_FRAC * REF_VIEW_PX.height;
+    vec![
+        LayerSpec {
+            name: "Sky",
+            file: "sky.png",
+            plane: Plane::Back,
+            draw_order: 0,
+            parallax_depth: Depth::Finite(9.0),
+            vertical_damping: 0.8,
+            repeat_x: true,
+            ref_screen_left_px: 0.0,
+            ref_screen_top_px: 0.0,
+            height_px: 1080,
+        },
+        LayerSpec {
+            name: "Sun",
+            file: "sun.png",
+            plane: Plane::Back,
+            draw_order: 1,
+            parallax_depth: Depth::Infinite,
+            vertical_damping: 1.0,
+            repeat_x: false,
+            ref_screen_left_px: (SUN_CENTER_FRAC_X * REF_VIEW_PX.width - sun_radius_px).round(),
+            ref_screen_top_px: (SUN_CENTER_FRAC_Y * REF_VIEW_PX.height - sun_radius_px).round(),
+            height_px: sun_diameter_px,
+        },
+        LayerSpec {
+            name: "HighClouds",
+            file: "clouds_high.png",
+            plane: Plane::Back,
+            draw_order: 2,
+            parallax_depth: Depth::Finite(4.0),
+            vertical_damping: 0.85,
+            repeat_x: true,
+            ref_screen_left_px: 0.0,
+            ref_screen_top_px: 760.0,
+            height_px: 320,
+        },
+        LayerSpec {
+            name: "LowClouds",
+            file: "clouds_low.png",
+            plane: Plane::Back,
+            draw_order: 3,
+            parallax_depth: Depth::Finite(2.3333),
+            vertical_damping: 0.8333,
+            repeat_x: true,
+            ref_screen_left_px: 0.0,
+            ref_screen_top_px: 760.0,
+            height_px: 320,
+        },
+        LayerSpec {
+            name: "Hills",
+            file: "hills.png",
+            plane: Plane::Back,
+            draw_order: 4,
+            parallax_depth: Depth::Finite(1.0),
+            vertical_damping: 0.84,
+            repeat_x: true,
+            ref_screen_left_px: 0.0,
+            ref_screen_top_px: 696.0,
+            height_px: 384,
+        },
+        LayerSpec {
+            name: "Forest",
+            file: "forest.png",
+            plane: Plane::Back,
+            draw_order: 5,
+            parallax_depth: Depth::Finite(0.4286),
+            vertical_damping: 0.8571,
+            repeat_x: true,
+            ref_screen_left_px: 0.0,
+            ref_screen_top_px: 760.0,
+            height_px: 320,
+        },
+        LayerSpec {
+            name: "Foreground",
+            file: "foreground.png",
+            plane: Plane::Front,
+            draw_order: 0,
+            parallax_depth: Depth::Finite(-0.2308),
+            vertical_damping: 0.8846,
+            repeat_x: true,
+            ref_screen_left_px: 0.0,
+            ref_screen_top_px: 760.0,
+            height_px: 320,
+        },
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -419,15 +412,6 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
     // (width - 1) so the last column lands on the period boundary and wraps onto the
     // first. Any other divisor breaks the tiling and seams the sky.
     let col_to_cell = |col: u32| -> f32 { col as f32 * cells as f32 / (width.max(2) - 1) as f32 };
-    // TODO(human): begin block 4/6
-    // DELETE this pair and the disc lines inside the loop below: the sun is now its own
-    // layer (`make_sun`), so the sky must NOT brighten toward the sun's RGB anywhere --
-    // the 0.68/0.24 placement and the 0.06 radius are now the drive-consts of the Sun's
-    // `ref_screen_*` (block 3) and `make_sun` (block 1), not the sky's.
-    // was: let sun_center_x_px: f32 = width as f32 * 0.68;
-    // was: let sun_center_y_px: f32 = height as f32 * 0.24;
-    // was: let sun_radius_px: f32 = height as f32 * 0.06;
-    // TODO(human): end block 4/6
     for row in 0..height {
         let row_frac: f32 = row as f32 / height.max(1) as f32;
         let base: [u8; 3] = if row_frac < 0.55 {
@@ -437,20 +421,10 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
         };
         for col in 0..width {
             let haze: f32 = fbm(col_to_cell(col), row as f32 * 0.002, cells, 3, seed) - 0.5;
-            // TODO(human): begin block 4/6
-            // DELETE the offset/distance/disc lines too, and start `sky_rgb` from the
-            // gradient+noise `base` (the sample, uncommented) instead of the sun disc.
-            // was: let sun_offset_x_px: f32 = col as f32 - sun_center_x_px;
-            // was: let sun_offset_y_px: f32 = row as f32 - sun_center_y_px;
-            // was: let dist_px: f32 =
-            // was:     (sun_offset_x_px * sun_offset_x_px + sun_offset_y_px * sun_offset_y_px).sqrt();
-            // was: let disc: f32 = 1.0 - smoothstep(sun_radius_px * 0.65, sun_radius_px, dist_px);
-            // let mut sky_rgb: [u8; 3] = base;
-            let mut sky_rgb: [u8; 3] = ();
-            // TODO(human): end block 4/6
+            let mut sky_rgb: [u8; 3] = base;
             let haze_shift: f32 = (haze * 14.0).clamp(-20.0, 20.0);
-            for channel in 0..3 {
-                sky_rgb[channel] = (sky_rgb[channel] as f32 + haze_shift).clamp(0.0, 255.0) as u8;
+            for channel_value in sky_rgb.iter_mut() {
+                *channel_value = (*channel_value as f32 + haze_shift).clamp(0.0, 255.0) as u8;
             }
             img.put_pixel(col, row, Rgba([sky_rgb[0], sky_rgb[1], sky_rgb[2], 255]));
         }
@@ -471,34 +445,27 @@ fn make_sky(width: u32, height: u32, seed: u64) -> RgbaImage {
 /// at 20 sample points. The disc is centred in its own square (`round(2r)`), `repeat_x` is
 /// false, so there is no seam requirement on it.
 fn make_sun(ref_height: f64) -> RgbaImage {
-    // TODO(human): begin block 1/6
-    // INTENT: a square disc of side `round(2r)` with the disc centre at the square's centre
-    // `r`, fixed RGB SUN_RGB, alpha `round(255 * SUN_BLEND_FRAC * falloff)` with
-    // `falloff = 1 - smoothstep(SUN_FALLOFF_START_FRAC * r, r, dist)` and `dist` the
-    // distance from the centre. Outside the image edge the alpha is 0, so the disc has a
-    // soft 0.65r..r rim and hard zeros past it -- exactly U18's expectation.
-    //
-    // let radius_px: f64 = SUN_RADIUS_FRAC * ref_height;
-    // let size_px: u32 = (2.0 * radius_px).round() as u32;
-    // let mut img: RgbaImage = RgbaImage::new(size_px, size_px);
-    // for row in 0..size_px {
-    //     for col in 0..size_px {
-    //         let offset_x_px: f64 = col as f64 - radius_px;
-    //         let offset_y_px: f64 = row as f64 - radius_px;
-    //         let dist_px: f64 = (offset_x_px * offset_x_px + offset_y_px * offset_y_px).sqrt();
-    //         let falloff: f32 = 1.0 - smoothstep(
-    //             (SUN_FALLOFF_START_FRAC * radius_px) as f32,
-    //             radius_px as f32,
-    //             dist_px as f32,
-    //         );
-    //         let alpha: u8 = (255.0 * SUN_BLEND_FRAC * falloff).round() as u8;
-    //         img.put_pixel(col, row, Rgba([SUN_RGB[0], SUN_RGB[1], SUN_RGB[2], alpha]));
-    //     }
-    // }
-    // img
-    let img: RgbaImage = ();
+    let radius_px: f64 = SUN_RADIUS_FRAC * ref_height;
+    let size_px: u32 = (2.0 * radius_px).round() as u32;
+    let mut img: RgbaImage = RgbaImage::new(size_px, size_px);
+    for row in 0..size_px {
+        for col in 0..size_px {
+            // The centre is `radius_px`, not `size_px / 2` which rounds up to 65: the U18
+            // oracle measures distance from `radius_px`, so half a pixel here moves the disc.
+            let offset_x_px: f64 = col as f64 - radius_px;
+            let offset_y_px: f64 = row as f64 - radius_px;
+            let dist_px: f64 = (offset_x_px * offset_x_px + offset_y_px * offset_y_px).sqrt();
+            let falloff: f32 = 1.0
+                - smoothstep(
+                    (SUN_FALLOFF_START_FRAC * radius_px) as f32,
+                    radius_px as f32,
+                    dist_px as f32,
+                );
+            let alpha: u8 = (255.0 * SUN_BLEND_FRAC * falloff).round() as u8;
+            img.put_pixel(col, row, Rgba([SUN_RGB[0], SUN_RGB[1], SUN_RGB[2], alpha]));
+        }
+    }
     img
-    // TODO(human): end block 1/6
 }
 
 /// A layer's edge fill, computed from its art: the per-channel mean of an edge row, rounded,
@@ -509,28 +476,17 @@ fn make_sun(ref_height: f64) -> RgbaImage {
 /// alpha 255. This also keeps `Stack::validate`'s `fill_edge_opaque` rule green (Data
 /// section 4).
 fn edge_row_fill(row: &[Rgba<u8>]) -> Fill {
-    // TODO(human): begin block 2/6
-    // INTENT: one row of an edge, ALL pixels alpha 255 -> per-channel arithmetic mean over
-    // the row's width, rounded, alpha 255 -> Fill::Rgba; otherwise Fill::Transparent.
-    //
-    // if !row.iter().all(|rgba| rgba.0[3] == 255) {
-    //     return Fill::Transparent;
-    // }
-    // let mut sums: [u64; 3] = [0, 0, 0];
-    // for rgba in row {
-    //     for channel in 0..3 {
-    //         sums[channel] += rgba.0[channel] as u64;
-    //     }
-    // }
-    // Fill::Rgba(
-    //     (sums[0] as f64 / row.len() as f64).round() as u8,
-    //     (sums[1] as f64 / row.len() as f64).round() as u8,
-    //     (sums[2] as f64 / row.len() as f64).round() as u8,
-    //     255,
-    // )
-    let fill: Fill = ();
-    fill
-    // TODO(human): end block 2/6
+    if !row.iter().all(|rgba| rgba.0[3] == 255) {
+        return Fill::Transparent;
+    }
+    // Sum in u64 (no u8 overflow), divide once at the end, round once: the same widen-mix-narrow
+    // rule `lerp_rgb` follows, and why the mean is not accumulated in the pixel type.
+    let row_width = row.len() as f64;
+    let channel_mean = |channel: usize| -> u8 {
+        let sum: u64 = row.iter().map(|rgba| rgba.0[channel] as u64).sum();
+        (sum as f64 / row_width).round() as u8
+    };
+    Fill::Rgba(channel_mean(0), channel_mean(1), channel_mean(2), 255)
 }
 
 // ---------------------------------------------------------------------------
@@ -672,86 +628,71 @@ fn generate_layer(spec: &LayerSpec, width: u32, seed: u64) -> Result<RgbaImage, 
 }
 
 /// The PNG facts `Stack::validate` needs, measured from the generated art itself.
+///
+/// Test-only: the emit path writes `stack.json` without validating it, and the test suite is
+/// what measures the emitted PNGs and asserts the stack passes every rule.
+#[cfg(test)]
 fn art_facts(image: &RgbaImage) -> LayerArt {
-    // TODO(human): begin block 5/6
-    // INTENT: every generator emits RGBA, so `is_rgba` is always true; the three opacity
-    // booleans come from the actual pixels so validate's `base_opaque` and
-    // `fill_edge_opaque` rules see the art as it really is.
-    //
-    // NOTE: `ImageBuffer::rows()` yields a `Pixels` iterator per row, NOT a slice -- so the
-    // edge checks iterate it. A slice is only needed at the `edge_row_fill` boundary, where
-    // block 6 collects that one row.
-    //
-    // LayerArt {
-    //     width_px: image.width(),
-    //     height_px: image.height(),
-    //     is_rgba: true,
-    //     fully_opaque: image.pixels().all(|rgba| rgba.0[3] == 255),
-    //     top_row_opaque: image
-    //         .rows()
-    //         .next()
-    //         .is_some_and(|row| row.into_iter().all(|rgba| rgba.0[3] == 255)),
-    //     bottom_row_opaque: image
-    //         .rows()
-    //         .next_back()
-    //         .is_some_and(|row| row.into_iter().all(|rgba| rgba.0[3] == 255)),
-    // }
-    let art: LayerArt = ();
-    art
-    // TODO(human): end block 5/6
+    LayerArt {
+        width_px: image.width(),
+        height_px: image.height(),
+        is_rgba: true, // every generator in this crate emits RGBA
+        fully_opaque: image.pixels().all(|rgba| rgba.0[3] == 255),
+        top_row_opaque: image
+            .rows()
+            .next()
+            .is_some_and(|row| row.into_iter().all(|rgba| rgba.0[3] == 255)),
+        bottom_row_opaque: image
+            .rows()
+            .next_back()
+            .is_some_and(|row| row.into_iter().all(|rgba| rgba.0[3] == 255)),
+    }
 }
 
 /// Assembles the emitted `Stack` from the specs and their generated art.
 fn build_stack(specs: &[LayerSpec], images: &[(String, RgbaImage)], seed: u64) -> Stack {
-    // TODO(human): begin block 6/6
-    // INTENT: one `Layer` per spec, both fills computed from THAT layer's own PNG edge rows
-    // via `edge_row_fill`, and the schema version single-sourced from the shared `pub`
-    // const so the writer can never drift from what `Stack::validate` and the future reader
-    // enforce. The Sun layer carries `Depth::Infinite` straight from its spec, so the
-    // retired `"inf"` string never appears here.
-    //
-    // let mut layers: Vec<Layer> = Vec::with_capacity(specs.len());
-    // for (index, spec) in specs.iter().enumerate() {
-    //     let image: &RgbaImage = &images[index].1;
-    //     // `rows()` yields a `Pixels` iterator, so collect the edge row into a `Vec`: it is
-    //     // what lets `edge_row_fill` take a plain slice and stay testable without `image`.
-    //     let top_row: Vec<Rgba<u8>> = image
-    //         .rows()
-    //         .next()
-    //         .expect("art has row 0")
-    //         .copied()
-    //         .collect();
-    //     let bottom_row: Vec<Rgba<u8>> = image
-    //         .rows()
-    //         .next_back()
-    //         .expect("art has a last row")
-    //         .copied()
-    //         .collect();
-    //     layers.push(Layer {
-    //         name: spec.name.to_string(),
-    //         file: spec.file.to_string(),
-    //         plane: spec.plane,
-    //         draw_order: spec.draw_order,
-    //         parallax_depth: spec.parallax_depth,
-    //         vertical_damping: spec.vertical_damping,
-    //         repeat_x: spec.repeat_x,
-    //         ref_screen_left_px: spec.ref_screen_left_px,
-    //         ref_screen_top_px: spec.ref_screen_top_px,
-    //         fill_above: edge_row_fill(&top_row),
-    //         fill_below: edge_row_fill(&bottom_row),
-    //     });
-    // }
-    // Stack {
-    //     schema_version: MANIFEST_SCHEMA_VERSION,
-    //     stack_key: STACK_KEY.to_string(),
-    //     palette_key: PALETTE_KEY.to_string(),
-    //     generator_seed: seed,
-    //     ref_view_px: REF_VIEW_PX,
-    //     layers,
-    // }
-    let stack: Stack = ();
-    stack
-    // TODO(human): end block 6/6
+    // Every fill is computed from THAT layer's own PNG edge rows, and the schema version is
+    // the shared `pub` const, so the writer cannot drift from what `Stack::validate` and the
+    // future reader enforce.
+    let mut layers: Vec<Layer> = Vec::with_capacity(specs.len());
+    for (index, spec) in specs.iter().enumerate() {
+        let image: &RgbaImage = &images[index].1;
+        // `rows()` yields a `Pixels` iterator, so collect the edge row into a `Vec`: it is
+        // what lets `edge_row_fill` take a plain slice and stay testable without `image`.
+        let top_row: Vec<Rgba<u8>> = image
+            .rows()
+            .next()
+            .expect("art has row 0")
+            .copied()
+            .collect();
+        let bottom_row: Vec<Rgba<u8>> = image
+            .rows()
+            .next_back()
+            .expect("art has a last row")
+            .copied()
+            .collect();
+        layers.push(Layer {
+            name: spec.name.to_string(),
+            file: spec.file.to_string(),
+            plane: spec.plane,
+            draw_order: spec.draw_order,
+            parallax_depth: spec.parallax_depth,
+            vertical_damping: spec.vertical_damping,
+            repeat_x: spec.repeat_x,
+            ref_screen_left_px: spec.ref_screen_left_px,
+            ref_screen_top_px: spec.ref_screen_top_px,
+            fill_above: edge_row_fill(&top_row),
+            fill_below: edge_row_fill(&bottom_row),
+        });
+    }
+    Stack {
+        schema_version: MANIFEST_SCHEMA_VERSION,
+        stack_key: STACK_KEY.to_string(),
+        palette_key: PALETTE_KEY.to_string(),
+        generator_seed: seed,
+        ref_view_px: REF_VIEW_PX,
+        layers,
+    }
 }
 
 /// Parses the CLI, builds every layer, writes the PNGs and `stack.json`.
@@ -1838,8 +1779,8 @@ mod tests {
         }
         let mut sums: [u64; 3] = [0, 0, 0];
         for rgba in &pixels {
-            for channel in 0..3 {
-                sums[channel] += rgba.0[channel] as u64;
+            for (channel, sum) in sums.iter_mut().enumerate() {
+                *sum += rgba.0[channel] as u64;
             }
         }
         Fill::Rgba(
@@ -1921,7 +1862,17 @@ mod tests {
             );
             let rgba = sun.get_pixel(col, row).0;
             let alpha: f32 = rgba[3] as f32;
-            let expected = old_sky_colour(dist_fraction * radius_px);
+            // The oracle is evaluated at THIS PIXEL's distance, not the nominal sample
+            // distance. The layer rasterises the disc over integer pixels while the retired
+            // sky evaluated it continuously, so at the 0.85r mid-falloff -- where the slope
+            // peaks -- the nearest pixel sits ~0.34 px further out, which is ~2 levels. The
+            // contract is equal distance; which pixel it is measured at is the nearest one.
+            let sampled_offset_x_px: f64 = col as f64 - centre;
+            let sampled_offset_y_px: f64 = row as f64 - centre;
+            let sampled_dist_px: f64 = (sampled_offset_x_px * sampled_offset_x_px
+                + sampled_offset_y_px * sampled_offset_y_px)
+                .sqrt();
+            let expected = old_sky_colour(sampled_dist_px);
             for channel in 0..3 {
                 let composite: u8 = ((base[channel] as f32 * (255.0 - alpha)
                     + rgba[channel] as f32 * alpha)
