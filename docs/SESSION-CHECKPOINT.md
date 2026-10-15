@@ -7,13 +7,15 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-15 (step 2 (#105) code-complete and green on `local/feat/parallax-step2`: the six blocks filled in `0a3a504`, 28 `gen-backdrop` tests + 134 `sstd-core` tests green, six mutations all caught, real-size run emits 7 PNGs + `stack.json`. Nothing pushed anywhere.)_
+_Last updated: 2026-10-15 (step 2 (#105) code-complete and green on `local/feat/parallax-step2`: the six blocks filled in `0a3a504`, 28 `gen-backdrop` tests + 134 `sstd-core` tests green, six mutations all caught, real-size run emits 7 PNGs + `stack.json`; docs synced here and in the wiki, whose doc branch is 3 commits ahead of its `master`, also unpushed.)_
 
 **NEXT MOVE: @me's comprehension gate on the filled step-2 blocks** (@me's 2026-10-15 instruction:
 the assistant wrote all six blocks and reviews what it did, so the gate is a review of written
-code rather than a hand-off to @me). Then push permission, then **step 3 (#106, bridge
-`parallax_placements`)**. Everything is on `local/feat/parallax-step2` (stacked on step 1, so it
-has `Stack`); nothing is pushed.
+code rather than a hand-off to @me). Then one "push permission" ask covering **both repos** (this
+branch plus the wiki's doc branch, which is 3 commits ahead of its `master` and unpushed), then
+**step 3 (#106, bridge `parallax_placements`)**. Everything is on `local/feat/parallax-step2`
+(stacked on step 1, so it has `Stack`); nothing is pushed. Docs are current: this file, the plan's
+section 11, and the wiki's steps-1-2 record.
 
 Step-2 completion evidence (all commands from `sidescroll-towerdefense/`):
 
@@ -56,14 +58,18 @@ Workspace-wide `cargo clippy --all-targets` reports ~55 warnings outside `gen-ba
 This is **not** #105's scope (the plan forbids touching those crates), so it rides its own branch
 off `trunk` — see the work log below.
 
-**Wiki drift found 2026-10-15 (not fixed here):** `TDD_Parallax-Scrolling.Data` section 1's
-example `stack.json` shows a bare `"parallax_depth": 9` for finite depths while the adopted wire
-form (2026-10-11 directive, implemented in #104 with `depth_parses_the_tagged_wire_form_only`) is
-the tagged object for both variants. The emitted `stack.json` is tagged (`{"kind":"finite",...}`)
-— the type is the contract, the prose example is stale. Wiki repo change, so it is not this
-repo's commit; the sky-fill difference in the same example is already explained in the plan
-(section 3 note: haze is clamped to +/-20 levels, so the emitted mean may differ from the
-gradient end; measured difference here is 2 levels, AC tolerance is 20).
+**Wiki drift found AND fixed 2026-10-15 (wiki repo, on the parallax doc branch awaiting push):**
+`TDD_Parallax-Scrolling.Data` section 1's example `stack.json` spelled `parallax_depth` as a bare
+number for six of its seven layers (`9`, `4`, `2.3333`, `1`, `0.4286`, `-0.2308`) while the Sun
+alone used `{ "kind": "infinite" }`. A bare number **cannot load**: section 2 of the same page
+states "a bare number or string is rejected", and `depth_parses_the_tagged_wire_form_only` asserts
+`serde_json::from_str::<Depth>("9").is_err()`. So the example contradicted the rule printed two
+sections below it, and a reader copying it got a stack that fails to parse. Fixed by tagging the
+six (matching the Sun row's own style); `grep -rn '"parallax_depth": *[-0-9]'` over the wiki now
+returns nothing (was six hits) and the extracted example's top-level and per-layer key sets are
+identical to the emitted `stack.json`. The sky-fill difference in the same example is **not** a
+defect: the page's own fill paragraph declares those literals pre-PNG placeholders allowed to
+differ by up to 20 levels (haze clamp), and the measured difference is 2 levels.
 
 
 Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
@@ -170,6 +176,25 @@ hand-off).
    `the sun composites to 175 but the old blend was 177` — the documented 2 levels, at the documented
    angle, where `r = 64.8` px puts the nearest pixel 0.34 px further out. Full arithmetic in the plan's
    deviation section. Tree reverted clean (`git status --short` empty for the source file).
+
+### 2026-10-15 — the wiki brought in line with the two landings (3 commits on its doc branch)
+
+The design of record still said "nothing built in this run" and the Verification page "none of these
+tests exist yet", both false since steps 1-2 landed.
+
+1. `TDD_Parallax-Scrolling.Data`: the example's six bare `parallax_depth` numbers retagged to
+   `{ "kind": "finite", "value": n }` (the defect detailed in the state block above). Commit
+   `5fc2c4f`.
+2. `TDD_Parallax-Scrolling.md`: dropped "nothing built in this run", added a Status column (steps
+   1-2 `code-complete` with evidence, step 3 next, steps 4-6 pending, step 7 deferred by design),
+   and the TL;DR's "Design only" line corrected. `TDD_Parallax-Scrolling.Verification.md`: the
+   "none exist yet" paragraph replaced with what exists, checked against the code rather than the
+   ticket text (U23 is a real test at `parallax.rs:1811`; U12 is absent). `TODO.md`: TS72/TS73/TS74
+   plus TS71's "implementation pending" corrected. Commit `31c1659`.
+3. The wiki's parallax doc branch is **3 commits ahead of its `master` and unpushed** (the wire-form
+   switch `4df7833` from the previous session was left unmerged too). Renamed to
+   `docs/parallax-steps-1-2` so the name matches its content. Its merge back to `master` is part of
+   the same "ask once for push permission" step as this repo's branch.
 
 ### Pending — 2026-10-15 lint sweep (its own branch off `trunk`; NOT on `local/feat/parallax-step2`)
 
