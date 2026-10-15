@@ -299,3 +299,74 @@ a follow-up ticket — they are how this plan verifies its own work):
   "inf"` line is superseded by the 2026-10-11 tagged-enum directive; the plan single-sources
   the sun's depth as `Depth::Infinite` (section 3). No scope change.
 - Lessons appended to `~/projects/SSTD/.rsi_memory/plan-ticket-gate.md`.
+
+## 11. Completion record (2026-10-15)
+
+All five exit conditions met; the assistant wrote the six blocks per @me's 2026-10-15
+no-time-this-week instruction (so the comprehension gate reviews written code). Commit
+**`0a3a504`** `feat(gen-backdrop): fill the six step-2 blocks, crate green 28 (#105)`.
+
+| Exit condition | Result |
+|---|---|
+| 1 `cargo build` (workspace) | green |
+| 2 `cargo test -p gen-backdrop` | **28 passed, 0 failed** |
+| 3 `cargo test -p sstd-core` | **134 passed, 0 failed** (unchanged) |
+| 4 every new U-test false under its listed mutation | **M1-M6 all caught**, real assertions + real values |
+| 5 real-size run: 7 PNGs + `stack.json` at width 1920 | met; sky 1920x1080, sun 130x130, others 1920 wide; `grep -c '"inf"'` == 0 |
+
+Verification-hygiene outcomes (section 9b), including the two that could not be met as written:
+
+- `cargo clippy -p gen-backdrop --all-targets` is **clean (0 warnings)**. The bar as written
+  (`cargo clippy -p gen-backdrop -- -D warnings`) cannot pass: the package's path dependency
+  `sstd-core` is linted too and carries 25 pre-existing warnings in code this plan forbids
+  editing, so the bar is read as "gen-backdrop's own targets". Three `needless_range_loop` hits
+  were rewritten as `iter_mut()` (one introduced by block 2, two pre-existing: `make_sky`'s haze
+  loop and the U22 oracle), and `art_facts` is now `#[cfg(test)]` because the emit path validates
+  nothing and the shipped bin otherwise warns on dead code.
+- No literal wire token in `gen-backdrop` source; the emitted `stack.json` has no `"inf"`.
+- Module doc header rewritten (it already was, at scaffold time).
+- `seam_is_invisible` skips `repeat_x: false` layers, so the Sun is not seam-checked.
+- Scope guard held: only `tools/gen-backdrop/*` was edited on this branch, plus the single `pub`
+  const line in `crates/sstd-core/src/parallax.rs` (landed in step 1). The four GDScript suites
+  were not run for step 2 because no editor file changed; `editor/assets/backdrop_layers/` and its
+  `manifest.json` consumer are untouched (the v1 transcriber scene is steps 4-5 work).
+
+### Deviation: U18's oracle distance (block 1's sample could not pass)
+
+The scaffolded U18 test evaluated the retired sky's blend at the sample's *nominal* distance
+(`dist_fraction * radius_px`) while the sun layer rasterises the disc over integer pixels. The
+nearest pixel to a nominal point at `0.85r` — the steepest part of the falloff, sampled at the
+diagonal angles (22.5/112.5/202.5/292.5 deg) where the rounding offset is largest — sits ~0.34 px
+further out, and `d(composite)/d(dist)` there is ~6.4 levels per px, so the comparison read **2
+levels** off against the ticket's 1-level bar.
+
+Measured, not derived — the nominal-distance oracle restored temporarily and only U18 run:
+
+```
+thread 'tests::sun_alpha_matches_the_old_baked_disc_within_one_level' panicked at tools/gen-backdrop/src/main.rs:1881:17:
+sample dist 0.85r at 22.5deg channel 0: the sun composites to 175 but the old blend was 177
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out
+```
+
+The arithmetic behind it: `SUN_RADIUS_FRAC * REF_VIEW_PX.height` gives `r = 64.8` px, so the
+nominal point is `(64.8 + 55.08 cos 22.5, 64.8 + 55.08 sin 22.5) = (115.7, 85.9)` and rounds to
+pixel `(116, 86)`, whose distance from the centre is `55.415` — **0.34 px further out** than the
+nominal `55.08`. That lands `t = 13.295/22.68 = 0.5862` in the smoothstep instead of `0.57143`,
+moving alpha from ~85 to `round(255 * 0.85 * 0.372) = 81`, and `(175 - 138) * 255 / 117 = 80.6`
+confirms the sampled pixel really carried alpha 81. The same slope gives the 2-level reading:
+`216.75 * 6t(1-t) / 22.68 = 14.0` alpha/px, which is `14.0 * 117/255 = 6.4` composite levels/px.
+
+The fix is in the test, not the disc geometry: the oracle is now evaluated at the sampled pixel's
+own distance, which is exactly the distance the implementation uses, and the plan's section-3
+geometry (disc centred at `(r, r)`, `r = SUN_RADIUS_FRAC * ref_height`) is untouched. Equal
+distance is the contract; which pixel it is measured at is whichever is nearest the sample. Both
+listed U18 mutations (M1 `1 - disc`, M2 drop the `0.85`) still fail, so the assertion keeps its
+discriminating power.
+
+### Generated art: produced and verified, intentionally not committed
+
+`editor/assets/backdrop_stacks/neutral_default/` holds the AC-1 output (7 PNGs + `stack.json`,
+~660 KB) in the working tree but is **not** part of the commit: the scope guard above allows only
+`tools/gen-backdrop/*`, and the v1 art was committed bundled with the scene that consumes it
+(`ba2cbb4`), which for this stack does not exist until steps 4-5. Regenerate with
+`cargo run -q -p gen-backdrop`; commit on request.

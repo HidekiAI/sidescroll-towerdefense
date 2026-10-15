@@ -7,25 +7,64 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-14 (step-2 scaffold committed as `37cb5af` — red on its six intended holes; `d96b11d` is the unrelated README commit; step 1 code green, unpushed)_
+_Last updated: 2026-10-15 (step 2 (#105) code-complete and green on `local/feat/parallax-step2`: the six blocks filled in `0a3a504`, 28 `gen-backdrop` tests + 134 `sstd-core` tests green, six mutations all caught, real-size run emits 7 PNGs + `stack.json`. Nothing pushed anywhere.)_
 
-**NEXT MOVE: walk the step-2 scaffold diff with @me (comprehension gate), then @me writes the
-six `TODO(human)` blocks in dependency order 3 -> 4 -> 1 -> 2 -> 5 -> 6.** Everything is on
-`local/feat/parallax-step2` (stacked on step 1, so it has `Stack`), working tree clean, nothing
-pushed anywhere. `cargo check -p gen-backdrop`
-fails with EXACTLY six E0308 holes — `layer_specs` (main.rs:211), `make_sky`'s deleted disc
-(`sky_rgb` binding, :449), `make_sun` (:499), `edge_row_fill` (:531), `art_facts` (:694),
-`build_stack` (:735) — plus one transient `unused import: Layer` warning (used only by block 6's
-sample). Green arrives only when all six blocks are written; `cargo test -p gen-backdrop` is
-therefore RED as a build failure now, and its four new tests are proven false by their listed
-mutations AFTER the blocks land. The gated plan is `docs/PLAN-2026-10-13-parallax-step2.md`
-(plan-ticket-gate PASSED 90/100 in 2 iterations; a "Scaffold deviations" list there records
-`make_sun(ref_height)`, `build_stack(specs, images, seed)`, no Sun clause in `deterministic`,
-and `ImageBuffer::rows()` yielding `Pixels` rather than slices). Ticket #105 was amended
-2026-10-13 (comment 6145606773): the body's `"inf"` line is superseded by the tagged-enum
-directive — the sun layer's depth is `Depth::Infinite`. Unrelated: `README.md`'s pre-existing
-2026-10-11 markdown reformat is committed on its own commit earlier on this branch (it is NOT
-this ticket, so it stays droppable without touching step 2).
+**NEXT MOVE: @me's comprehension gate on the filled step-2 blocks** (@me's 2026-10-15 instruction:
+the assistant wrote all six blocks and reviews what it did, so the gate is a review of written
+code rather than a hand-off to @me). Then push permission, then **step 3 (#106, bridge
+`parallax_placements`)**. Everything is on `local/feat/parallax-step2` (stacked on step 1, so it
+has `Stack`); nothing is pushed.
+
+Step-2 completion evidence (all commands from `sidescroll-towerdefense/`):
+
+| Gate | Result |
+|---|---|
+| `cargo test -p gen-backdrop` | **28 passed, 0 failed** (was a build failure on six E0308 holes) |
+| `cargo test -p sstd-core` | **134 passed, 0 failed** — unchanged; only the `pub` const was touched |
+| `cargo clippy -p gen-backdrop --all-targets` | **0 warnings** (see deviations below) |
+| mutations M1-M6 (plan section 8) | **all six caught**, each with a real assertion + real values |
+| real-size run `cargo run -q -p gen-backdrop` | 7 PNGs + `stack.json`, AC-1 (see below) |
+
+Two deviations from the gated plan's samples, both recorded here and in the commit message:
+
+- **U18's oracle distance.** The scaffolded test compared the retired sky's blend at the
+  *nominal* sample distance while the sun layer rasterises the disc over integer pixels. At the
+  `0.85r` mid-falloff (the steepest point) the nearest pixel sits ~0.34 px further out, which read
+  **2 levels** off against the ticket's 1-level bar. The oracle now evaluates at the sampled
+  pixel's own distance — equal distance is the contract, the pixel is the nearest one to the
+  sample — and both listed U18 mutations still fail.
+- **Clippy hygiene.** The plan's bar (`cargo clippy -p gen-backdrop -- -D warnings`) is
+  **unachievable as written**: `-p gen-backdrop` also lints the path dependency, and `sstd-core`
+  carries 25 pre-existing warnings, so that exact command fails on code this ticket may not touch.
+  Interpreted as "gen-backdrop's own targets are warning-free", which is now true: three
+  `needless_range_loop` hits rewritten as `iter_mut()` (one introduced by block 2, two
+  pre-existing — `make_sky`'s haze loop and the U22 oracle), and the test-only `art_facts` is
+  `#[cfg(test)]` so the shipped bin has no dead code.
+
+**Generated art is present but UNTRACKED:** `editor/assets/backdrop_stacks/neutral_default/`
+(7 PNGs + `stack.json`, ~660 KB) was produced and verified by the AC-1 run. It is deliberately not
+committed: the plan's scope guard allows only `tools/gen-backdrop/*` plus one `sstd-core` line,
+and the v1 art (`editor/assets/backdrop_layers/`) landed bundled with the scene that consumes it
+(`ba2cbb4`), which for step 2 does not exist yet (steps 4-5). Say the word and it is committed;
+otherwise it lands with its consumer. Re-generate any time with `cargo run -q -p gen-backdrop`.
+
+**User directive 2026-10-15 (open, separate branch): "fix|adjust all lint warnings and errors".**
+Workspace-wide `cargo clippy --all-targets` reports ~55 warnings outside `gen-backdrop`:
+`sstd-core` (10 x `should_implement_trait` on `from_str`, 9 `needless_borrows_for_generic_args`,
+4 no-effect ops, `manual_range_contains`, `match_like_matches_macro`), `sstd-editor-bridge`
+(3 x `needless_range_loop`, `is_multiple_of`, no-effect ops), `tools/slice-layers` and others.
+This is **not** #105's scope (the plan forbids touching those crates), so it rides its own branch
+off `trunk` — see the work log below.
+
+**Wiki drift found 2026-10-15 (not fixed here):** `TDD_Parallax-Scrolling.Data` section 1's
+example `stack.json` shows a bare `"parallax_depth": 9` for finite depths while the adopted wire
+form (2026-10-11 directive, implemented in #104 with `depth_parses_the_tagged_wire_form_only`) is
+the tagged object for both variants. The emitted `stack.json` is tagged (`{"kind":"finite",...}`)
+— the type is the contract, the prose example is stale. Wiki repo change, so it is not this
+repo's commit; the sky-fill difference in the same example is already explained in the plan
+(section 3 note: haze is clamped to +/-20 levels, so the emitted mean may differ from the
+gradient end; measured difference here is 2 levels, AC tolerance is 20).
+
 
 Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
 `cargo test -p sstd-core` 134 passed / 0 failed, both review findings fixed and walked
@@ -90,6 +129,54 @@ still says `test_screen_store` is "currently RED ... (issue #85)". #85 is CLOSED
 **exits 0** on 4.7.2 (`4.7.2.stable.mono`, re-run 2026-10-10). Three passages are stale (two in
 the committed `.opencode/AGENTS.md`, one in the workspace `AGENTS.md`, which is not under
 version control). Fixed by #111, not here.
+
+---
+
+## Parallax progression log
+
+Newest first. The CURRENT STATE block above is the resume point; this is "what was done, in order,
+with evidence"; the wiki `TODO.md` is the design/work tracker. Every entry names its commit.
+
+### 2026-10-15 — step 2 (#105): the six blocks, green and mutation-verified
+
+@me had no time this week and asked the assistant to write the blocks it had scaffolded for
+@me, then review what it wrote (the comprehension gate therefore reviews written code, not a
+hand-off).
+
+1. Wrote all six `TODO(human)` blocks in `tools/gen-backdrop/src/main.rs` — `layer_specs`,
+   `make_sky`'s disc removal, `make_sun`, `edge_row_fill`, `art_facts`, `build_stack` —
+   uncommenting the samples and deleting the scaffold's `INTENT:` / `// was:` handoff prose
+   (the `INTENT (permanent)` doc comments from step 1 stay; they are permanent documentation).
+2. Fixed the U18 oracle distance (deviation 1 in the state block) — the scaffolded test could not
+   pass at 1 level against a rasterised disc. `cargo test -p gen-backdrop` 28 passed.
+3. Cleared `gen-backdrop`'s four clippy warnings (deviation 2 in the state block).
+4. Committed: **`0a3a504`** `feat(gen-backdrop): fill the six step-2 blocks, crate green 28 (#105)`.
+5. Mutation-verified the four new tests (plan section 8, exit condition 4) — **M1-M6 all caught**,
+   each with a real assertion and real values:
+   | Mutant | Caught by | Failure line evidence |
+   |---|---|---|
+   | M1 U18 `alpha = 1 - disc` | U18 | U18 assertion |
+   | M2 U18 drop the `0.85` | U18 | U18 assertion |
+   | M3 U22 constant fill | U22 | `left: Rgba(138,152,172,255)` vs `right: Rgba(135,149,169,255)` |
+   | M4 U22 mean over row `height/2` | U22 | `left: Rgba(160,172,187,255)` vs `right: Rgba(135,149,169,255)` |
+   | M5 U22 no fully-opaque guard | U22 | Sun `left: Rgba(255,250,238,255)` vs `right: Transparent` |
+   | M6 duplicate `draw_order` | validate-accepts | `Stack::validate` rejects |
+6. Real-size run (exit condition 5): 7 PNGs + `stack.json`; AC-1 verified by listing, `file(1)`
+   widths (sky 1920x1080, sun 130x130, others 1920x{320,384}) and `grep -c '"inf"'` == 0.
+7. This checkpoint + the plan's completion note (commit follows this one).
+8. Re-verified the U18 deviation's magnitude by measurement (the numbers were in the code comment and
+   commit message but in no log): the nominal-distance oracle was restored temporarily, only U18 run,
+   then reverted with `git checkout`. It fails at 0.85r / 22.5 deg / channel 0 with
+   `the sun composites to 175 but the old blend was 177` — the documented 2 levels, at the documented
+   angle, where `r = 64.8` px puts the nearest pixel 0.34 px further out. Full arithmetic in the plan's
+   deviation section. Tree reverted clean (`git status --short` empty for the source file).
+
+### Pending — 2026-10-15 lint sweep (its own branch off `trunk`; NOT on `local/feat/parallax-step2`)
+
+@me's directive "fix|adjust all lint warnings and errors" reaches crates the #105 plan forbids
+touching, so it must not ride the step-2 branch. ~55 warnings, categorised in the state block
+above. Mechanism: branch off `trunk`, fix per category, keep `cargo test -p sstd-core` at 134 and
+the four GDScript suites at their baseline, commit per crate, then hand @me the merge decision.
 
 ---
 
