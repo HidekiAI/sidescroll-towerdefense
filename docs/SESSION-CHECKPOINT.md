@@ -7,17 +7,52 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-16 (step 3 (#106) code-complete and green on `local/feat/parallax-step3`: bridge `parallax_placements` shipped in `7714d55`, 26 bridge tests + 134 core tests + all six GDScript suites rc 0, a 15-mutant sweep fully confirmed. Steps 1-2 remain complete on their own local branches. Nothing is pushed.)_
+_Last updated: 2026-10-16. Step 3 (#106) code-complete and green on `local/feat/parallax-step3`
+(`7714d55`, 26 bridge tests + 134 core tests + all six GDScript suites rc 0, 15-mutant sweep
+confirmed). Steps 1-2 remain complete on their own local branches. Since then the Godot MCP bridge
+(#112) was installed and verified, and the step-4 plan was found to underscope #107. Nothing is
+pushed._
 
-**NEXT MOVE: step 4 (#107, the drawer).** Steps 1-3 are code-complete; the parallax still does
-**not render**, because no scene consumes the placements yet -- step 4 adds `ParallaxDraw`, and
-that is also the step that deletes the stale `probe_parallax_scroll.gd`. Nothing else blocks it:
-`parallax_placements` is callable from GDScript and verified against the freshly built `.so`.
+**NEXT MOVE: rewrite the step-4 plan to #107's full scope, re-gate it >= 90, then implement.**
+Steps 1-3 are code-complete but the parallax still does **not render** -- no scene consumes the
+placements yet. Two blockers on step 4:
 
-Then, when @me says so, **one push-permission ask covering both repos** (four local branches in
-the code repo -- steps 1-3 plus the `chore/backdrop-png-cleanup` branch discussed below -- and the
-wiki's doc branch, 3 commits ahead of its `master`). Rename each `local/...` to `feat/...` before
-its first push; the `local/` prefix is refused by a push hook.
+1. **`docs/PLAN-2026-10-16-parallax-step4.md` underscopes #107.** It gated at 94 against a
+   summary of the ticket rather than the ticket body. #107 is far wider than the plan's drawer: it
+   owns the `WorldView` scene (SubViewport container + `ParallaxDraw` above and below a world
+   `Node2D`), a game camera controller, runtime window stretch, and the removal of the six
+   `Parallax2D` nodes, `backdrop_preview.tscn`, the 240 px clamp and `_frame_backdrop`'s measured
+   correction. Rewrite against the full #107 body; **the re-gate prompt must carry the whole
+   ticket**, since an independent gate scores against whatever it is handed.
+2. **The drawer as written in that plan is rejected.** The uncommitted
+   `editor/scripts/parallax_draw.gd` adds Sprite2D children, which deviates from the design of
+   record (Math section 7: `_draw()` + `draw_set_transform` + `draw_texture_rect(..., tile = true)`
+   under `TEXTURE_REPEAT_ENABLED`, filling first) and is geometrically wrong at zoom != 1, where
+   screen spacing must be `period_px * zoom`. Gate G5's spike decides the tiling path, with the
+   per-copy `draw_texture_rect` as the documented fallback.
+
+`parallax_placements` is callable from GDScript and verified against the freshly built `.so`, so
+nothing outside those two blockers stops step 4.
+
+**Installed since the last update: the Godot MCP bridge (#112), commit `ce69f86` on
+`local/build/godot-mcp-plugin`.** That branch sits on top of `local/feat/parallax-step3`, so it can
+only reach `trunk` together with the parallax chain. It exists because #107's pixel gates (G5, G7,
+G12, G19, S1) must run against a real render window -- headless uses `RendererDummy` -- and had no
+scriptable path. Verified end to end: the plugin connects to `ws://localhost:6505`, a live tool
+call returned real editor data, 385 handlers / 386 tools are registered, and all four headless
+suites still exit 0 with the `MCPRuntime` autoload instantiated inside them (visible as
+`[MCP Runtime] _poll_ipc()` in `test_terrain_brush`). Measured behaviour worth knowing: the
+plugin's `_exit_tree()` removes that autoload in memory but never saves, so the committed line
+survives a graceful editor exit (verified by SIGTERM) and does not flip-flop. The addon directory
+is gitignored, so a fresh clone sees an enabled plugin whose path is absent; the MCP client config
+lives in `SSTD/opencode.json`, which is not under version control. Leave
+`editor/project.godot` alone on any `git checkout -- editor/project.godot`.
+
+Then, when @me says so, **one push-permission ask covering both repos**: the parallax chain
+(steps 1-3) plus `local/build/godot-mcp-plugin` on top of it in the code repo, and the wiki's doc
+branch `docs/parallax-steps-1-2`, 4 commits ahead of its `master`. `chore/backdrop-png-cleanup` is
+covered by the open item below. Rename each `local/...` to `feat/...` before its first push; the
+`local/` prefix is refused by a push hook.
 
 Step-3 completion evidence (all commands from `sidescroll-towerdefense/`):
 
