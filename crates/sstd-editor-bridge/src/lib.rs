@@ -2,7 +2,9 @@ use std::path::Path;
 
 use godot::classes::{TabContainer, Texture2D};
 use godot::prelude::*;
+use serde::{Deserialize, Serialize};
 use sstd_core::config::ConfigStore;
+use sstd_core::parallax::{place_layer, Anchor, Fill, LayerArt, Plane, Stack, ViewState};
 use sstd_core::storage::{EntityDefsFile, ScreenFile, TerrainTypesFile};
 use sstd_core::terrain::GridConfig;
 use sstd_grpc::{spawn_server, EditorCommand, ScreenshotResult, SwitchTabResult};
@@ -98,6 +100,17 @@ impl SstdBridge {
             Err(e) => format!("{{\"valid\": false, \"error\": \"{}\"}}", e),
         };
         GString::from(result.as_str())
+    }
+
+    /// Place this frame's backdrop layers for a `(view, anchor, stack, art, plane)` request.
+    ///
+    /// Returns `{"placements": [...]}` on success, `{"error": "<detail>"}` for a malformed
+    /// request, or `{"error": "stack_invalid", "errors": [...]}` when the stack fails
+    /// validation. The math lives in `sstd-core::parallax`; this method only composes the
+    /// request and the response.
+    #[func]
+    fn parallax_placements(&self, request_json: GString) -> GString {
+        GString::from(parallax_placements_impl(&request_json.to_string()).as_str())
     }
 
     /// Record the editor's `TabContainer` so the gRPC `SwitchTab`/`CaptureScreenshot`
@@ -615,6 +628,211 @@ fn validate_placement_impl(
         "{{\"valid\": true, \"entity\": \"{}\", \"tile_x\": {}, \"tile_y\": {}}}",
         entity_key, tile_x, tile_y
     )
+}
+
+// ---------------------------------------------------------------------------
+// parallax_placements — the `view` / `art` halves of the request.
+//
+// `Stack`, `Layer`, `Anchor` and `Plane` carry serde derives and deserialize straight out of
+// the request. `ViewState` and `LayerArt` deliberately do not: `sstd-core` has no reason to
+// know this wire form (`parallax.rs`: "The caller measures these ... this module must not gain
+// an image dependency"), so the bridge owns the two input structs below and maps them.
+// ---------------------------------------------------------------------------
+
+/// The camera half of a `parallax_placements` request.
+#[derive(Deserialize)]
+struct ViewInput {
+    cam_center_world_px_x: f64,
+    cam_center_world_px_y: f64,
+    zoom: f64,
+    view_w_px: f64,
+    view_h_px: f64,
+}
+
+/// One layer's measured PNG facts, index-aligned with `stack.layers`. Exactly `LayerArt`'s
+/// fields; the values come from the PNG decoder the caller already has (step 6's loader).
+#[derive(Deserialize)]
+struct LayerArtInput {
+    width_px: u32,
+    height_px: u32,
+    is_rgba: bool,
+    fully_opaque: bool,
+    top_row_opaque: bool,
+    bottom_row_opaque: bool,
+}
+
+/// A `parallax_placements` request. Only `plane` defaults: the anchor is required, because
+/// choosing a default anchor is the loader's job (step 6, `TDD_Parallax-Scrolling.Data`
+/// section 3), not this seam's.
+#[derive(Deserialize)]
+struct PlacementsRequest {
+    view: ViewInput,
+    anchor: Anchor,
+    stack: Stack,
+    art: Vec<LayerArtInput>,
+    #[serde(default)]
+    plane: Option<Plane>,
+}
+
+/// One layer as GDScript draws it: the identity of the layer, then the four values
+/// `place_layer` computed, then what the drawer needs and cannot re-derive (the repeat period,
+/// the art height, the two edge fills).
+#[derive(Serialize)]
+struct PlacementEntry {
+    name: String,
+    file: String,
+    plane: Plane,
+    draw_order: i32,
+    first_copy_left_px: i32,
+    copy_count: u32,
+    screen_top_px: i32,
+    scale: f64,
+    period_px: f64,
+    art_h_px: f64,
+    fill_above: Fill,
+    fill_below: Fill,
+}
+
+#[derive(Serialize)]
+struct PlacementsResponse {
+    placements: Vec<PlacementEntry>,
+}
+
+/// Every back-plane layer draws before every front-plane layer; within a plane, ascending
+/// `draw_order` (`TDD_Parallax-Scrolling.Math` section 7).
+fn plane_rank(plane: Plane) -> u8 {
+    match plane {
+        Plane::Back => 0,
+        Plane::Front => 1,
+    }
+}
+
+/// `{"error": "<detail>"}` for a request-level failure, matching `import_screen`.
+///
+/// Built through the `json!` macro rather than `format!`: a detail carrying a quote would
+/// otherwise produce malformed JSON, and a serde parse error routinely does.
+fn request_error_json(detail: &str) -> String {
+    serde_json::json!({ "error": detail }).to_string()
+}
+
+/// The request-level hazards `Stack::validate` cannot see. It never looks at the view, and it
+/// has no width or height rule, so a zero period or a zero zoom would reach the repeat in
+/// `place_layer`, produce NaN, and saturate `NaN as u32` to `copy_count = 0` — a silently
+/// empty draw instead of a diagnosable failure.
+fn parallax_request_error(request: &PlacementsRequest) -> Option<String> {
+    let view = &request.view;
+    // Each test is written negated so NaN fails it in one comparison, not two.
+    if !(view.zoom > 0.0) {
+        return Some(format!("view.zoom must be > 0, got {}", view.zoom));
+    }
+    if !(view.view_w_px > 0.0) {
+        return Some(format!(
+            "view.view_w_px must be > 0, got {}",
+            view.view_w_px
+        ));
+    }
+    if !(view.view_h_px > 0.0) {
+        return Some(format!(
+            "view.view_h_px must be > 0, got {}",
+            view.view_h_px
+        ));
+    }
+    for (layer_index, facts) in request.art.iter().enumerate() {
+        if facts.width_px == 0 {
+            return Some(format!("art[{layer_index}].width_px must be > 0"));
+        }
+        if facts.height_px == 0 {
+            return Some(format!("art[{layer_index}].height_px must be > 0"));
+        }
+    }
+    None
+}
+
+/// Place every requested layer, in draw order. See the `parallax_placements` `#[func]` for the
+/// wire contract.
+fn parallax_placements_impl(request_json: &str) -> String {
+    let request: PlacementsRequest = match serde_json::from_str(request_json) {
+        Ok(request) => request,
+        Err(error) => return request_error_json(&format!("bad request: {error}")),
+    };
+
+    if let Some(detail) = parallax_request_error(&request) {
+        return request_error_json(&detail);
+    }
+
+    let art: Vec<LayerArt> = request
+        .art
+        .iter()
+        .map(|facts| LayerArt {
+            width_px: facts.width_px,
+            height_px: facts.height_px,
+            is_rgba: facts.is_rgba,
+            fully_opaque: facts.fully_opaque,
+            top_row_opaque: facts.top_row_opaque,
+            bottom_row_opaque: facts.bottom_row_opaque,
+        })
+        .collect();
+
+    // Validation and derivation both live in core; a bad stack is reported, never worked
+    // around. `resolve` also enforces `art.len() == layers.len()` (its `art_count` rule), so
+    // the zip below is safe by construction.
+    let resolved = match request.stack.resolve(&art) {
+        Ok(resolved) => resolved,
+        Err(validation) => {
+            return serde_json::json!({
+                "error": "stack_invalid",
+                "errors": validation.messages,
+            })
+            .to_string()
+        }
+    };
+
+    let view = ViewState {
+        cam_center_world_px_x: request.view.cam_center_world_px_x,
+        cam_center_world_px_y: request.view.cam_center_world_px_y,
+        zoom: request.view.zoom,
+        view_w_px: request.view.view_w_px,
+        view_h_px: request.view.view_h_px,
+    };
+
+    // `stack.layers` and `resolved.layers` are index-aligned: `resolve` zips them in order and
+    // filters nothing. Identity comes from the authored layer; everything derived comes from
+    // the resolved one.
+    let mut placements: Vec<PlacementEntry> = request
+        .stack
+        .layers
+        .iter()
+        .zip(resolved.layers.iter())
+        .filter(|(_, resolved_layer)| {
+            request
+                .plane
+                .is_none_or(|plane| resolved_layer.plane == plane)
+        })
+        .map(|(layer, resolved_layer)| {
+            let placement = place_layer(&view, &request.anchor, resolved_layer);
+            PlacementEntry {
+                name: layer.name.clone(),
+                file: layer.file.clone(),
+                plane: resolved_layer.plane,
+                draw_order: resolved_layer.draw_order,
+                first_copy_left_px: placement.first_copy_left_px,
+                copy_count: placement.copy_count,
+                screen_top_px: placement.screen_top_px,
+                scale: placement.scale,
+                period_px: resolved_layer.period_px,
+                art_h_px: resolved_layer.art_h_px,
+                fill_above: resolved_layer.fill_above,
+                fill_below: resolved_layer.fill_below,
+            }
+        })
+        .collect();
+
+    // The response carries draw order so the drawer never has to assume the stack authored its
+    // layers in order.
+    placements.sort_by_key(|entry| (plane_rank(entry.plane), entry.draw_order));
+
+    serde_json::to_string(&PlacementsResponse { placements })
+        .unwrap_or_else(|error| request_error_json(&format!("serialize failed: {error}")))
 }
 
 const TILE_BYTES: usize = 32 * 32 * 4; // RGBA8 stamp, 4096 bytes.
@@ -1597,5 +1815,352 @@ mod tests {
         // Every byte differs by exactly 4 -> full diff = 4.0, truncated to 4.
         assert!(diff_full(&base, &cand) >= 4.0 && diff_full(&base, &cand) < 5.0);
         assert_eq!(flip_of_bytes_impl(&base, &cand, 4.0), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // parallax_placements (issue #106)
+    //
+    // The fixture is built in code, never read from a file: the emitted `stack.json` under
+    // `editor/assets/backdrop_stacks/` is untracked, so a test reading it would be asserting
+    // machine state and would fail on a clean clone.
+    // -----------------------------------------------------------------------
+
+    /// A valid three-layer request: two `back` layers authored OUT of `draw_order` (so the
+    /// response's ordering is load-bearing) plus one `front` layer (so the plane filter is
+    /// testable without a second fixture). The base layer is the back plane's lowest
+    /// `draw_order`, so it carries the fully opaque art and both non-transparent fills that
+    /// core's `base_opaque` rule requires.
+    ///
+    /// The art widths differ per layer (1500 / 1920 / 640) so `period_px` identifies which art
+    /// entry a placement was built from: with equal widths, a mis-zip of `stack.layers` against
+    /// `resolved.layers` would produce the same numbers and pass.
+    fn base_request() -> serde_json::Value {
+        serde_json::json!({
+            "view": {
+                "cam_center_world_px_x": 960.0,
+                "cam_center_world_px_y": 540.0,
+                "zoom": 1.0,
+                "view_w_px": 1920.0,
+                "view_h_px": 1080.0
+            },
+            "anchor": { "world_px_x": 960.0, "world_px_y": 528.0 },
+            "stack": {
+                "schema_version": 2,
+                "stack_key": "fixture",
+                "palette_key": "neutral",
+                "generator_seed": 1,
+                "ref_view_px": { "width": 1920.0, "height": 1080.0 },
+                "layers": [
+                    {
+                        "name": "Near", "file": "near.png", "plane": "back", "draw_order": 1,
+                        "parallax_depth": { "kind": "finite", "value": 1.0 },
+                        "vertical_damping": 0.8, "repeat_x": true,
+                        "ref_screen_left_px": 0.0, "ref_screen_top_px": 0.0,
+                        "fill_above": "transparent", "fill_below": "transparent"
+                    },
+                    {
+                        "name": "Base", "file": "base.png", "plane": "back", "draw_order": 0,
+                        "parallax_depth": { "kind": "finite", "value": 9.0 },
+                        "vertical_damping": 0.8, "repeat_x": true,
+                        "ref_screen_left_px": 0.0, "ref_screen_top_px": 0.0,
+                        "fill_above": "#8896AAFF", "fill_below": "#C2CAD0FF"
+                    },
+                    {
+                        "name": "Fore", "file": "fore.png", "plane": "front", "draw_order": 0,
+                        "parallax_depth": { "kind": "finite", "value": -0.25 },
+                        "vertical_damping": 0.8, "repeat_x": true,
+                        "ref_screen_left_px": 0.0, "ref_screen_top_px": 0.0,
+                        "fill_above": "transparent", "fill_below": "transparent"
+                    }
+                ]
+            },
+            "art": [
+                {
+                    "width_px": 1500, "height_px": 1080, "is_rgba": true,
+                    "fully_opaque": false, "top_row_opaque": true, "bottom_row_opaque": true
+                },
+                {
+                    "width_px": 1920, "height_px": 1080, "is_rgba": true,
+                    "fully_opaque": true, "top_row_opaque": true, "bottom_row_opaque": true
+                },
+                {
+                    "width_px": 640, "height_px": 1080, "is_rgba": true,
+                    "fully_opaque": false, "top_row_opaque": true, "bottom_row_opaque": true
+                }
+            ]
+        })
+    }
+
+    /// The `LayerArt` set matching `base_request()`'s art entries, written out literally so
+    /// this oracle stays independent of the mapping under test.
+    fn fixture_art() -> Vec<LayerArt> {
+        vec![
+            LayerArt {
+                width_px: 1500,
+                height_px: 1080,
+                is_rgba: true,
+                fully_opaque: false,
+                top_row_opaque: true,
+                bottom_row_opaque: true,
+            },
+            LayerArt {
+                width_px: 1920,
+                height_px: 1080,
+                is_rgba: true,
+                fully_opaque: true,
+                top_row_opaque: true,
+                bottom_row_opaque: true,
+            },
+            LayerArt {
+                width_px: 640,
+                height_px: 1080,
+                is_rgba: true,
+                fully_opaque: false,
+                top_row_opaque: true,
+                bottom_row_opaque: true,
+            },
+        ]
+    }
+
+    /// Call the bridge and hand back its `placements`, asserting the request was accepted.
+    fn placements_of(request: &serde_json::Value) -> Vec<serde_json::Value> {
+        let response: serde_json::Value =
+            serde_json::from_str(&parallax_placements_impl(&request.to_string()))
+                .expect("the bridge always returns JSON");
+        assert!(
+            response.get("error").is_none(),
+            "a valid request must not error: {response}"
+        );
+        response["placements"]
+            .as_array()
+            .expect("placements array")
+            .clone()
+    }
+
+    /// Call the bridge and hand back its `error` detail, asserting there was one.
+    fn placement_error(request: &serde_json::Value) -> String {
+        let response: serde_json::Value =
+            serde_json::from_str(&parallax_placements_impl(&request.to_string()))
+                .expect("the bridge always returns JSON");
+        response["error"]
+            .as_str()
+            .unwrap_or_else(|| panic!("expected a request error, got {response}"))
+            .to_string()
+    }
+
+    #[test]
+    fn placements_match_place_layer_values() {
+        let request_json = base_request();
+        let placements = placements_of(&request_json);
+        assert_eq!(
+            placements.len(),
+            3,
+            "all three layers when no plane is given"
+        );
+
+        // The oracle: the same core call, on the same inputs. Comparing against
+        // `place_layer` rather than against literals keeps this test valid when step 1's math
+        // is tuned.
+        let request: PlacementsRequest =
+            serde_json::from_value(request_json).expect("the fixture parses");
+        let resolved = request
+            .stack
+            .resolve(&fixture_art())
+            .expect("the fixture validates");
+        let view = ViewState {
+            cam_center_world_px_x: request.view.cam_center_world_px_x,
+            cam_center_world_px_y: request.view.cam_center_world_px_y,
+            zoom: request.view.zoom,
+            view_w_px: request.view.view_w_px,
+            view_h_px: request.view.view_h_px,
+        };
+
+        for placement in &placements {
+            let name = placement["name"].as_str().expect("name");
+            let resolved_layer = resolved
+                .layers
+                .iter()
+                .find(|candidate| candidate.name == name)
+                .expect("every placement names a resolved layer");
+            let expected = place_layer(&view, &request.anchor, resolved_layer);
+            assert_eq!(
+                placement["first_copy_left_px"],
+                serde_json::json!(expected.first_copy_left_px),
+                "{name} first_copy_left_px"
+            );
+            assert_eq!(
+                placement["copy_count"],
+                serde_json::json!(expected.copy_count),
+                "{name} copy_count"
+            );
+            assert_eq!(
+                placement["screen_top_px"],
+                serde_json::json!(expected.screen_top_px),
+                "{name} screen_top_px"
+            );
+            assert_eq!(
+                placement["scale"],
+                serde_json::json!(expected.scale),
+                "{name} scale"
+            );
+            assert_eq!(
+                placement["period_px"],
+                serde_json::json!(resolved_layer.period_px),
+                "{name} period_px"
+            );
+            assert_eq!(
+                placement["art_h_px"],
+                serde_json::json!(resolved_layer.art_h_px),
+                "{name} art_h_px"
+            );
+        }
+    }
+
+    #[test]
+    fn plane_filter_returns_only_that_plane() {
+        let mut front_only = base_request();
+        front_only["plane"] = serde_json::json!("front");
+        let front_placements = placements_of(&front_only);
+        assert_eq!(front_placements.len(), 1, "the fixture has one front layer");
+        assert_eq!(front_placements[0]["name"], serde_json::json!("Fore"));
+
+        let mut back_only = base_request();
+        back_only["plane"] = serde_json::json!("back");
+        let back_placements = placements_of(&back_only);
+        let names: Vec<&str> = back_placements
+            .iter()
+            .map(|placement| placement["name"].as_str().expect("name"))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Base", "Near"],
+            "both back layers, front excluded"
+        );
+    }
+
+    #[test]
+    fn placements_are_sorted_by_plane_then_draw_order() {
+        // `base_request()` authors Near (draw_order 1) BEFORE Base (draw_order 0), so this only
+        // passes if the response is sorted rather than echoed.
+        let placements = placements_of(&base_request());
+        let names: Vec<&str> = placements
+            .iter()
+            .map(|placement| placement["name"].as_str().expect("name"))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Base", "Near", "Fore"],
+            "back plane ascending by draw_order, then the front plane"
+        );
+        let draw_orders: Vec<i64> = placements
+            .iter()
+            .map(|placement| placement["draw_order"].as_i64().expect("draw_order"))
+            .collect();
+        assert_eq!(draw_orders, vec![0, 1, 0]);
+    }
+
+    #[test]
+    fn response_carries_file_and_period_from_the_matching_layer() {
+        let placements = placements_of(&base_request());
+        // Each layer's art has a distinct width, so `period_px` names the art entry it was
+        // built from and a misaligned zip cannot pass.
+        for (name, file, period_px) in [
+            ("Base", "base.png", 1920.0),
+            ("Near", "near.png", 1500.0),
+            ("Fore", "fore.png", 640.0),
+        ] {
+            let placement = placements
+                .iter()
+                .find(|candidate| candidate["name"] == serde_json::json!(name))
+                .unwrap_or_else(|| panic!("no placement named {name}"));
+            assert_eq!(placement["file"], serde_json::json!(file), "{name} file");
+            assert_eq!(
+                placement["period_px"],
+                serde_json::json!(period_px),
+                "{name} period_px"
+            );
+        }
+
+        // The fills travel through core's single serialization of `Fill`.
+        let base = placements
+            .iter()
+            .find(|candidate| candidate["name"] == serde_json::json!("Base"))
+            .expect("the base layer is always placed");
+        assert_eq!(base["fill_above"], serde_json::json!("#8896AAFF"));
+        assert_eq!(base["fill_below"], serde_json::json!("#C2CAD0FF"));
+    }
+
+    #[test]
+    fn invalid_stack_returns_stack_invalid_with_messages() {
+        // The base layer's art must be fully opaque -- core's `base_opaque` rule.
+        let mut not_opaque = base_request();
+        not_opaque["art"][1]["fully_opaque"] = serde_json::json!(false);
+        let response: serde_json::Value =
+            serde_json::from_str(&parallax_placements_impl(&not_opaque.to_string()))
+                .expect("the bridge always returns JSON");
+        assert_eq!(response["error"], serde_json::json!("stack_invalid"));
+        let codes: Vec<&str> = response["errors"]
+            .as_array()
+            .expect("errors array")
+            .iter()
+            .map(|message| message["code"].as_str().expect("code"))
+            .collect();
+        assert!(
+            codes.contains(&"base_opaque"),
+            "expected base_opaque, got {codes:?}"
+        );
+
+        // An art array one short is core's `art_count` rule, reported on the same path and in
+        // the same vocabulary -- one failure keeps one wire spelling.
+        let mut short_art = base_request();
+        short_art["art"].as_array_mut().expect("art array").pop();
+        let response: serde_json::Value =
+            serde_json::from_str(&parallax_placements_impl(&short_art.to_string()))
+                .expect("the bridge always returns JSON");
+        assert_eq!(response["error"], serde_json::json!("stack_invalid"));
+        let codes: Vec<&str> = response["errors"]
+            .as_array()
+            .expect("errors array")
+            .iter()
+            .map(|message| message["code"].as_str().expect("code"))
+            .collect();
+        assert!(
+            codes.contains(&"art_count"),
+            "expected art_count, got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn bad_request_returns_error_never_panics() {
+        // Malformed JSON never reaches the math.
+        let response: serde_json::Value =
+            serde_json::from_str(&parallax_placements_impl("{ not json")).expect("always JSON");
+        assert!(
+            response["error"]
+                .as_str()
+                .expect("an error string")
+                .contains("bad request"),
+            "got {response}"
+        );
+
+        // Each hazard is named in the message, so the test fails on the guard it targets rather
+        // than on any error at all.
+        for (field, bad_value) in [("zoom", 0.0), ("view_w_px", -1920.0), ("view_h_px", 0.0)] {
+            let mut request = base_request();
+            request["view"][field] = serde_json::json!(bad_value);
+            assert!(
+                placement_error(&request).contains(field),
+                "{field} must be rejected by name"
+            );
+        }
+
+        for art_field in ["width_px", "height_px"] {
+            let mut request = base_request();
+            request["art"][0][art_field] = serde_json::json!(0);
+            assert!(
+                placement_error(&request).contains(art_field),
+                "{art_field} must be rejected by name"
+            );
+        }
     }
 }
