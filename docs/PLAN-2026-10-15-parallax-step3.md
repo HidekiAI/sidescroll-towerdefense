@@ -45,6 +45,10 @@ and without a new transport. The bridge is already the Godot↔Rust seam
 - a new `editor/tests/test_parallax_bridge.gd` (about 40 lines): the GDScript half of
   acceptance criterion A1, which no Rust test can prove
 
+- `crates/sstd-editor-bridge/Cargo.toml`: a `serde` derive dependency, added in the
+  implementation (the bridge-local request structs need the macros and the bridge carried only
+  `serde_json`). Recorded as deviation 1 in §10.
+
 **Out** (each deliberate, each with its reason):
 
 - **`sstd-core` is not touched.** Step 1 froze its API; this step consumes it. If a
@@ -387,4 +391,94 @@ It runs after `scripts/build-bridge.sh` in §8, which is where the fresh `.so` c
 
 ## 10. Completion record
 
-_To be filled when the step lands._
+Landed 2026-10-16 as `feat(parallax): expose parallax_placements over the GDScript bridge (#106)`.
+Everything in §6 and §7 shipped as designed, with the deviations below.
+
+### What the gates measured
+
+| Gate | Result |
+|---|---|
+| `cargo test -p sstd-editor-bridge` | 26 passed (20 existing + 6 new), rc 0 |
+| `cargo test -p sstd-core --tests` | 134 passed, rc 0 (core untouched, as planned) |
+| `cargo build -p sstd-editor-bridge` | rc 0 |
+| `scripts/build-bridge.sh` | rc 0; `editor/rust/libsstd_editor_bridge.so` regenerated |
+| `test_screen_store` / `test_image_to_map` / `test_terrain_brush` / `test_override_merge` | rc 0, `failures=0` each |
+| `test_parallax_backdrop` | rc 0, prints `[GREEN]` |
+| `test_parallax_bridge` (new) | rc 0, `failures=0`, 16 checks |
+
+### The GDScript test is not vacuous
+
+Run against the **stale** `.so` (the state this checkout was in before the rebuild), it exits
+**1** with `FAIL: SstdBridge is loaded but has no parallax_placements (stale .so? run
+scripts/build-bridge.sh)`. A skip-on-absent would have passed on exactly the state the test
+exists to catch. This is the one check in the step that could not be verified any other way.
+
+Measured placement values for the fixture (`zoom 1.0`, view 1920x1080), quoted from the run:
+
+| Layer | file | plane | draw_order | first_copy_left_px | copy_count | period_px |
+|---|---|---|---|---|---|---|
+| Base | `base.png` | back | 0 | -1920 | 2 | 1920 |
+| Near | `near.png` | back | 1 | -1500 | 3 | 1500 |
+| Fore | `fore.png` | front | 0 | -640 | 4 | 640 |
+
+The authored order was Near, Base, Fore, so the response order proves the sort. `first_copy_left_px`
+landing exactly on `-period_px` for every layer is the `rem_euclid(...) - period` step doing what
+it should at this camera position.
+
+### Deviations from §2 and §6
+
+1. **`serde` added to the bridge's `Cargo.toml`.** §2's file list named only `lib.rs` and the
+   GDScript test. The bridge-local request structs need the derive macros, and the bridge had
+   only `serde_json` (which does not re-export the derive). One line, version `"1"` with
+   `features = ["derive"]`, matching `sstd-core`'s own spec; the workspace has no
+   `[workspace.dependencies]` to inherit from. `Cargo.lock` gained one entry.
+2. **`art[i].width_px` / `height_px` are `u32`, not the `f64` §4.1 sketched.** They already are
+   `u32` in core's `LayerArt`, and a JSON unsigned integer deserializes into `u32` without a
+   lossy cast. The guard is `== 0`, which is the same hazard §4.3 named.
+3. **The guard is written `!(view.zoom > 0.0)`, not `zoom > 0.0 && zoom.is_finite()`.** §4.3
+   asked for both. A single negated comparison rejects `NaN`, `0` and negatives together, so the
+   `is_finite()` clause would have been unreachable belt-and-braces: `serde_json` cannot encode
+   `NaN` or `Infinity` from any JSON text, and a reject that cannot fire reads as a guard while
+   being dead code.
+4. **`plane` defaults to `None`; `anchor` does not default.** §4.1 listed both as optional. A
+   default anchor is the loader's decision (step 6, `Data` section 3), so the seam requires the
+   caller to state it rather than inventing one here.
+
+### Mutation verification
+
+A 15-mutant sweep (`/tmp/user/1000/opencode/mutate-bridge.sh`) over every new guard, the sort,
+the plane filter, the zip alignment, the art mapping, the two error keys and the `art_count`
+delegation: **15 confirmed, 0 void, 0 refuted**. Each mutant asserted its substitution fired,
+that the change touched a non-comment line, and that the mutant compiled before any result was
+read.
+
+**Two harness faults were caught and fixed during that sweep, and both are worth recording:**
+the first sweep grepped `^error` to detect a compile failure, but `cargo test` prints
+`error: test failed, to rerun pass ...` for a *failing test*, so every real mutant was misread
+as a compile error; and the `stack_invalid` mutant's pattern matched the `#[func]` **doc
+comment** (line 108) before the code (line 783), so it respelled only the prose and the test
+rightly passed. A mutation that edits documentation proves nothing about the code -- the
+harness now rejects a mutant whose changed lines are all comments.
+
+### Residual, deliberately not fixed here
+
+- **The wire tokens `"error"`, `"stack_invalid"` and `"placements"` are literals**, in the code
+  and in the `#[func]` doc comment. This matches the two neighbouring handlers (`validate_screen`,
+  `validate_placement`), which hand-write `"valid"` and `"error"` the same way, and the repo has
+  no named form for wire tokens at this seam -- so introducing a one-off constants trio inside
+  this file would be the "invent a constant nothing else uses" case the magic-string rule warns
+  against. Recorded as a finding for the step that finalizes the wire contract (step 4's drawer
+  spells the same tokens from GDScript, and its test is the pin). The consequence, measured by
+  the sweep above: respelling a token needs an edit in the code *and* in the doc comment, and a
+  stale doc comment is not caught by any test.
+- **A pathological `zoom` (for example `1e-300`) inflates `copy_count`**, because
+  `ceil(view_w_px / (period_px * zoom))` grows without bound and saturates at `u32::MAX` in the
+  drawer's loop. `Math` section 7 documents the editor's zoom-out extreme as 0.25 with at most 5
+  copies per layer, and §6 documents zoom as the editor's own camera, not authored data, so this
+  is not a trust boundary. No floor guard was added: a documented *example* is not a documented
+  *limit*, and a 0.25 floor would reject a legitimate 0.2. The drawer (step 4) is where a
+  draw-count cap would belong if it ever matters.
+- **`test_screen_store` is known RED on Godot 4.7.2** (issue #85, `ZIPPacker` now emits a
+  `tiles/` directory entry). It exited 0 here, matching this session's measured baseline; it is
+  not a regression from this step and was not touched.
+

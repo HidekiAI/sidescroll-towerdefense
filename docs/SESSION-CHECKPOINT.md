@@ -7,69 +7,76 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-15 (step 2 (#105) code-complete and green on `local/feat/parallax-step2`: the six blocks filled in `0a3a504`, 28 `gen-backdrop` tests + 134 `sstd-core` tests green, six mutations all caught, real-size run emits 7 PNGs + `stack.json`; docs synced here and in the wiki, whose doc branch is 3 commits ahead of its `master`, also unpushed.)_
+_Last updated: 2026-10-16 (step 3 (#106) code-complete and green on `local/feat/parallax-step3`: bridge `parallax_placements` shipped in `7714d55`, 26 bridge tests + 134 core tests + all six GDScript suites rc 0, a 15-mutant sweep fully confirmed. Steps 1-2 remain complete on their own local branches. Nothing is pushed.)_
 
-**NEXT MOVE: @me's comprehension gate on the filled step-2 blocks** (@me's 2026-10-15 instruction:
-the assistant wrote all six blocks and reviews what it did, so the gate is a review of written
-code rather than a hand-off to @me). Then one "push permission" ask covering **both repos** (this
-branch plus the wiki's doc branch, which is 3 commits ahead of its `master` and unpushed), then
-**step 3 (#106, bridge `parallax_placements`)**. Everything is on `local/feat/parallax-step2`
-(stacked on step 1, so it has `Stack`); nothing is pushed. Docs are current: this file, the plan's
-section 11, and the wiki's steps-1-2 record.
+**NEXT MOVE: step 4 (#107, the drawer).** Steps 1-3 are code-complete; the parallax still does
+**not render**, because no scene consumes the placements yet -- step 4 adds `ParallaxDraw`, and
+that is also the step that deletes the stale `probe_parallax_scroll.gd`. Nothing else blocks it:
+`parallax_placements` is callable from GDScript and verified against the freshly built `.so`.
 
-Step-2 completion evidence (all commands from `sidescroll-towerdefense/`):
+Then, when @me says so, **one push-permission ask covering both repos** (four local branches in
+the code repo -- steps 1-3 plus the `chore/backdrop-png-cleanup` branch discussed below -- and the
+wiki's doc branch, 3 commits ahead of its `master`). Rename each `local/...` to `feat/...` before
+its first push; the `local/` prefix is refused by a push hook.
+
+Step-3 completion evidence (all commands from `sidescroll-towerdefense/`):
 
 | Gate | Result |
 |---|---|
-| `cargo test -p gen-backdrop` | **28 passed, 0 failed** (was a build failure on six E0308 holes) |
-| `cargo test -p sstd-core` | **134 passed, 0 failed** — unchanged; only the `pub` const was touched |
-| `cargo clippy -p gen-backdrop --all-targets` | **0 warnings** (see deviations below) |
-| mutations M1-M6 (plan section 8) | **all six caught**, each with a real assertion + real values |
-| real-size run `cargo run -q -p gen-backdrop` | 7 PNGs + `stack.json`, AC-1 (see below) |
+| `cargo test -p sstd-editor-bridge` | **26 passed, 0 failed** (20 existing + 6 new) |
+| `cargo test -p sstd-core --tests` | **134 passed, 0 failed** -- core untouched, as the plan requires |
+| mutations (15-mutant sweep) | **15 confirmed, 0 void, 0 refuted** |
+| `scripts/build-bridge.sh` | rc 0; `editor/rust/libsstd_editor_bridge.so` regenerated (143 MB, 2026-10-16) |
+| four gated GDScript suites + `test_parallax_backdrop` | all **rc 0** (`failures=0`; `[GREEN]`) |
+| `test_parallax_bridge` (new) | rc 0, `failures=0`, 16 checks |
 
-Two deviations from the gated plan's samples, both recorded here and in the commit message:
+**The new GDScript test fails rather than skips on a stale `.so`**, and that was verified in the
+state that matters: run *before* the rebuild it exited **1** with `FAIL: SstdBridge is loaded but
+has no parallax_placements (stale .so? run scripts/build-bridge.sh)`. The four older
+bridge-dependent tests `print("skip: ...")` and pass there; this one must not, because a stale
+extension is exactly the failure it exists to catch.
 
-- **U18's oracle distance.** The scaffolded test compared the retired sky's blend at the
-  *nominal* sample distance while the sun layer rasterises the disc over integer pixels. At the
-  `0.85r` mid-falloff (the steepest point) the nearest pixel sits ~0.34 px further out, which read
-  **2 levels** off against the ticket's 1-level bar. The oracle now evaluates at the sampled
-  pixel's own distance — equal distance is the contract, the pixel is the nearest one to the
-  sample — and both listed U18 mutations still fail.
-- **Clippy hygiene.** The plan's bar (`cargo clippy -p gen-backdrop -- -D warnings`) is
-  **unachievable as written**: `-p gen-backdrop` also lints the path dependency, and `sstd-core`
-  carries 25 pre-existing warnings, so that exact command fails on code this ticket may not touch.
-  Interpreted as "gen-backdrop's own targets are warning-free", which is now true: three
-  `needless_range_loop` hits rewritten as `iter_mut()` (one introduced by block 2, two
-  pre-existing — `make_sky`'s haze loop and the U22 oracle), and the test-only `art_facts` is
-  `#[cfg(test)]` so the shipped bin has no dead code.
+**Two findings from the mutation sweep, both mine and both fixed** (recorded in plan section 10):
+the first harness grepped `^error` to detect a compile failure, but `cargo test` prints
+`error: test failed, to rerun pass ...` for a *failing* test, so every real mutant was misread as
+a compile error; and the `stack_invalid` pattern matched the `#[func]` **doc comment** before the
+code, so it respelled prose only and the test rightly passed. The harness now requires a mutant's
+changed lines to include a non-comment line.
 
-**Generated art is present but UNTRACKED:** `editor/assets/backdrop_stacks/neutral_default/`
-(7 PNGs + `stack.json`, ~660 KB) was produced and verified by the AC-1 run. It is deliberately not
-committed: the plan's scope guard allows only `tools/gen-backdrop/*` plus one `sstd-core` line,
-and the v1 art (`editor/assets/backdrop_layers/`) landed bundled with the scene that consumes it
-(`ba2cbb4`), which for step 2 does not exist yet (steps 4-5). Say the word and it is committed;
-otherwise it lands with its consumer. Re-generate any time with `cargo run -q -p gen-backdrop`.
+**Open item: `chore/backdrop-png-cleanup` (`77822e8`) is premature and should not be merged.**
+It deletes the legacy sliced PNGs (`editor/assets/backdrop_layers/layer_0.png`, `layer_1.png`,
+`layer_2.png`, `layer_2_strip_x5.png`), but `editor/scripts/tile_grid_display.gd` still loads
+those exact paths at runtime via `_BACKDROP_PATHS`. `load(path)` returns null, so the map editor's
+backdrop would silently disappear -- a visual regression, not a cleanup. The deletion belongs with
+the step that replaces that consumer (step 4's drawer or step 5's scene wiring), so the branch is
+parked, not deleted: @me decides whether to drop the commit or hold it. Nothing else on it.
+
+**Open item: a pathological `zoom` inflates `copy_count`** (for example `1e-300` saturates to
+`u32::MAX` in the drawer's loop). Deliberately not guarded: the zoom is the editor's own camera,
+not authored data, and `Math` section 7 documents 0.25 as the zoom-out *example* rather than a
+limit, so a floor would reject a legitimate 0.2. A draw-count cap belongs in step 4's drawer if it
+ever matters. Same reasoning recorded in plan section 10.
+
+**Residual: the wire tokens `"error"` / `"stack_invalid"` / `"placements"` are literals** in both
+the code and the `#[func]` doc comment, matching the two neighbouring handlers, which hand-write
+`"valid"` and `"error"` the same way. No named form exists at this seam, so a one-off constants
+trio here would be the case the magic-string rule warns against. Step 4 spells the same tokens
+from GDScript; its test is the pin. Measured consequence: respelling a token is two edits and a
+stale doc comment is not caught by any test.
 
 **User directive 2026-10-15 (open, separate branch): "fix|adjust all lint warnings and errors".**
-Workspace-wide `cargo clippy --all-targets` reports ~55 warnings outside `gen-backdrop`:
-`sstd-core` (10 x `should_implement_trait` on `from_str`, 9 `needless_borrows_for_generic_args`,
-4 no-effect ops, `manual_range_contains`, `match_like_matches_macro`), `sstd-editor-bridge`
-(3 x `needless_range_loop`, `is_multiple_of`, no-effect ops), `tools/slice-layers` and others.
-This is **not** #105's scope (the plan forbids touching those crates), so it rides its own branch
-off `trunk` — see the work log below.
+Not started. Workspace-wide `cargo clippy --all-targets` reports ~55 warnings outside
+`gen-backdrop`: `sstd-core` (10 x `should_implement_trait` on `from_str`, 9
+`needless_borrows_for_generic_args`, 4 no-effect ops, `manual_range_contains`,
+`match_like_matches_macro`), `sstd-editor-bridge` (3 x `needless_range_loop`, `is_multiple_of`,
+no-effect ops), `tools/slice-layers` and others. Not step 3's scope (the plan forbids touching
+those crates), so it rides its own branch off `trunk`.
 
-**Wiki drift found AND fixed 2026-10-15 (wiki repo, on the parallax doc branch awaiting push):**
-`TDD_Parallax-Scrolling.Data` section 1's example `stack.json` spelled `parallax_depth` as a bare
-number for six of its seven layers (`9`, `4`, `2.3333`, `1`, `0.4286`, `-0.2308`) while the Sun
-alone used `{ "kind": "infinite" }`. A bare number **cannot load**: section 2 of the same page
-states "a bare number or string is rejected", and `depth_parses_the_tagged_wire_form_only` asserts
-`serde_json::from_str::<Depth>("9").is_err()`. So the example contradicted the rule printed two
-sections below it, and a reader copying it got a stack that fails to parse. Fixed by tagging the
-six (matching the Sun row's own style); `grep -rn '"parallax_depth": *[-0-9]'` over the wiki now
-returns nothing (was six hits) and the extracted example's top-level and per-layer key sets are
-identical to the emitted `stack.json`. The sky-fill difference in the same example is **not** a
-defect: the page's own fill paragraph declares those literals pre-PNG placeholders allowed to
-differ by up to 20 levels (haze clamp), and the measured difference is 2 levels.
+**Generated art is present but UNTRACKED:** `editor/assets/backdrop_stacks/neutral_default/`
+(7 PNGs + `stack.json`) was produced by step 2's run and is deliberately not committed; it lands
+with the scene that consumes it. `test_parallax_bridge` does **not** read it -- its fixture is
+built in code -- precisely so the test passes on a clean clone. Re-generate with
+`cargo run -q -p gen-backdrop`.
 
 
 Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
