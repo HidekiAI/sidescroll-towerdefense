@@ -721,19 +721,22 @@ fn request_error_json(detail: &str) -> String {
 /// empty draw instead of a diagnosable failure.
 fn parallax_request_error(request: &PlacementsRequest) -> Option<String> {
     let view = &request.view;
-    // Each test is written negated so NaN fails it in one comparison, not two.
-    if !(view.zoom > 0.0) {
-        return Some(format!("view.zoom must be > 0, got {}", view.zoom));
-    }
-    if !(view.view_w_px > 0.0) {
+    // Reject non-finite and non-positive values (NaN and +Inf both fail this).
+    if !view.zoom.is_finite() || view.zoom <= 0.0 {
         return Some(format!(
-            "view.view_w_px must be > 0, got {}",
+            "view.zoom must be > 0 and finite, got {}",
+            view.zoom
+        ));
+    }
+    if !view.view_w_px.is_finite() || view.view_w_px <= 0.0 {
+        return Some(format!(
+            "view.view_w_px must be > 0 and finite, got {}",
             view.view_w_px
         ));
     }
-    if !(view.view_h_px > 0.0) {
+    if !view.view_h_px.is_finite() || view.view_h_px <= 0.0 {
         return Some(format!(
-            "view.view_h_px must be > 0, got {}",
+            "view.view_h_px must be > 0 and finite, got {}",
             view.view_h_px
         ));
     }
