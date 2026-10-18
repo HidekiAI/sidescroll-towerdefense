@@ -80,6 +80,7 @@ pub struct Layer {
     pub file: String,
     pub plane: Plane,
     /// Compositing order within the plane, ascending: drawn later is drawn on top.
+    #[serde(deserialize_with = "de_integral_i32")]
     pub draw_order: i32,
     pub parallax_depth: Depth,
     pub vertical_damping: f64,
@@ -101,9 +102,11 @@ pub const MANIFEST_SCHEMA_VERSION: u32 = 2;
 /// A stack: the layers once, independent of which world uses them. `Data` section 1.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Stack {
+    #[serde(deserialize_with = "de_integral_u32")]
     pub schema_version: u32,
     pub stack_key: String,
     pub palette_key: String,
+    #[serde(deserialize_with = "de_integral_u64")]
     pub generator_seed: u64,
     pub ref_view_px: RefView,
     pub layers: Vec<Layer>,
@@ -276,6 +279,98 @@ impl<'de> Deserialize<'de> for Fill {
 
         deserializer.deserialize_str(FillVisitor)
     }
+}
+
+/// Read a JSON number that is integral, whichever way it was spelled, as the widest signed type
+/// this wire uses (`i128` holds any `u64` and any `i64`).
+///
+/// Why this exists, found 2026-10-18 wiring the loader for #107: GDScript's `JSON.parse_string`
+/// stores every number as a float and `JSON.stringify` re-emits it with a decimal point, so a
+/// stack read from disk and forwarded over the wire arrives as `"schema_version": 2.0` and
+/// `"generator_seed": 1592598566.0`. JSON has no integer type -- `2` and `2.0` are the same
+/// number -- so refusing one of them is a rule the format cannot express, and every
+/// double-backed client (GDScript, JavaScript) hits it. The reverse direction already tolerates
+/// this: `PlacementEntry` serializes `copy_count` as an integer and GDScript reads `2.0`.
+///
+/// Widening only, never a relaxed value set: a float with a fractional part is still rejected,
+/// as is one outside the target's range. Pinned by
+/// `stack_accepts_integers_spelled_as_floats`.
+fn de_widest_integral<'de, D>(deserializer: D) -> Result<i128, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct WidestIntegralVisitor;
+
+    impl<'de> Visitor<'de> for WidestIntegralVisitor {
+        type Value = i128;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "an integral JSON number (an integer, or a float with no fractional part)"
+            )
+        }
+
+        fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+            Ok(i128::from(value))
+        }
+
+        fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
+            Ok(i128::from(value))
+        }
+
+        fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+            if !value.is_finite() || value.fract() != 0.0 {
+                return Err(E::custom(format!("{value} is not an integral number")));
+            }
+            // A whole number only. The cast saturates rather than wrapping, so an absurd
+            // magnitude lands on i128's bound and the narrowing below reports it as out of
+            // range instead of silently truncating.
+            Ok(value as i128)
+        }
+    }
+
+    deserializer.deserialize_any(WidestIntegralVisitor)
+}
+
+/// [`de_widest_integral`] narrowed to `u64`, for `Stack::generator_seed`.
+pub fn de_integral_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = de_widest_integral(deserializer)?;
+    u64::try_from(value).map_err(|_| {
+        de::Error::custom(format!(
+            "{value} is out of range for an unsigned 64-bit number"
+        ))
+    })
+}
+
+/// [`de_widest_integral`] narrowed to `u32`, for `Stack::schema_version` and the bridge's
+/// `LayerArtInput` pixel sizes.
+pub fn de_integral_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = de_widest_integral(deserializer)?;
+    u32::try_from(value).map_err(|_| {
+        de::Error::custom(format!(
+            "{value} is out of range for an unsigned 32-bit number"
+        ))
+    })
+}
+
+/// [`de_widest_integral`] narrowed to `i32`, for `Layer::draw_order`, which may be negative.
+pub fn de_integral_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = de_widest_integral(deserializer)?;
+    i32::try_from(value).map_err(|_| {
+        de::Error::custom(format!(
+            "{value} is out of range for a signed 32-bit number"
+        ))
+    })
 }
 
 impl Fill {
@@ -1218,6 +1313,52 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Depth::Infinite).expect("serializes"),
             r#"{"kind":"infinite"}"#
+        );
+    }
+
+    /// Every integer field, as GDScript hands it over: `JSON.parse_string` stores every number
+    /// as a float and `JSON.stringify` re-emits it with a decimal point, so a stack read from
+    /// disk arrives as `"schema_version": 2.0`. JSON has no integer type -- `2` and `2.0` are the
+    /// same number -- so refusing one is a rule the format cannot express. Every double-backed
+    /// client hits it, and the reverse direction already tolerates it (`copy_count` serializes
+    /// as an integer and GDScript reads `2.0`). Found 2026-10-18 wiring the loader, #107.
+    #[test]
+    fn stack_accepts_integers_spelled_as_floats() {
+        let spelled_as_floats = r##"{
+            "schema_version": 2.0,
+            "stack_key": "neutral_default",
+            "palette_key": "neutral",
+            "generator_seed": 1592598566.0,
+            "ref_view_px": { "width": 1920.0, "height": 1080.0 },
+            "layers": [
+                {
+                    "name": "Sky",
+                    "file": "sky.png",
+                    "plane": "back",
+                    "draw_order": -1.0,
+                    "parallax_depth": { "kind": "finite", "value": 9.0 },
+                    "vertical_damping": 0.8,
+                    "repeat_x": true,
+                    "ref_screen_left_px": 0.0,
+                    "ref_screen_top_px": 0.0,
+                    "fill_above": "#8A98ACFF",
+                    "fill_below": "transparent"
+                }
+            ]
+        }"##;
+        let stack: Stack =
+            serde_json::from_str(spelled_as_floats).expect("a float-spelled stack parses");
+        assert_eq!(stack.schema_version, MANIFEST_SCHEMA_VERSION);
+        assert_eq!(stack.generator_seed, 1_592_598_566);
+        assert_eq!(stack.layers[0].draw_order, -1);
+
+        // The same defect on the bridge's own art facts: `width_px`/`height_px` are u32 and come
+        // back through the same stringify. The bridge test carries this half; here the tripwire
+        // is that an integral-looking float with a fraction is still refused, so the fix widened
+        // the representation, not the value set.
+        assert!(
+            serde_json::from_str::<Stack>(&spelled_as_floats.replace("2.0,", "2.5,")).is_err(),
+            "a fractional schema_version must still be rejected"
         );
     }
 

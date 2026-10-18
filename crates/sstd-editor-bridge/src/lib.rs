@@ -5,7 +5,7 @@ use godot::prelude::*;
 use serde::{Deserialize, Serialize};
 use sstd_core::config::ConfigStore;
 use sstd_core::parallax::{
-    journal_line, place_layer, Anchor, Fill, LayerArt, Plane, Stack, ViewState,
+    de_integral_u32, journal_line, place_layer, Anchor, Fill, LayerArt, Plane, Stack, ViewState,
 };
 use sstd_core::storage::{EntityDefsFile, ScreenFile, TerrainTypesFile};
 use sstd_core::terrain::GridConfig;
@@ -657,7 +657,9 @@ struct ViewInput {
 /// fields; the values come from the PNG decoder the caller already has (step 6's loader).
 #[derive(Deserialize)]
 struct LayerArtInput {
+    #[serde(deserialize_with = "de_integral_u32")]
     width_px: u32,
+    #[serde(deserialize_with = "de_integral_u32")]
     height_px: u32,
     is_rgba: bool,
     fully_opaque: bool,
@@ -2104,6 +2106,45 @@ mod tests {
             .expect("the base layer is always placed");
         assert_eq!(base["fill_above"], serde_json::json!("#8896AAFF"));
         assert_eq!(base["fill_below"], serde_json::json!("#C2CAD0FF"));
+    }
+
+    /// Every integer in a request, spelled the way GDScript's JSON round trip spells it.
+    /// `JSON.parse_string` stores every number as a float and `JSON.stringify` re-emits `2` as
+    /// `2.0`, which a `u32`/`u64`/`i32` field refuses. See sstd-core's
+    /// `stack_accepts_integers_spelled_as_floats` for why that is legal JSON; this is the
+    /// bridge's own half of the same seam -- `LayerArtInput`'s pixel sizes live here. Found
+    /// 2026-10-18 wiring the loader, #107.
+    #[test]
+    fn float_spelled_integers_still_place() {
+        let mut request = base_request();
+        request["stack"]["schema_version"] = serde_json::json!(2.0);
+        request["stack"]["generator_seed"] = serde_json::json!(1.0);
+        for layer in request["stack"]["layers"]
+            .as_array_mut()
+            .expect("layers is an array")
+        {
+            let draw_order: f64 = layer["draw_order"]
+                .as_f64()
+                .expect("draw_order is a number");
+            layer["draw_order"] = serde_json::json!(draw_order);
+        }
+        for art_facts in request["art"].as_array_mut().expect("art is an array") {
+            for field in ["width_px", "height_px"] {
+                let pixel_count: f64 = art_facts[field].as_f64().expect("a pixel count");
+                art_facts[field] = serde_json::json!(pixel_count);
+            }
+        }
+        let response: serde_json::Value =
+            serde_json::from_str(&parallax_placements_impl(&request.to_string()))
+                .expect("the bridge always returns JSON");
+        assert!(
+            response.get("error").is_none(),
+            "a float-spelled request must place: {response}"
+        );
+        assert_eq!(
+            response["placements"].as_array().expect("placements").len(),
+            3
+        );
     }
 
     /// The `journal` array on a `stack_invalid` response, as plain lines.
