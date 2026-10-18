@@ -7,208 +7,79 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-18. Step 3 (#106) code-complete and green on `local/feat/parallax-step3`
-(`7714d55`, 26 bridge tests + 134 core tests + all six GDScript suites rc 0, 15-mutant sweep
-confirmed). Steps 1-2 remain complete on their own local branches. The Godot MCP bridge (#112) was
-installed, verified, and driven live on 2026-10-18 (editor started on `DISPLAY=:0.0`, `main.tscn`
-and `backdrop_preview.tscn` opened and read, a screenshot captured); the step-4 plan was found to
-underscope #107; and the Godot 4 learnings ledger shipped to the wiki (#113, wiki branch
-`docs/godot4-learnings`, commit `330c29b`). Nothing in either repo is pushed._
+_Last updated: 2026-10-18. Step 4 (#107) implementation is in flight on `local/feat/parallax-step4`
+(four commits past `fba7b46`; the gated plan is `docs/PLAN-2026-10-16-parallax-step4.md`). Steps 1-3
+are code-complete on their own local branches. The Godot MCP bridge (#112) is installed and verified;
+the Godot 4 learnings ledger shipped to the wiki (#113). **Nothing in either repo is pushed.**
 
-**NEXT MOVE: implement #107 per the gated plan.** Steps 1-3 are code-complete but the parallax
-still does **not render** -- no scene consumes the placements yet. The step-4 plan is rewritten and
-has passed the gate.
+**NEXT MOVE: finish #107's remaining plan sections, then run the eleven gates.** The runtime surface
+now exists and the real stack loads; what is left is the removals, the pixel gates and the docs.
 
-1. **`docs/PLAN-2026-10-16-parallax-step4.md` is rewritten to #107's full scope and gates at
-   95/100** (2026-10-18, four evaluator runs; the score history and every cut item are in the plan's
-   section 9). It now covers the `WorldView` scene, the loader, `_draw()` per Math section 7, the
-   camera controller, runtime stretch, the removals, and the eleven gates split six headless / five
-   windowed. Three scope clarifications were posted to #107 as a comment -- per-screen
-   `ScreenGridDisplay` and `Overlay` contents deferred to #108, S1's mechanism substituted, and the
-   Sprite2D alternative view retained as documentation. **That comment is what makes the plan
-   traceable**: the gate sees only the ticket, so anything decided in chat scores as unsupported
-   scope until it is on the ticket. Two follow-ups were filed rather than smuggled in -- #114 (the
-   `sstd-core` version bump that the `journal_line` signature change needs) and #115 (the Home.md
-   indexing self-check false positive).
-2. **The drawer as written in that plan is rejected.** The uncommitted
-   `editor/scripts/parallax_draw.gd` adds Sprite2D children, which deviates from the design of
-   record (Math section 7: `_draw()` + `draw_set_transform` + `draw_texture_rect(..., tile = true)`
-   under `TEXTURE_REPEAT_ENABLED`, filling first) and is geometrically wrong at zoom != 1, where
-   screen spacing must be `period_px * zoom`. Gate G5's spike decides the tiling path, with the
-   per-copy `draw_texture_rect` as the documented fallback.
-3. **@me's directive on the rewrite (2026-10-18) is DISCHARGED: do NOT delete the
-   Sprite2D-per-placement design -- present it as an explicit alternative so both views survive.**
-   The plan now carries it in section 2.2, with section 2.1 (`_draw()`) the design of record, and the
-   directive is posted on #107 so it is ticket scope rather than chat memory. The alternative is
-   documentation, not a third tiling path: #107's criterion 2 enumerates exactly two, and adopting
-   it would need its own ticket.
-4. **Two TDD corrections found while reading, both pre-existing and neither caused by the MCP --
-   still owed, and they land with the implementation commit, not separately** (planned in the plan's
-   section 7):
-   - `TDD_Parallax-Scrolling.Verification.md:127` states G7's 24 px overhang reads `#C4CCD2`.
-     `stack.json` actually emits `"fill_below": "#C2CAD0FF"` (measured 2026-10-18: 194,202,208 vs
-     196,204,210, and the stack value carries alpha). A gate written from the wiki fails on real data.
-   - `TDD_Parallax-Scrolling.Verification.md:129` specifies S1's golden frames "via gRPC
-     `capture_screenshot`", which needs grpcurl plus a running gRPC server; neither exists here.
-     Correction: the gate stays the scripted read (`SubViewport.get_texture().get_image()`), because
-     it returns inspectable numbers, and the MCP (`get_editor_screenshot` / `assert_visual_match` /
-     `set_visual_baseline`) is recorded as the human-facing visual check. The MCP returns a PNG and
-     this model cannot view images, so it cannot serve as a gate for me -- a limitation worth stating
-     in the TDD rather than discovering again.
-5. **The Home.md indexing self-check in `.opencode/AGENTS.md` has a false-positive class.** Run on
-   2026-10-18 it printed four `NOT in Home.md` lines for `TDD_Parallax-Scrolling.{Data, Evaluation,
-   Math, Verification}`. All four are sub-pages linked from `TDD_Parallax-Scrolling.md`, which Home.md
-   itself links, so they are reachable and the loop's stated claim ("every hit is an unindexed page")
-   is wrong for sub-pages. **Ticketed as #115 on 2026-10-18** so it is tracked rather than only
-   noted; the fix needs a branch of its own and the working tree is mid-step-4, so it does not ride
-   this chain.
+1. **Committed so far on this branch** (`git log --oneline fba7b46..HEAD`):
+   - `f71b465` -- `ValidationMessage.layer` + `journal_line` + the bridge's `stack_invalid` journal
+     (core 137, bridge 26).
+   - `879ac6d` -- **the integer/float wire fix.** GDScript's `JSON.parse_string` stores every number
+     as a float and `JSON.stringify` re-emits `2` as `2.0`, which serde's `u32`/`u64`/`i32` refused,
+     so the real `neutral_default` stack could never load. `de_widest_integral` reads an integral
+     JSON number whichever way it was spelled, narrowed by `de_integral_u64`/`u32`/`i32`; a
+     fractional or out-of-range value is still rejected, so the fix widens the representation, never
+     the value set. Found by smoke-running the loader; `test_parallax_bridge.gd` never saw it because
+     its hand-built Dictionary keeps INT Variants and never crosses JSON.
+   - `88c10dd` -- `parallax_draw.gd` on `_draw()` + a rewritten `test_parallax_draw.gd`. **Defect
+     found and fixed here:** `_fill_colour` trusted `String.hex_to_int()`, which *parses until it
+     hits an invalid character*, so `"#8A98ACGG"` returned `0x8A98AC` and silently drew a wrong
+     band -- length alone never guarded it, the length is still 9. Mutation-verified.
+   - `37e8734` -- `world_view.gd`, `parallax_loader.gd`, `camera_controller.gd`, `game_view.gd`,
+     `world_view.tscn`, `game.tscn`, the `neutral_default` stack assets, and the deletion of
+     `probe_parallax_scroll.gd`.
 
-`parallax_placements` is callable from GDScript and verified against the freshly built `.so`, so
-nothing outside those two blockers stops step 4.
+2. **Measured, not assumed.** The real `neutral_default` stack loads **7 placements, 6 back / 1
+   front**, at a 1920 x 1080 viewport, with the anchor defaulting to the view centre (960, 540).
+   All four pre-existing GDScript suites still exit 0, and `editor/project.godot` is drift-free.
 
-**Installed since the last update: the Godot MCP bridge (#112), commit `ce69f86` on
-`local/build/godot-mcp-plugin`.** That branch sits on top of `local/feat/parallax-step3`, so it can
-only reach `trunk` together with the parallax chain. It exists because #107's pixel gates (G5, G7,
-G12, G19, S1) must run against a real render window -- headless uses `RendererDummy` -- and had no
-scriptable path. Verified end to end: the plugin connects to `ws://localhost:6505`, a live tool
-call returned real editor data, 385 handlers / 386 tools are registered, and all four headless
-suites still exit 0 with the `MCPRuntime` autoload instantiated inside them (visible as
-`[MCP Runtime] _poll_ipc()` in `test_terrain_brush`). Measured behaviour worth knowing: the
-plugin's `_exit_tree()` removes that autoload in memory but never saves, so the committed line
-survives a graceful editor exit (verified by SIGTERM) and does not flip-flop. The addon directory
-is gitignored, so a fresh clone sees an enabled plugin whose path is absent; the MCP client config
-lives in `SSTD/opencode.json`, which is not under version control. Leave
-`editor/project.godot` alone on any `git checkout -- editor/project.godot`.
+3. **Deviation recorded in plan section 4.1: the WorldView root is a `Control`, not `Node2D`.** A
+   Control resolves anchors against the nearest Control ancestor, so a Node2D in between sends
+   `SubViewportContainer`'s anchors to the root viewport and the simulator view fills the whole
+   editor window instead of its tab. Verified by instantiating the scene with and without the
+   Control chain.
 
-Then, when @me says so, **one push-permission ask covering both repos**: the parallax chain
-(steps 1-3) plus `local/build/godot-mcp-plugin` on top of it in the code repo, and the wiki's doc
-branch `docs/parallax-steps-1-2`, 4 commits ahead of its `master`. `chore/backdrop-png-cleanup` is
-covered by the open item below. Rename each `local/...` to `feat/...` before its first push; the
-`local/` prefix is refused by a push hook.
+4. **`ClassDB.instantiate("SstdBridge")` leaks one instance at process exit** -- reproduced with the
+   reference held by a Node that is `queue_freed` first, and with a bare instantiate-and-drop.
+   Pre-existing (`main.gd` does the same), no runtime consequence. Documented on the Godot4
+   learnings page, **not fixed here** -- fixing it belongs to whatever owns the bridge object's
+   lifetime, not to a feature branch.
 
-Step-3 completion evidence (all commands from `sidescroll-towerdefense/`):
+5. **Still owed on this branch, in order:**
+   - **§4.9 removals**: `simulator.gd`'s `_frame_backdrop` / `_size_layer_repeats` / 240 px clamp,
+     and `main.tscn`'s `BackdropView`, replaced by a `WorldView` instance. A stray `ParallaxDraw`
+     node that had been added under the old `BackdropView` was reverted rather than committed --
+     it was not called for by the plan and §4.9 deletes that subtree anyway.
+   - **§4.7 pixel gates**: `test_parallax_pixels.gd` (G5, G7, G12, S1) and
+     `test_parallax_stretch.gd` (G19), both windowed -- headless Godot runs `RendererDummy`, which
+     has no framebuffer to read back, so these need `DISPLAY=:0.0`. `test_world_view.gd` (G3, the
+     scene shape, the anchors, G1's plane split) and `test_camera_controller.gd` (G6, G13, the
+     small-bound `clamp_center`) are headless.
+   - **Wiki corrections**: `TDD_Parallax-Scrolling.Verification.md:127` says G7's overhang reads
+     `#C4CCD2` but `stack.json` emits `#C2CAD0FF` (measured 2026-10-18: 194,202,208 vs 196,204,210,
+     and the stack value carries alpha); `:129` specifies S1 "via gRPC `capture_screenshot`", which
+     needs grpcurl plus a running server that do not exist here -- the gate stays the scripted
+     `SubViewport.get_texture().get_image()` read, with the MCP recorded as the human-facing check
+     (this model cannot view images, so an MCP screenshot cannot be a gate for it). Add G19 to the
+     step-4 row and update TODO.md TS71.
 
-| Gate | Result |
-|---|---|
-| `cargo test -p sstd-editor-bridge` | **26 passed, 0 failed** (20 existing + 6 new) |
-| `cargo test -p sstd-core --tests` | **134 passed, 0 failed** -- core untouched, as the plan requires |
-| mutations (15-mutant sweep) | **15 confirmed, 0 void, 0 refuted** |
-| `scripts/build-bridge.sh` | rc 0; `editor/rust/libsstd_editor_bridge.so` regenerated (143 MB, 2026-10-16) |
-| four gated GDScript suites + `test_parallax_backdrop` | all **rc 0** (`failures=0`; `[GREEN]`) |
-| `test_parallax_bridge` (new) | rc 0, `failures=0`, 16 checks |
+6. **Two follow-ups are filed rather than smuggled in**: #114 (the `sstd-core` version bump that
+   `journal_line`'s signature change needs) and #115 (the Home.md indexing self-check reports
+   sub-pages of `TDD_Parallax-Scrolling` as unindexed because it only greps `Home.md`, not the
+   parent page that links them).
 
-**The new GDScript test fails rather than skips on a stale `.so`**, and that was verified in the
-state that matters: run *before* the rebuild it exited **1** with `FAIL: SstdBridge is loaded but
-has no parallax_placements (stale .so? run scripts/build-bridge.sh)`. The four older
-bridge-dependent tests `print("skip: ...")` and pass there; this one must not, because a stale
-extension is exactly the failure it exists to catch.
+7. **Plan gates**: the step-4 plan passed the ticket gate at **95/100** (four evaluator runs; the
+   score history is in the plan's section 9). Three scope clarifications are posted on #107 as a
+   comment -- that comment is what makes the plan traceable, since the gate sees only the ticket.
+   @me's directive to keep the Sprite2D-per-placement design as an explicit alternative view is
+   discharged: plan section 2.2 carries it, section 2.1 (`_draw()`) is the design of record, and
+   the alternative is documentation rather than a third tiling path, because #107's criterion 2
+   enumerates exactly two.
 
-**Two findings from the mutation sweep, both mine and both fixed** (recorded in plan section 10):
-the first harness grepped `^error` to detect a compile failure, but `cargo test` prints
-`error: test failed, to rerun pass ...` for a *failing* test, so every real mutant was misread as
-a compile error; and the `stack_invalid` pattern matched the `#[func]` **doc comment** before the
-code, so it respelled prose only and the test rightly passed. The harness now requires a mutant's
-changed lines to include a non-comment line.
-
-**Open item: `chore/backdrop-png-cleanup` (`77822e8`) is premature and should not be merged.**
-It deletes the legacy sliced PNGs (`editor/assets/backdrop_layers/layer_0.png`, `layer_1.png`,
-`layer_2.png`, `layer_2_strip_x5.png`), but `editor/scripts/tile_grid_display.gd` still loads
-those exact paths at runtime via `_BACKDROP_PATHS`. `load(path)` returns null, so the map editor's
-backdrop would silently disappear -- a visual regression, not a cleanup. The deletion belongs with
-the step that replaces that consumer (step 4's drawer or step 5's scene wiring), so the branch is
-parked, not deleted: @me decides whether to drop the commit or hold it. Nothing else on it.
-
-**Open item: a pathological `zoom` inflates `copy_count`** (for example `1e-300` saturates to
-`u32::MAX` in the drawer's loop). Deliberately not guarded: the zoom is the editor's own camera,
-not authored data, and `Math` section 7 documents 0.25 as the zoom-out *example* rather than a
-limit, so a floor would reject a legitimate 0.2. A draw-count cap belongs in step 4's drawer if it
-ever matters. Same reasoning recorded in plan section 10.
-
-**Residual: the wire tokens `"error"` / `"stack_invalid"` / `"placements"` are literals** in both
-the code and the `#[func]` doc comment, matching the two neighbouring handlers, which hand-write
-`"valid"` and `"error"` the same way. No named form exists at this seam, so a one-off constants
-trio here would be the case the magic-string rule warns against. Step 4 spells the same tokens
-from GDScript; its test is the pin. Measured consequence: respelling a token is two edits and a
-stale doc comment is not caught by any test.
-
-**User directive 2026-10-15 (open, separate branch): "fix|adjust all lint warnings and errors".**
-Not started. Workspace-wide `cargo clippy --all-targets` reports ~55 warnings outside
-`gen-backdrop`: `sstd-core` (10 x `should_implement_trait` on `from_str`, 9
-`needless_borrows_for_generic_args`, 4 no-effect ops, `manual_range_contains`,
-`match_like_matches_macro`), `sstd-editor-bridge` (3 x `needless_range_loop`, `is_multiple_of`,
-no-effect ops), `tools/slice-layers` and others. Not step 3's scope (the plan forbids touching
-those crates), so it rides its own branch off `trunk`.
-
-**Generated art is present but UNTRACKED:** `editor/assets/backdrop_stacks/neutral_default/`
-(7 PNGs + `stack.json`) was produced by step 2's run and is deliberately not committed; it lands
-with the scene that consumes it. `test_parallax_bridge` does **not** read it -- its fixture is
-built in code -- precisely so the test passes on a clean clone. Re-generate with
-`cargo run -q -p gen-backdrop`.
-
-
-Step 1 (#104) ships on `local/feat/parallax-step1`, unpushed: all 17 blocks written,
-`cargo test -p sstd-core` 134 passed / 0 failed, both review findings fixed and walked
-2026-10-13 (`Stack::validate` full 10-rule set; U2 repeat-branch 1 px tolerance).
-
-**2026-10-11 wire-form decision (landed):** `Depth` no longer uses the string `"inf"` — it is
-the tagged object `{ "kind": "finite", "value": n }` / `{ "kind": "infinite" }` via a serde
-`tag`/`content` derive (user directive; @me recorded tagged objects as a PREFERRED shape for
-future decisions in `~/scripts/LLM`, commit `d3cb399`). No literal token survives in any error
-or `expecting` text; the round-trip tests pin the on-disk spelling. Verified against serde
-1.0.229: a unit variant writes no `value` key, a wrong `kind` and an extra `value` on a unit
-variant are rejected, no `alloc` feature is needed, and kind-first order buffers nothing.
-Ticket #104 Scope was amended and a record comment posted the same day; the wiki (wiki repo
-branch `docs/depth-tagged-wire-form`, commit `4df7833`) was updated across 6 pages.
-
-Completion evidence (2026-10-13): `cargo test -p sstd-core` is **134 passed, 0 failed** —
-the first green full-crate run of this work, with the 110-test baseline (config, etc.) passing
-alongside every U-test. `cargo check -p sstd-core --tests` reports zero errors; the old "12
-mismatched-types, one per unwritten block" state is retired. Historical baselines for
-contrast: `cargo test -p sstd-core parallax` was 22 failed / 2 passed at the `todo!()` stage,
-then 18 E0308, then 16 after block 1/17. Block 2/17 (2026-10-12, ref #104) shipped the u22
-tie row (`[100,255,0,255, 101,255,0,255]`) so the half-up rounding is discriminable, and
-block 1/17's parse behaviour was proven by the standalone `tagprobe` probe before commit.
-
-Then step 2 (#105) and step 3 (#106), still Rust-only. Steps 4-7 wait on the first slice
-landing. Verification tests are U1-U23 (`TDD_Parallax-Scrolling.Verification`), not U1-U12.
-
-**Design of record is the 2026-10-09 wiki set, not this file's older restack narrative:**
-[TDD_Parallax-Scrolling](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling)
-and its [.Evaluation](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Evaluation) /
-[.Math](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Math) /
-[.Data](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Data) /
-[.Verification](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/TDD_Parallax-Scrolling.Verification)
-sub-pages, with the run record
-[PostMortem_Parallax-Scrolling-2026-10-09](https://github.com/HidekiAI/sidescroll-towerdefense/wiki/TechnicalDesign/PostMortem_Parallax-Scrolling-2026-10-09).
-It supersedes `TDD_Parallax-Background`'s `Parallax2D` contract and, with it, the B1/B2/M-1
-narrative kept below: the work is now seven steps, one ticket each.
-
-| Step | Issue | Closes |
-|---|---|---|
-| 1 owned parallax math in `sstd-core::parallax` | #104 | #91 |
-| 2 `gen-backdrop` emits `stack.json` | #105 | #90 |
-| 3 bridge `parallax_placements` | #106 | — |
-| 4 `WorldView` + `ParallaxDraw` in the Simulator | #107 | #88, #99, #101 |
-| 5 Map Editor live parallax on `WorldView` | #108 | #87, #100 |
-| 6 world archive `backdrop.json` + legacy reader | #109 | — |
-| 7 per-corridor stack and anchor (deferred) | #110 | — |
-
-Epic stay-open hub is #68; step 4 is what closes the old #101 restructure. **First slice is
-steps 1-3, Rust only — no Godot scene change.** @me writes the non-trivial logic with the
-`coding-assistant` skill and the assistant scaffolds `TODO(human)` blocks. The Bevy (O3a) /
-Fyrox (O5a) fallback fires only if, after step 4, gate G5 is still red under the per-copy
-fallback OR editor zoom filtering is unacceptable; it then touches step 4 and S1 only.
-
-**Known-red file, unchanged by the replan:** `editor/tests/test_parallax_backdrop.gd` is not
-one of the four AGENTS.md-gated suites and is rewritten wholesale by step 4 (#107), which also
-deletes `probe_parallax_scroll.gd`. Do not patch it before then — a path patch is scope creep
-the ticket already owns.
-
-**Doc conflict found 2026-10-10 and filed as #111:** `AGENTS.md` (workspace and code repo)
-still says `test_screen_store` is "currently RED ... (issue #85)". #85 is CLOSED and the suite
-**exits 0** on 4.7.2 (`4.7.2.stable.mono`, re-run 2026-10-10). Three passages are stale (two in
-the committed `.opencode/AGENTS.md`, one in the workspace `AGENTS.md`, which is not under
-version control). Fixed by #111, not here.
 
 ---
 
