@@ -15,34 +15,40 @@ and `backdrop_preview.tscn` opened and read, a screenshot captured); the step-4 
 underscope #107; and the Godot 4 learnings ledger shipped to the wiki (#113, wiki branch
 `docs/godot4-learnings`, commit `330c29b`). Nothing in either repo is pushed._
 
-**NEXT MOVE: rewrite the step-4 plan to #107's full scope, re-gate it >= 90, then implement.**
-Steps 1-3 are code-complete but the parallax still does **not render** -- no scene consumes the
-placements yet. Two blockers on step 4:
+**NEXT MOVE: implement #107 per the gated plan.** Steps 1-3 are code-complete but the parallax
+still does **not render** -- no scene consumes the placements yet. The step-4 plan is rewritten and
+has passed the gate.
 
-1. **`docs/PLAN-2026-10-16-parallax-step4.md` underscopes #107.** It gated at 94 against a
-   summary of the ticket rather than the ticket body. #107 is far wider than the plan's drawer: it
-   owns the `WorldView` scene (SubViewport container + `ParallaxDraw` above and below a world
-   `Node2D`), a game camera controller, runtime window stretch, and the removal of the six
-   `Parallax2D` nodes, `backdrop_preview.tscn`, the 240 px clamp and `_frame_backdrop`'s measured
-   correction. Rewrite against the full #107 body; **the re-gate prompt must carry the whole
-   ticket**, since an independent gate scores against whatever it is handed.
+1. **`docs/PLAN-2026-10-16-parallax-step4.md` is rewritten to #107's full scope and gates at
+   95/100** (2026-10-18, four evaluator runs; the score history and every cut item are in the plan's
+   section 9). It now covers the `WorldView` scene, the loader, `_draw()` per Math section 7, the
+   camera controller, runtime stretch, the removals, and the eleven gates split six headless / five
+   windowed. Three scope clarifications were posted to #107 as a comment -- per-screen
+   `ScreenGridDisplay` and `Overlay` contents deferred to #108, S1's mechanism substituted, and the
+   Sprite2D alternative view retained as documentation. **That comment is what makes the plan
+   traceable**: the gate sees only the ticket, so anything decided in chat scores as unsupported
+   scope until it is on the ticket. Two follow-ups were filed rather than smuggled in -- #114 (the
+   `sstd-core` version bump that the `journal_line` signature change needs) and #115 (the Home.md
+   indexing self-check false positive).
 2. **The drawer as written in that plan is rejected.** The uncommitted
    `editor/scripts/parallax_draw.gd` adds Sprite2D children, which deviates from the design of
    record (Math section 7: `_draw()` + `draw_set_transform` + `draw_texture_rect(..., tile = true)`
    under `TEXTURE_REPEAT_ENABLED`, filling first) and is geometrically wrong at zoom != 1, where
    screen spacing must be `period_px * zoom`. Gate G5's spike decides the tiling path, with the
    per-copy `draw_texture_rect` as the documented fallback.
-3. **@me's standing directive on the rewrite (2026-10-18): do NOT delete the Sprite2D-per-placement
-   design -- present it as an explicit alternative ("another option is to do it this way") beside the
-   ticket's `_draw()` design, so both views survive.** The rejected approach is evidence of why #107
-   chose what it chose, and erasing it loses that. This applies to the plan document only: #107 stays
-   the design of record and the implementation still follows Math section 7.
-4. **Two TDD corrections found while reading, both pre-existing and neither caused by the MCP** --
-   land them with the plan rewrite, not as a separate pass:
-   - `TDD_Parallax-Scrolling.Verification.md:130` states G7's 24 px overhang reads `#C4CCD2`.
+3. **@me's directive on the rewrite (2026-10-18) is DISCHARGED: do NOT delete the
+   Sprite2D-per-placement design -- present it as an explicit alternative so both views survive.**
+   The plan now carries it in section 2.2, with section 2.1 (`_draw()`) the design of record, and the
+   directive is posted on #107 so it is ticket scope rather than chat memory. The alternative is
+   documentation, not a third tiling path: #107's criterion 2 enumerates exactly two, and adopting
+   it would need its own ticket.
+4. **Two TDD corrections found while reading, both pre-existing and neither caused by the MCP --
+   still owed, and they land with the implementation commit, not separately** (planned in the plan's
+   section 7):
+   - `TDD_Parallax-Scrolling.Verification.md:127` states G7's 24 px overhang reads `#C4CCD2`.
      `stack.json` actually emits `"fill_below": "#C2CAD0FF"` (measured 2026-10-18: 194,202,208 vs
      196,204,210, and the stack value carries alpha). A gate written from the wiki fails on real data.
-   - `TDD_Parallax-Scrolling.Verification.md:132` specifies S1's golden frames "via gRPC
+   - `TDD_Parallax-Scrolling.Verification.md:129` specifies S1's golden frames "via gRPC
      `capture_screenshot`", which needs grpcurl plus a running gRPC server; neither exists here.
      Correction: the gate stays the scripted read (`SubViewport.get_texture().get_image()`), because
      it returns inspectable numbers, and the MCP (`get_editor_screenshot` / `assert_visual_match` /
@@ -53,9 +59,9 @@ placements yet. Two blockers on step 4:
    2026-10-18 it printed four `NOT in Home.md` lines for `TDD_Parallax-Scrolling.{Data, Evaluation,
    Math, Verification}`. All four are sub-pages linked from `TDD_Parallax-Scrolling.md`, which Home.md
    itself links, so they are reachable and the loop's stated claim ("every hit is an unindexed page")
-   is wrong for sub-pages. Amend the loop to skip sub-pages of an already-linked parent, otherwise a
-   future session "fixes" them by adding redundant Home.md rows. Deferred to the end-of-chain doc
-   pass, because editing that file needs a branch of its own and the working tree is mid-step-4.
+   is wrong for sub-pages. **Ticketed as #115 on 2026-10-18** so it is tracked rather than only
+   noted; the fix needs a branch of its own and the working tree is mid-step-4, so it does not ride
+   this chain.
 
 `parallax_placements` is callable from GDScript and verified against the freshly built `.so`, so
 nothing outside those two blockers stops step 4.
