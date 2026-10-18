@@ -63,3 +63,17 @@ script = ExtResource("2")
 [node name="Overlay" type="CanvasLayer" parent="."]
 layer = 2
 follow_viewport_enabled = true
+
+; Section 4.7's status HUD. It lives HERE and not in the Simulator tab, because section 6 of the
+; same plan requires the suite to instantiate WorldView: a HUD the suite cannot reach is a HUD no
+; test can assert. Declared after SubViewportContainer so it draws on top of it.
+;
+; mouse_filter = 2 (IGNORE) is required, not cosmetic: a Control over the view would otherwise
+; swallow the clicks the tab is there to show.
+[node name="StatusLabel" type="Label" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+offset_bottom = 24.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 14

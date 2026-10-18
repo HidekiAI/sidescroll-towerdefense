@@ -24,6 +24,7 @@ var _back_draw: ParallaxDraw = null
 var _front_draw: ParallaxDraw = null
 var _camera: Camera2D = null
 var _viewport: SubViewport = null
+var _status_label: Label = null
 
 var _stack_path: String = DEFAULT_STACK_PATH
 var _anchor_world_px: Vector2 = Vector2.ZERO
@@ -40,6 +41,7 @@ func _ready() -> void:
     _back_draw = get_node_or_null("SubViewportContainer/Viewport/BackPlane/ParallaxDraw") as ParallaxDraw
     _front_draw = get_node_or_null("SubViewportContainer/Viewport/FrontPlane/ParallaxDraw") as ParallaxDraw
     _camera = get_node_or_null("SubViewportContainer/Viewport/Camera2D") as Camera2D
+    _status_label = get_node_or_null("StatusLabel") as Label
     _loader = ParallaxLoader.new()
     # Force one query on the first poll, whatever the camera happens to start at.
     _last_view = {}
@@ -137,6 +139,11 @@ func _refresh_placements() -> void:
     var view_h_px: float = float(_last_view.get("view_h_px", 0.0))
     var result: Dictionary = _loader.load_stack(_stack_path, _last_view, _last_anchor)
     _status_text = String(result.get("status_text", ""))
+    # Section 4.7's HUD. The text is written for BOTH outcomes on purpose: a load that fell back
+    # and then succeeded still has to SHOW the fallback, because the rule that rejected the first
+    # stack did not stop being real.
+    if _status_label != null:
+        _status_label.text = _status_text
     if not result.get("ok", false):
         # Both stacks failed. Clear both planes rather than keep drawing the old stack's art at
         # the new ViewState, which would be a backdrop that silently ignores the camera.

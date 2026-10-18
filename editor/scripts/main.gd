@@ -93,21 +93,6 @@ func _process(_delta: float) -> void:
 		if handled > 0:
 			print("[grpc] handled ", handled, " command(s) this frame")
 
-func _instantiate_tabs() -> void:
-	var scenes := {
-		terrain_editor = preload("res://scenes/terrain_editor.tscn"),
-		entity_editor = preload("res://scenes/entity_editor.tscn"),
-		map_editor = preload("res://scenes/map_editor.tscn"),
-		placement_editor = preload("res://scenes/placement_editor.tscn"),
-		simulator = preload("res://scenes/simulator.tscn"),
-	}
-	var keys: Array[String] = ["terrain_editor", "entity_editor", "map_editor", "placement_editor", "simulator"]
-	for i in keys.size():
-		var instance = scenes[keys[i]].instantiate()
-		tabs.add_child(instance)
-		tabs.set_tab_title(i, TAB_LABELS[i])
-		set(keys[i], instance)
-
 func _load_bridge() -> void:
 	if ClassDB.class_exists("SstdBridge"):
 		_bridge = ClassDB.instantiate("SstdBridge")

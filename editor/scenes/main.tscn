@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://dtn6qocve6qai"]
+[gd_scene load_steps=14 format=3 uid="uid://dtn6qocve6qai"]
 
 [ext_resource type="Script" uid="uid://c40osmgee5nae" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://ba4grmonufm7r" path="res://scripts/terrain_editor.gd" id="2"]
@@ -9,9 +9,8 @@
 [ext_resource type="Script" uid="uid://c4ibhkjooxjrc" path="res://scripts/tile_grid_display.gd" id="7"]
 [ext_resource type="Script" uid="uid://bns2btwey36le" path="res://scripts/placement_editor.gd" id="8"]
 [ext_resource type="Script" uid="uid://dfxn7xagyabxr" path="res://scripts/placement_grid_display.gd" id="9"]
-[ext_resource type="Script" uid="uid://cic7l3yynx57q" path="res://scripts/simulator.gd" id="10"]
+[ext_resource type="PackedScene" path="res://scenes/world_view.tscn" id="10"]
 [ext_resource type="Script" path="res://scripts/tile_palette.gd" id="11"]
-[ext_resource type="PackedScene" path="res://scenes/backdrop_preview.tscn" id="12"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg_map"]
 content_margin_left = 8.0
@@ -810,91 +809,20 @@ Under: —"
 ; scrollbars too small to grab.
 [node name="Simulator" type="Control" parent="TabContainer"]
 layout_mode = 2
-script = ExtResource("10")
 
-; #101 B1 -- the parallax stack moves into its own viewport so it can have its own
-; camera. parallax_2d.cpp joins __cameras_<viewport_rid> on NOTIFICATION_ENTER_TREE,
-; so camera coupling is keyed PER VIEWPORT: a Camera2D inside this SubViewport
-; rewrites only this viewport's canvas transform and cannot reach the root canvas
-; the editor UI draws on. That is why #89 was right to delete the root-viewport
-; camera, and why one is allowed back in, scoped like this.
+; #107 -- the Simulator tab IS a WorldView. Everything that used to live here (this
+; SubViewportContainer, the Camera2D inside it, the BackdropStrip scene it instanced, and
+; the two scrollbars further down) existed to drive the six Parallax2D bands, and
+; Parallax2D is gone.
 ;
-; stretch = true makes the container drive Viewport.size to its own rect on every
-; resize, so the parallax viewport always equals the tab content rect and
-; simulator.gd needs no size bookkeeping. The container also bounds what it draws,
-; which is the first clipping this strip has ever had: clip_contents is set nowhere
-; in this file or in backdrop_preview.tscn, so until now the Node2D strip painted
-; unclipped across the whole window.
+; The scrollbars went WITH that wiring rather than being rewired: they only ever moved one
+; camera, #107 asks for no scrub control over the new stack, and a control nothing reads
+; is worse than no control. A scrub for WorldView, if wanted, is its own ticket.
 ;
-; Both scrollbars stay OUTSIDE BackdropView, in the root canvas at z_index = 20 --
-; above the container's own z0 draw.
-; The full-rect anchors are what make this container fill the tab: anchor_right and
-; anchor_bottom 1.0, grow both ways. Dropping them was the blank-tab bug -- no anchors
-; means a 0x0 rect, the SubViewport follows it to 2x2, and nothing draws. Measured with
-; a real window while the tab was selected: Simulator was (1152, 617) and BackdropScroll
-; (1136, 16), while BackdropView sat at (0, 0).
-;
-; layout_mode = 1 is only the editor's hint for "anchored child of a plain Control" and
-; matches BackdropScroll/BackdropScrollV below. It is NOT what does the sizing: mutating
-; it to 2 with the anchors left in place still lays out correctly (verified), so do not
-; read the fix into it. Simulator above uses layout_mode = 2 because its parent IS the
-; TabContainer -- copying that value here is harmless, but it is not what fixes anything.
-[node name="BackdropView" type="SubViewportContainer" parent="TabContainer/Simulator"]
+; What survives is the isolation #101 established and G3 asserts: a SubViewport owns its
+; canvas, so the Camera2D inside it rewrites only that canvas and cannot reach the root
+; canvas the editor UI draws on. layout_mode = 1 is the editor's hint for "anchored child
+; of a plain Control"; the ANCHORS are what size this, and they live in world_view.tscn.
+[node name="WorldView" instance=ExtResource("10") parent="TabContainer/Simulator"]
 layout_mode = 1
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-stretch = true
 
-[node name="Viewport" type="SubViewport" parent="TabContainer/Simulator/BackdropView"]
-
-[node name="Camera2D" type="Camera2D" parent="TabContainer/Simulator/BackdropView/Viewport"]
-
-[node name="BackdropStrip" instance=ExtResource("12") parent="TabContainer/Simulator/BackdropView/Viewport"]
-visible = true
-layout_mode = 2
-metadata/_tab_index = 4
-
-; Both bars need explicit anchors. Measured with a real window at 1920x1080:
-; declared with layout_mode = 1 and no anchors, BackdropScroll collapsed to
-; P:(-4, 982) S:(8, 16) — EIGHT pixels wide, which is why it could not be grabbed or
-; scrolled. Anchored to the parent's bottom edge, spanning it horizontally.
-;
-; Only anchor_bottom is pinned, NOT anchor_top, so the bar can be positioned by a
-; single top offset instead of stretching between two anchors. grow_vertical = 1 is
-; GROW_DIRECTION_BEGIN and is REQUIRED here, not cosmetic: with grow_vertical = 0
-; Godot grew the bar downward from the bottom anchor and placed it at P:(0, -16),
-; 16px above the tab, so it rendered off the top edge and could not be grabbed.
-; z_index = 20, not 0. Measured with a real window: the Foreground parallax layer
-; carries z_index = 10, so at equal z the foreground art painted OVER the horizontal
-; bar and it was invisible and ungrabbable. 20 puts both bars above the highest
-; layer (Foreground at 10) without touching any layer's own z_index.
-[node name="BackdropScroll" type="HScrollBar" parent="TabContainer/Simulator"]
-unique_name_in_owner = true
-layout_mode = 1
-z_index = 20
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 0.0
-offset_top = -16.0
-offset_right = -16.0
-offset_bottom = 0.0
-grow_horizontal = 2
-grow_vertical = 0
-
-; The vertical bar stops short of the bottom edge by its own thickness, so it never
-; sits under the horizontal bar in the corner. Same z_index = 20 as the horizontal
-; bar: PlacementEditor's grid sits at z_index = 5, so a bar left at the default 0
-; would be painted over by that grid.
-[node name="BackdropScrollV" type="VScrollBar" parent="TabContainer/Simulator"]
-unique_name_in_owner = true
-layout_mode = 1
-z_index = 20
-anchor_left = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -16.0
-offset_bottom = -16.0
-grow_vertical = 0
