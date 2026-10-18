@@ -441,7 +441,7 @@ Six GDScript suites, all gated on exit code:
 
 | Suite | Covers |
 |---|---|
-| `test_parallax_backdrop.gd` (rewritten) | G1, G9, redraw policy, placements equality |
+| `test_parallax_backdrop.gd` (rewritten) | G1, G9, redraw policy, placements equality, and the D1-D5 drawer seam |
 | `test_parallax_bridge.gd` (exists) | G15's `stack_invalid` + `journal` shape |
 | new `test_world_view.gd` | G3, scene tree shape, anchors present |
 | new `test_camera_controller.gd` | G6, G13 |
@@ -457,6 +457,31 @@ copies (never committed) written against the Sprite2D alternative (2.2).** Both 
 of record: the drawer loses its `Sprite2D` children, and its assertions become `_draw()`-shaped.
 Nothing carries across from the Sprite2D version except the harness setup — name, failure counter,
 `quit()` on the exit code.
+
+**As executed (2026-10-18), that paragraph's premise did not survive contact.** `parallax_draw.gd`
+was committed as the drawer of record (section 4.3), and the table above names six suites — with
+no `test_parallax_draw.gd` among them. Rather than leave a seventh suite the plan does not list,
+its five guards were folded into the rewritten `test_parallax_backdrop.gd` (D1 identity of the
+stored entries, D2 replace, D3 clear, D4 the two fill spellings, D5 the bare-placement draw path)
+and the file was deleted. Absorbing them rather than dropping them keeps the drawer seam covered
+by the suite that already owns "placements equality", which is the same claim one level down.
+
+Folded suite, measured: 30 checks, rc=0 headless. Five mutants, all five KILLED, each turning
+exactly the expected checks red:
+
+| Mutant | Turns red |
+|---|---|
+| `BackPlane.visible = false` in `world_view.tscn` | `G1: BackPlane is visible` |
+| the first placement routed to the front plane | the plane-membership check and the slice-concatenation check |
+| `view_w_px` pinned to 64 in `_poll_view_state` | `G9: the new query carries the new view size`, `G9: the drawer stored the new view size` |
+| change detection removed (`if false:`) | `G1: ONE bridge call`, `G9: a resize queues exactly one redraw`, `policy: an unchanged ViewState queues nothing` |
+| `apply()` deep-copying its argument | `D1: the entries are the SAME dictionaries` |
+
+One harness lesson from the first, green-looking run: assigning the recording loader BEFORE
+`add_child` records nothing, because `WorldView._ready()` builds its own loader and overwrites the
+assignment. The suite read `got 0` requests while the bridge had plainly been queried — a wrong
+experiment reported as a vacuous guard, which is the failure mode the mutation rules exist to
+catch. The swap now happens after `_ready()` and before the first `_process`.
 
 **Every assertion is mutation-verified before it is trusted**, and each mutation is validated before
 it is interpreted: confirm the substitution fired and the mutant still **parses** before reading its
