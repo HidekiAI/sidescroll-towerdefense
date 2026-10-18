@@ -4,7 +4,9 @@ use godot::classes::{TabContainer, Texture2D};
 use godot::prelude::*;
 use serde::{Deserialize, Serialize};
 use sstd_core::config::ConfigStore;
-use sstd_core::parallax::{place_layer, Anchor, Fill, LayerArt, Plane, Stack, ViewState};
+use sstd_core::parallax::{
+    journal_line, place_layer, Anchor, Fill, LayerArt, Plane, Stack, ViewState,
+};
 use sstd_core::storage::{EntityDefsFile, ScreenFile, TerrainTypesFile};
 use sstd_core::terrain::GridConfig;
 use sstd_grpc::{spawn_server, EditorCommand, ScreenshotResult, SwitchTabResult};
@@ -105,9 +107,11 @@ impl SstdBridge {
     /// Place this frame's backdrop layers for a `(view, anchor, stack, art, plane)` request.
     ///
     /// Returns `{"placements": [...]}` on success, `{"error": "<detail>"}` for a malformed
-    /// request, or `{"error": "stack_invalid", "errors": [...]}` when the stack fails
-    /// validation. The math lives in `sstd-core::parallax`; this method only composes the
-    /// request and the response.
+    /// request, or `{"error": "stack_invalid", "errors": [...], "journal": [...]}` when the
+    /// stack fails validation. `journal` holds one pre-formatted `parallax.validate FAIL`
+    /// line per message, built by `sstd-core::journal_line`, so GDScript logs the rule lines
+    /// without re-implementing the format. The math lives in `sstd-core::parallax`; this
+    /// method only composes the request and the response.
     #[func]
     fn parallax_placements(&self, request_json: GString) -> GString {
         GString::from(parallax_placements_impl(&request_json.to_string()).as_str())
@@ -782,11 +786,20 @@ fn parallax_placements_impl(request_json: &str) -> String {
     let resolved = match request.stack.resolve(&art) {
         Ok(resolved) => resolved,
         Err(validation) => {
+            // One pre-formatted rule line per message, so the loader logs them verbatim and
+            // GDScript never re-implements the format. `journal_line` needs the stack key,
+            // which the stack itself carries.
+            let journal: Vec<String> = validation
+                .messages
+                .iter()
+                .map(|message| journal_line(message, &request.stack.stack_key))
+                .collect();
             return serde_json::json!({
                 "error": "stack_invalid",
                 "errors": validation.messages,
+                "journal": journal,
             })
-            .to_string()
+            .to_string();
         }
     };
 
@@ -2093,6 +2106,16 @@ mod tests {
         assert_eq!(base["fill_below"], serde_json::json!("#C2CAD0FF"));
     }
 
+    /// The `journal` array on a `stack_invalid` response, as plain lines.
+    fn journal_lines(response: &serde_json::Value) -> Vec<&str> {
+        response["journal"]
+            .as_array()
+            .expect("journal array")
+            .iter()
+            .map(|line| line.as_str().expect("a journal line is a string"))
+            .collect()
+    }
+
     #[test]
     fn invalid_stack_returns_stack_invalid_with_messages() {
         // The base layer's art must be fully opaque -- core's `base_opaque` rule.
@@ -2111,6 +2134,27 @@ mod tests {
         assert!(
             codes.contains(&"base_opaque"),
             "expected base_opaque, got {codes:?}"
+        );
+        // G15's rule line, on the wire: one pre-formatted line per message, in order, with the
+        // stack key filled in. The per-layer rule must NAME its layer -- this is what proves
+        // `Stack::validate` tagged the message, since a caller outside it could not.
+        let journal = journal_lines(&response);
+        assert_eq!(
+            journal.len(),
+            response["errors"].as_array().expect("errors array").len(),
+            "one journal line per message"
+        );
+        let base_opaque_line = journal
+            .iter()
+            .find(|line| line.contains("rule=base_opaque"))
+            .expect("base_opaque rule line");
+        assert!(
+            base_opaque_line.starts_with("parallax.validate FAIL stack=fixture "),
+            "journal line was {base_opaque_line:?}"
+        );
+        assert!(
+            !base_opaque_line.contains("layer=-"),
+            "the base layer must be named, was {base_opaque_line:?}"
         );
 
         // An art array one short is core's `art_count` rule, reported on the same path and in
@@ -2131,6 +2175,23 @@ mod tests {
             codes.contains(&"art_count"),
             "expected art_count, got {codes:?}"
         );
+        // The other half: `art_count` is a whole-stack rule with no layer, so its line renders
+        // `-` rather than blank or the name of some unrelated layer.
+        let art_count_line = journal_lines(&response)
+            .iter()
+            .find(|line| line.contains("rule=art_count"))
+            .expect("art_count rule line")
+            .to_string();
+        assert!(
+            art_count_line.contains(" layer=- "),
+            "journal line was {art_count_line:?}"
+        );
+        // Two fixed tokens plus five key=value pairs; a missing layer must not drop a pair.
+        let pairs: Vec<&str> = art_count_line
+            .split(' ')
+            .filter(|token| token.contains('='))
+            .collect();
+        assert_eq!(pairs.len(), 5, "line was {art_count_line:?}");
     }
 
     #[test]

@@ -334,13 +334,23 @@ human-readable `message` text, which is not something `journal_line` can parse b
 **Change (three edits, all inside the existing design):**
 
 1. `error.rs` — `ValidationMessage` gains `layer: Option<String>` and a builder
-   `with_layer(...)`, matching the existing `with_field`/`with_value` idiom directly above it. Mark
-   the field `#[serde(default)]` so a payload that predates it still deserializes, and pin that with
-   a test (the field is additive; nothing persisted may start failing to parse).
+   `with_layer(...)`, matching the existing `with_field`/`with_value` idiom directly above it.
+   **No `#[serde(default)]`** (this plan originally prescribed one; mutation on 2026-10-18 showed
+   it changes nothing, because serde's missing-field path returns `None` for any `Option` — the
+   attribute is only load-bearing on non-`Option` fields, which is why the rest of the codebase
+   still uses it). The additive contract is pinned by
+   `validation_message_layer_is_optional_and_spelled_layer`, whose killable half asserts the
+   literal `"layer"` wire key.
 2. `parallax.rs` `Stack::validate` — inside the existing
    `for (layer_index, layer) in self.layers.iter().enumerate()` loop, tag each **per-layer** message
-   with `.with_layer(&layer.name)`. Whole-stack messages (`schema_version`, `max_layers`,
+   with `.with_layer(layer.name.as_str())`. Whole-stack messages (`schema_version`, `max_layers`,
    `art_count`) stay `None` and render `-`, consistent with how `field`/`value` render.
+   **Two refinements made while implementing, both recorded here rather than silently:** `base_opaque`
+   is also tagged (`base_layer.name` — one layer, unambiguous, and it is a per-layer rule that sits
+   outside the loop only because finding the base needs the whole plane), while `draw_order_unique`
+   and `draw_order_depth` are deliberately left `None` because each fires over a *pair* of layers and
+   there is no single correct name; their message text names both and the raw `errors` array travels
+   beside the journal lines.
 3. `parallax.rs` `journal_line` — drop the `layer: &str` parameter and read
    `msg.layer.as_deref().unwrap_or("-")`. The format string is unchanged, so the greppable contract
    `parallax.validate FAIL stack=… layer=… field=… value=… rule=…` survives the change.
@@ -460,6 +470,36 @@ Both suites stay green — the change in 4.8 is additive except for the `journal
 its own tests (calling `journal_line` without the layer parameter, plus the back-compat
 `ValidationMessage` deserialization test) go red-first.
 
+**As executed (2026-10-18), only half of that was red-first.** The `journal_line` tests were: the
+two-argument call does not compile until the parameter is dropped, so the signature change went
+red as a compile error and green on implementation. The back-compat test was **not** red-first — it
+was written after the field existed and passed on its first run, which is exactly the shape that
+should be distrusted. Mutation then showed why: **removing the `#[serde(default)]` this section
+prescribed changed no test result**, because serde's missing-field path already returns `None` for
+any `Option`. The attribute was decoration that read as a requirement, so it was deleted from
+`error.rs` and the test was re-cut into
+`validation_message_layer_is_optional_and_spelled_layer`, whose killable half asserts the literal
+`"layer"` wire key (a field rename moves writer and reader together and leaves the round-trip
+green). Mutants, all four KILLED:
+
+| Mutant | Kills |
+|---|---|
+| `#[serde(rename = "layer_name")]` on `layer` | `validation_message_layer_is_optional_and_spelled_layer` |
+| drop `.with_layer(...)` from the `parallax_depth` rule | `u7_each_validation_rule_fires` |
+| drop `.with_layer(...)` from `base_opaque` | bridge `invalid_stack_returns_stack_invalid_with_messages` |
+| `journal_line` renders `layer` as a constant `-` | `u7`, `u15_front_plane_ceiling`, bridge test |
+
+The non-kill is the useful record: a test that passed on arrival and could not fail was not
+coverage, and only the mutation showed it.
+
+Two harness defects surfaced while proving the table above and are written up in
+`$HOME/Documents/opencode/test-falsifiability-and-mutation-verification.md` §8: a build-failure
+detector loose enough to match `test error::tests::...` (reported every mutant as void), and a
+`cp`/`mv` restore that leaves the restored source **older** than the mutant cargo just built, so
+cargo ships the stale mutant and reports a red for code that is not in the tree. The harness
+script now anchors its detector and `touch`es after every restore; both runs above postdate
+those fixes.
+
 ---
 
 ## 7. Corrections owed to the wiki (land with this plan, not separately)
@@ -488,7 +528,7 @@ filed as its own ticket so the finding is tracked rather than only recorded.
 |---|---|
 | G5's `tile = true` transform space is unknown | Spike first; per-copy fallback specified in 4.3.1 with a bounded 30 draw calls |
 | Letterbox scale filter at non-integer scale (open, @me) | Math section 7 assumes `LINEAR` until @me decides; `stretch/scale_mode = integer` is the alternative. Does not affect the function |
-| `ValidationMessage.layer` is a shared type | Additive `Option` + `#[serde(default)]` + a back-compat test; no persisted payload changes shape |
+| `ValidationMessage.layer` is a shared type | Additive `Option` (no `#[serde(default)]` — mutation proved serde already yields `None` for a missing `Option`) plus a test pinning the literal `layer` wire key; no persisted payload changes shape |
 | Editor `project.godot` drifts on every editor run | `git checkout -- editor/project.godot` after each MCP/editor call; MCP enable lines are committed |
 | Six suites must pass after any editor change | Run all six; gate on exit codes |
 | No CI, no `rustfmt.toml`/`clippy.toml` | Lint/format are whatever is invoked by hand; nothing gates a push |

@@ -544,18 +544,23 @@ pub fn clamp_anchor(anchor: Anchor, map: &MapRect, view: &ViewState) -> (Anchor,
 }
 
 /// One validation failure as the loader's journal line, `Data` line 146 (test U7).
-pub fn journal_line(msg: &ValidationMessage, stack_key: &str, layer: &str) -> String {
+///
+/// The layer comes off the message itself, not a parameter: `ValidationMessage` now carries it
+/// because the only callers that know which layer failed are the per-layer rules deep inside
+/// `Stack::validate`, and no caller further out has any way to work it back out.
+pub fn journal_line(msg: &ValidationMessage, stack_key: &str) -> String {
     // Intent: a rejected stack must be diagnosable from the journal alone, without a debugger:
     // which stack, which layer, which field, what value, which rule. Data line 146 fixes the
     // shape, so this is formatting, not design - but the field order and the "-" for an absent
-    // field/value are part of the contract a log reader greps for.
+    // field/value/layer are part of the contract a log reader greps for.
     //
-    // A message without field/value renders "-", never an empty gap, so the line always has
-    // five key=value pairs and is machine-readable.
+    // A message without field/value/layer renders "-", never an empty gap, so the line always has
+    // five key=value pairs and is machine-readable. Whole-stack rules (schema_version,
+    // max_layers, art_count) have no layer and render "-".
     format!(
         "parallax.validate FAIL stack={} layer={} field={} value={} rule={}",
         stack_key,
-        layer,
+        msg.layer.as_deref().unwrap_or("-"),
         msg.field.as_deref().unwrap_or("-"),
         msg.value.as_deref().unwrap_or("-"),
         msg.code,
@@ -614,7 +619,10 @@ impl Stack {
         //   base_opaque      the base layer has art.fully_opaque AND both fills non-transparent
         //
         // Every message carries .with_field(...) and .with_value(...) so journal_line can render
-        // a complete line; put the layer's name in the message for the per-layer rules.
+        // a complete line. Every per-layer rule additionally carries .with_layer(...), which is
+        // where journal_line reads the layer from - no caller outside this loop could work the
+        // name back out, and the human-readable message is not something a formatter should have
+        // to parse. Whole-stack rules have no layer and render "-".
         // Two rules from Data section 4 are deliberately not here: "file exists" (this module
         // has no filename and no filesystem) and the backdrop.json anchor warning (that is the
         // loader's, in step 6).
@@ -653,7 +661,8 @@ impl Stack {
                             format!("{} must be an RGBA PNG", layer.name),
                         )
                         .with_field("file")
-                        .with_value(layer.file.clone()),
+                        .with_value(layer.file.clone())
+                        .with_layer(layer.name.as_str()),
                     );
                 }
                 if layer.fill_above != Fill::Transparent && !facts.top_row_opaque {
@@ -662,7 +671,8 @@ impl Stack {
                             "fill_edge_opaque",
                             format!("{} fill_above needs an opaque top row", layer.name),
                         )
-                        .with_field("fill_above"),
+                        .with_field("fill_above")
+                        .with_layer(layer.name.as_str()),
                     );
                 }
                 if layer.fill_below != Fill::Transparent && !facts.bottom_row_opaque {
@@ -671,7 +681,8 @@ impl Stack {
                             "fill_edge_opaque",
                             format!("{} fill_below needs an opaque bottom row", layer.name),
                         )
-                        .with_field("fill_below"),
+                        .with_field("fill_below")
+                        .with_layer(layer.name.as_str()),
                     );
                 }
             }
@@ -683,7 +694,8 @@ impl Stack {
                             format!("{} depth must be > -1", layer.name),
                         )
                         .with_field("parallax_depth")
-                        .with_value(depth_value.to_string()),
+                        .with_value(depth_value.to_string())
+                        .with_layer(layer.name.as_str()),
                     );
                 }
                 match layer.plane {
@@ -694,7 +706,8 @@ impl Stack {
                                 format!("{} is Back and needs depth >= 0", layer.name),
                             )
                             .with_field("plane_depth")
-                            .with_value(depth_value.to_string()),
+                            .with_value(depth_value.to_string())
+                            .with_layer(layer.name.as_str()),
                         );
                     }
                     Plane::Front if depth_value < -0.5 || depth_value >= 0.0 => {
@@ -704,7 +717,8 @@ impl Stack {
                                 format!("{} is Front and needs -0.5 <= depth < 0", layer.name),
                             )
                             .with_field("plane_depth")
-                            .with_value(depth_value.to_string()),
+                            .with_value(depth_value.to_string())
+                            .with_layer(layer.name.as_str()),
                         );
                     }
                     _ => {}
@@ -717,7 +731,8 @@ impl Stack {
                         format!("{} vertical_damping must be in [0, 1]", layer.name),
                     )
                     .with_field("vertical_damping")
-                    .with_value(layer.vertical_damping.to_string()),
+                    .with_value(layer.vertical_damping.to_string())
+                    .with_layer(layer.name.as_str()),
                 );
             }
         }
@@ -725,6 +740,10 @@ impl Stack {
         // The plane-level rules need the layers of a plane in draw order; base is the back
         // plane's lowest draw_order (the opaque canvas), exempt from draw_order_depth so a sun
         // tagged infinite may sit above it.
+        //
+        // These two deliberately carry NO .with_layer(...): each fires over a *pair* of layers,
+        // so there is no single correct name to put there. Their message text names both, and
+        // the raw `errors` array travels beside the journal lines, so nothing is lost.
         let base = self
             .layers
             .iter()
@@ -796,7 +815,10 @@ impl Stack {
                             "base_opaque",
                             format!("the base layer {} must be opaque", base_layer.name),
                         )
-                        .with_field("base"),
+                        .with_field("base")
+                        // One layer, unambiguous -- same per-layer rule as the loop above,
+                        // just evaluated here because it needs the whole plane to find the base.
+                        .with_layer(base_layer.name.as_str()),
                     );
                 }
             }
@@ -1567,7 +1589,9 @@ mod tests {
 
         let failing = bad_depth.validate(&art);
         let message = failing.errors().next().expect("one failure");
-        let line = journal_line(message, "neutral_default", "Sky");
+        // `layer=Sky` is read off the message now, not passed in: this asserts that
+        // `Stack::validate` tagged the per-layer rule with its layer at all.
+        let line = journal_line(message, "neutral_default");
         assert!(
             line.starts_with("parallax.validate FAIL stack=neutral_default layer=Sky"),
             "journal line was {:?}",
@@ -1732,12 +1756,44 @@ mod tests {
         let result = beyond.validate(&art);
         assert!(has_code(&result, "plane_depth"));
         let message = result.errors().next().expect("one failure");
-        let line = journal_line(message, "neutral_default", "Foreground");
+        let line = journal_line(message, "neutral_default");
+        assert!(
+            line.starts_with("parallax.validate FAIL stack=neutral_default layer=Foreground"),
+            "journal line was {:?}",
+            line
+        );
         assert!(
             line.contains("rule=plane_depth"),
             "journal line was {:?}",
             line
         );
+    }
+
+    /// A whole-stack rule has no layer, so the line renders `-` rather than a blank or a
+    /// carried-over name - the same convention field and value already use.
+    #[test]
+    fn u16_journal_line_renders_dash_for_a_whole_stack_rule() {
+        let mut stack = fixture_stack();
+        stack.schema_version = MANIFEST_SCHEMA_VERSION + 1;
+        let result = stack.validate(&fixture_art());
+        let message = result.errors().next().expect("one failure");
+        assert_eq!(message.code, "schema_version");
+        assert_eq!(message.layer, None);
+
+        let line = journal_line(message, "neutral_default");
+        assert!(
+            line.starts_with("parallax.validate FAIL stack=neutral_default layer=-"),
+            "journal line was {:?}",
+            line
+        );
+        // The greppable shape: `parallax.validate FAIL` plus five key=value pairs. A missing
+        // layer must not drop a pair or leave a gap, so count the pairs, not the words.
+        let pairs: Vec<&str> = line
+            .split(' ')
+            .filter(|token| token.contains('='))
+            .collect();
+        assert_eq!(pairs.len(), 5, "line was {:?}", line);
+        assert_eq!(line.matches("layer=").count(), 1, "line was {:?}", line);
     }
 
     /// U19: an authored anchor outside the camera bound is clamped, with one clamp line; an

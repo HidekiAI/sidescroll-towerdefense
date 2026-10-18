@@ -16,6 +16,17 @@ pub struct ValidationMessage {
     pub message: String,
     pub field: Option<String>,
     pub value: Option<String>,
+    /// The layer this failure belongs to, so `journal_line` can render `layer=` from the
+    /// message itself instead of a parameter its callers have no way to know. `None` for
+    /// whole-stack rules, which render `-` exactly as a missing field or value does.
+    ///
+    /// Deliberately NOT `#[serde(default)]`: serde's missing-field path returns `None` for any
+    /// `Option`, so a payload written before this field existed already parses without one.
+    /// Verified by mutation on 2026-10-18 -- deleting a `#[serde(default)]` from here changed no
+    /// test result, so the attribute would be decoration that reads as a requirement. The wire
+    /// spelling is what actually needs guarding; see
+    /// `validation_message_layer_is_optional_and_spelled_layer`.
+    pub layer: Option<String>,
 }
 
 impl ValidationMessage {
@@ -26,6 +37,7 @@ impl ValidationMessage {
             message: message.into(),
             field: None,
             value: None,
+            layer: None,
         }
     }
 
@@ -36,6 +48,7 @@ impl ValidationMessage {
             message: message.into(),
             field: None,
             value: None,
+            layer: None,
         }
     }
 
@@ -46,6 +59,13 @@ impl ValidationMessage {
 
     pub fn with_value(mut self, value: impl Into<String>) -> Self {
         self.value = Some(value.into());
+        self
+    }
+
+    /// Tag the layer this failure belongs to. Per-layer rules in `Stack::validate` call it so
+    /// `journal_line` can name the layer without the caller having to know it.
+    pub fn with_layer(mut self, layer: impl Into<String>) -> Self {
+        self.layer = Some(layer.into());
         self
     }
 }
@@ -175,6 +195,46 @@ mod tests {
     fn test_validation_message_warning_severity() {
         let msg = ValidationMessage::warning("WARN", "warning");
         assert_eq!(msg.severity, ValidationSeverity::Warning);
+    }
+
+    /// The wire contract for the additive `layer` field, in the two directions that matter.
+    ///
+    /// (1) Back-compat: a payload written before the field existed carries no `layer` key and
+    /// still parses. This half cannot fail by removing an attribute -- serde's missing-field
+    /// path yields `None` for any `Option`, which is why this struct carries no
+    /// `#[serde(default)]` (mutation 2026-10-18). It states the contract; it does not prove a
+    /// line of code.
+    ///
+    /// (2) The key is spelled `layer` on the wire, which IS killable: renaming the Rust field
+    /// moves the writer and the reader together, so `validation_message_round_trips_the_layer`
+    /// would stay green through the rename. Only asserting the literal catches it.
+    #[test]
+    fn validation_message_layer_is_optional_and_spelled_layer() {
+        let legacy = r#"{"severity":"Error","code":"parallax_depth","message":"Sky depth must be > -1","field":"parallax_depth","value":"-1"}"#;
+        let decoded: ValidationMessage =
+            serde_json::from_str(legacy).expect("legacy payload parses");
+        assert_eq!(decoded.layer, None);
+        assert_eq!(decoded.code, "parallax_depth");
+
+        let tagged = ValidationMessage::error("plane_depth", "Sky is Back").with_layer("Sky");
+        let wire = serde_json::to_string(&tagged).expect("encodes");
+        assert!(
+            wire.contains("\"layer\":\"Sky\""),
+            "wire payload was {wire}"
+        );
+    }
+
+    /// The decode half: the key a rename would move is read back into the field, so the bridge
+    /// can hand the layer to GDScript.
+    #[test]
+    fn validation_message_round_trips_the_layer() {
+        let msg = ValidationMessage::error("plane_depth", "Sky is Back")
+            .with_field("plane_depth")
+            .with_value("0.5")
+            .with_layer("Sky");
+        let encoded = serde_json::to_string(&msg).expect("encodes");
+        let decoded: ValidationMessage = serde_json::from_str(&encoded).expect("decodes");
+        assert_eq!(decoded.layer, Some("Sky".into()));
     }
 
     #[test]
