@@ -1,0 +1,123 @@
+{
+  "schema_version": 2,
+  "stack_key": "neutral_default",
+  "palette_key": "neutral",
+  "generator_seed": 1592598566,
+  "ref_view_px": {
+    "width": 1920.0,
+    "height": 1080.0
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "file": "sky.png",
+      "plane": "back",
+      "draw_order": 0,
+      "parallax_depth": {
+        "kind": "finite",
+        "value": 9.0
+      },
+      "vertical_damping": 0.8,
+      "repeat_x": true,
+      "ref_screen_left_px": 0.0,
+      "ref_screen_top_px": 0.0,
+      "fill_above": "#8896AAFF",
+      "fill_below": "#C2CAD0FF"
+    },
+    {
+      "name": "Sun",
+      "file": "sun.png",
+      "plane": "back",
+      "draw_order": 1,
+      "parallax_depth": {
+        "kind": "infinite"
+      },
+      "vertical_damping": 1.0,
+      "repeat_x": false,
+      "ref_screen_left_px": 1241.0,
+      "ref_screen_top_px": 194.0,
+      "fill_above": "transparent",
+      "fill_below": "transparent"
+    },
+    {
+      "name": "HighClouds",
+      "file": "clouds_high.png",
+      "plane": "back",
+      "draw_order": 2,
+      "parallax_depth": {
+        "kind": "finite",
+        "value": 4.0
+      },
+      "vertical_damping": 0.85,
+      "repeat_x": true,
+      "ref_screen_left_px": 0.0,
+      "ref_screen_top_px": 760.0,
+      "fill_above": "transparent",
+      "fill_below": "transparent"
+    },
+    {
+      "name": "LowClouds",
+      "file": "clouds_low.png",
+      "plane": "back",
+      "draw_order": 3,
+      "parallax_depth": {
+        "kind": "finite",
+        "value": 2.3333
+      },
+      "vertical_damping": 0.8333,
+      "repeat_x": true,
+      "ref_screen_left_px": 0.0,
+      "ref_screen_top_px": 760.0,
+      "fill_above": "transparent",
+      "fill_below": "transparent"
+    },
+    {
+      "name": "Hills",
+      "file": "hills.png",
+      "plane": "back",
+      "draw_order": 4,
+      "parallax_depth": {
+        "kind": "finite",
+        "value": 1.0
+      },
+      "vertical_damping": 0.84,
+      "repeat_x": true,
+      "ref_screen_left_px": 0.0,
+      "ref_screen_top_px": 696.0,
+      "fill_above": "transparent",
+      "fill_below": "#2E3834FF"
+    },
+    {
+      "name": "Forest",
+      "file": "forest.png",
+      "plane": "back",
+      "draw_order": 5,
+      "parallax_depth": {
+        "kind": "finite",
+        "value": 0.4286
+      },
+      "vertical_damping": 0.8571,
+      "repeat_x": true,
+      "ref_screen_left_px": 0.0,
+      "ref_screen_top_px": 760.0,
+      "fill_above": "transparent",
+      "fill_below": "#2E3834FF"
+    },
+    {
+      "name": "Foreground",
+      "file": "foreground.png",
+      "plane": "front",
+      "draw_order": 0,
+      "parallax_depth": {
+        "kind": "finite",
+        "value": -0.2308
+      },
+      "vertical_damping": 0.8846,
+      "repeat_x": true,
+      "ref_screen_left_px": 0.0,
+      "ref_screen_top_px": 760.0,
+      "fill_above": "transparent",
+      "fill_below": "#2E3834FF"
+    }
+  ]
+}

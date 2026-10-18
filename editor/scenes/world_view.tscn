@@ -1,0 +1,65 @@
+; WorldView -- PLAN-2026-10-16-parallax-step4.md section 4.1.
+;
+; The root is a Control, not the Node2D the plan's first sketch named. Reason, measured from
+; Godot4-Learnings section 1's anchor rule: a Control child of a NON-Control parent resolves its
+; anchors against the root viewport, so a Node2D root under TabContainer/Simulator would make
+; SubViewportContainer fill the whole editor window instead of the tab. WorldView is instanced
+; into a Control (the Simulator tab) and must fill it, so the Control chain has to stay intact.
+;
+; Anchors on SubViewportContainer are mandatory: without anchor_right/anchor_bottom 1.0 the rect
+; is 0x0, SubViewport follows it to 2x2, and nothing draws while nothing errors. That was the
+; blank-Simulator-tab bug recorded in main.tscn.
+;
+; The SubViewport keeps #101's isolation: its Camera2D moves that canvas only, which is what G3
+; asserts -- every editor Control keeps its global rect after the camera moves and zooms.
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/world_view.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/parallax_draw.gd" id="2"]
+
+[node name="WorldView" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="SubViewportContainer" type="SubViewportContainer" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+stretch = true
+
+; A real starting size, so the first poll queries a 1920 x 1080 ViewState instead of a 0 x 0 one
+; that the bridge would reject. `stretch = true` overwrites it as soon as the container lays out.
+[node name="Viewport" type="SubViewport" parent="SubViewportContainer"]
+size = Vector2i(1920, 1080)
+render_target_update_mode = 4
+
+[node name="BackPlane" type="CanvasLayer" parent="SubViewportContainer/Viewport"]
+layer = -1
+
+[node name="ParallaxDraw" type="Node2D" parent="SubViewportContainer/Viewport/BackPlane"]
+script = ExtResource("2")
+
+; Empty in #107: the tile layer's per-screen display is #108. It sits between the two planes,
+; which is exactly what the plane split exists to straddle.
+[node name="World" type="Node2D" parent="SubViewportContainer/Viewport"]
+
+[node name="FrontPlane" type="CanvasLayer" parent="SubViewportContainer/Viewport"]
+layer = 1
+
+[node name="ParallaxDraw" type="Node2D" parent="SubViewportContainer/Viewport/FrontPlane"]
+script = ExtResource("2")
+
+[node name="Camera2D" type="Camera2D" parent="SubViewportContainer/Viewport"]
+
+; Editor-only and empty; #108 fills it. A CanvasLayer draws over the viewport it lives in, so it
+; overlays the game canvas without being parented to it.
+[node name="Overlay" type="CanvasLayer" parent="."]
+layer = 2
+follow_viewport_enabled = true

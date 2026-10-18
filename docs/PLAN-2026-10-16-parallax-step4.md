@@ -150,9 +150,9 @@ the anchor, loading textures, and drawing. Nothing in GDScript re-derives a plac
 ### 4.1 Scene graph
 
 ```
-WorldView (Node2D, script res://scripts/world_view.gd)
-├── SubViewportContainer (script drives SubViewport size)
-│   └── SubViewport
+WorldView (Control, script res://scripts/world_view.gd)     -- scene: scenes/world_view.tscn
+├── SubViewportContainer (stretch = true, full-rect anchors)
+│   └── Viewport    SubViewport   size 1920 x 1080, update_mode = ALWAYS
 │       ├── BackPlane   CanvasLayer layer = -1
 │       │   └── ParallaxDraw   (script res://scripts/parallax_draw.gd)
 │       ├── World        Node2D          (empty in #107; ScreenGridDisplay per screen is #108)
@@ -161,6 +161,13 @@ WorldView (Node2D, script res://scripts/world_view.gd)
 │       └── Camera2D
 └── Overlay   CanvasLayer layer = 2, follow_viewport_enabled = true   (editor-only, empty)
 ```
+
+- **`Control`, not `Node2D` (deviation recorded while implementing, 2026-10-18).** This section's
+  first sketch said `Node2D`. Godot resolves a Control's anchors against the nearest Control
+  ancestor, and a `Node2D` in between breaks that chain back to the root viewport — so a `Node2D`
+  WorldView under `TabContainer/Simulator` would make `SubViewportContainer` fill the whole editor
+  window instead of the tab. WorldView is instanced into a Control and must fill it, so the
+  Control chain stays intact. Everything else in this section is unchanged.
 
 - The `SubViewport` keeps #101's isolation: its `Camera2D` cannot displace editor UI, which is what
   G3 asserts (every editor `Control` keeps its global rect after camera moves and zooms).
