@@ -8,12 +8,16 @@
 > and stop.
 
 _Last updated: 2026-10-18. Step 4 (#107) implementation is in flight on `local/feat/parallax-step4`
-(four commits past `fba7b46`; the gated plan is `docs/PLAN-2026-10-16-parallax-step4.md`). Steps 1-3
+(seven commits past `fba7b46`; the gated plan is `docs/PLAN-2026-10-16-parallax-step4.md`). Steps 1-3
 are code-complete on their own local branches. The Godot MCP bridge (#112) is installed and verified;
 the Godot 4 learnings ledger shipped to the wiki (#113). **Nothing in either repo is pushed.**
 
-**NEXT MOVE: finish #107's remaining plan sections, then run the eleven gates.** The runtime surface
-now exists and the real stack loads; what is left is the removals, the pixel gates and the docs.
+**NEXT MOVE: the two windowed pixel suites, then the docs pass, then the push ask.** Every plan
+section that touches code is landed and committed (4.2 through 4.9); four of section 6's six suites
+are green headless. What remains: `test_parallax_pixels.gd` (G5, G7, G12, S1) and
+`test_parallax_stretch.gd` (G19) -- both need `DISPLAY=:0.0`, because headless `RendererDummy` has
+no framebuffer -- then the plan/wiki/ticket corrections, then one push-permission ask covering both
+repos.
 
 1. **Committed so far on this branch** (`git log --oneline fba7b46..HEAD`):
    - `f71b465` -- `ValidationMessage.layer` + `journal_line` + the bridge's `stack_invalid` journal
@@ -32,6 +36,29 @@ now exists and the real stack loads; what is left is the removals, the pixel gat
    - `37e8734` -- `world_view.gd`, `parallax_loader.gd`, `camera_controller.gd`, `game_view.gd`,
      `world_view.tscn`, `game.tscn`, the `neutral_default` stack assets, and the deletion of
      `probe_parallax_scroll.gd`.
+   - `a8b533a` -- the checkpoint rewrite; `3471915` on the wiki repo extends the Godot4 learnings
+     ledger with three measured findings (the gdext `ClassDB.instantiate` leak, every JSON number
+     crossing as float, `hex_to_int()`'s partial parse).
+   - `547d500` -- **§4.9 + §4.7 as shipped.** `main.tscn`'s Simulator tab is now one
+     `WorldView` instance: `BackdropView` (SubViewportContainer + Camera2D), `BackdropStrip`,
+     `backdrop_preview.tscn`, both scrollbars (`BackdropScroll`/`BackdropScrollV`), `simulator.gd`,
+     `simulator.tscn` and `main.gd`'s dead `_instantiate_tabs()` are all deleted. The scrollbars
+     were NOT rewired -- they scrubbed the old camera, and a scrub control for the new stack is its
+     own ticket (stated in the scene's comment). The §4.7 `StatusLabel` lives in `world_view.tscn`,
+     not the tab, because §6 requires the suite to instantiate `WorldView` and a HUD hung on the
+     tab would be unreachable from it. Measured by probe: WorldView's rect equals the Simulator tab
+     rect exactly (189x33 headless), SubViewport tracks the container (not the 2x2 degenerate
+     case), HUD reads `neutral_default`.
+   - `ba9f605` -- **`test_parallax_backdrop.gd` rewritten for WorldView**, absorbing the D1-D5
+     drawer seam and deleting `test_parallax_draw.gd` (a seventh file §6 never listed). 30 checks,
+     rc=0; 5/5 mutants killed. Harness lesson recorded in plan §6: a recording loader assigned
+     before `add_child` is silently overwritten by `WorldView._ready()`, so the first run read
+     "got 0 requests" while the bridge had plainly been queried -- a wrong experiment that looks
+     like a vacuous guard.
+   - `ccb96ef` -- **`test_world_view.gd` (24 checks: shape, anchors, G3) and
+     `test_camera_controller.gd` (18 checks: G6, G13, small-bound clamp)**, 9/9 mutants killed.
+     Timing trap recorded in-suite: `SceneTree.process_frame` resumes BEFORE node `_process` runs,
+     so a target set and awaited once gets zero process frames -- the loop needs one priming frame.
 
 2. **Measured, not assumed.** The real `neutral_default` stack loads **7 placements, 6 back / 1
    front**, at a 1920 x 1080 viewport, with the anchor defaulting to the view centre (960, 540).
@@ -50,22 +77,26 @@ now exists and the real stack loads; what is left is the removals, the pixel gat
    lifetime, not to a feature branch.
 
 5. **Still owed on this branch, in order:**
-   - **§4.9 removals**: `simulator.gd`'s `_frame_backdrop` / `_size_layer_repeats` / 240 px clamp,
-     and `main.tscn`'s `BackdropView`, replaced by a `WorldView` instance. A stray `ParallaxDraw`
-     node that had been added under the old `BackdropView` was reverted rather than committed --
-     it was not called for by the plan and §4.9 deletes that subtree anyway.
-   - **§4.7 pixel gates**: `test_parallax_pixels.gd` (G5, G7, G12, S1) and
-     `test_parallax_stretch.gd` (G19), both windowed -- headless Godot runs `RendererDummy`, which
-     has no framebuffer to read back, so these need `DISPLAY=:0.0`. `test_world_view.gd` (G3, the
-     scene shape, the anchors, G1's plane split) and `test_camera_controller.gd` (G6, G13, the
-     small-bound `clamp_center`) are headless.
-   - **Wiki corrections**: `TDD_Parallax-Scrolling.Verification.md:127` says G7's overhang reads
-     `#C4CCD2` but `stack.json` emits `#C2CAD0FF` (measured 2026-10-18: 194,202,208 vs 196,204,210,
-     and the stack value carries alpha); `:129` specifies S1 "via gRPC `capture_screenshot`", which
-     needs grpcurl plus a running server that do not exist here -- the gate stays the scripted
-     `SubViewport.get_texture().get_image()` read, with the MCP recorded as the human-facing check
-     (this model cannot view images, so an MCP screenshot cannot be a gate for it). Add G19 to the
-     step-4 row and update TODO.md TS71.
+   - **The two windowed pixel suites** -- the last code-shaped work. `test_parallax_pixels.gd`
+     (G5, G7, G12, S1) and `test_parallax_stretch.gd` (G19, section 4.6's runtime stretch), both
+     needing `DISPLAY=:0.0`; headless Godot runs `RendererDummy`, which has no framebuffer to read
+     back. Together with the four suites already green (`test_parallax_backdrop`,
+     `test_parallax_bridge`, `test_world_view`, `test_camera_controller`) that completes section 6's
+     six. Mutation count so far on this branch's GDScript suites: **14 of 14 killed**
+     (5 backdrop + 5 world_view + 4 camera_controller).
+   - **Docs pass**: plan updates to match what shipped -- §4.9's scope resolution (scrollbars and
+     `simulator.gd`/`simulator.tscn`/`_instantiate_tabs` deleted, no scrub rewiring), the §4.7 HUD
+     landing in `world_view.tscn`, and §6's suite-name reconciliation (already recorded there in
+     `ba9f605`) -- plus wiki corrections: `TDD_Parallax-Scrolling.Verification.md:127` says G7's
+     overhang reads `#C4CCD2` but `stack.json` emits `#C2CAD0FF` (measured 2026-10-18: 194,202,208
+     vs 196,204,210, and the stack value carries alpha); `:129` specifies S1 "via gRPC
+     `capture_screenshot`", which needs grpcurl plus a running server that do not exist here -- the
+     gate stays the scripted `SubViewport.get_texture().get_image()` read, with MCP recorded as the
+     human-facing check (this model cannot view images, so an MCP screenshot cannot gate it). Add
+     G19 to the step-4 row and update TODO.md TS71. Then a #107 comment settling §4.9's scope.
+   - **The single push-permission ask** covering both repos, bundling the `chore/backdrop-png-cleanup`
+     (`77822e8`) drop/hold decision, the unattempted lint directive, and #115's self-check-loop
+     amendment.
 
 6. **Two follow-ups are filed rather than smuggled in**: #114 (the `sstd-core` version bump that
    `journal_line`'s signature change needs) and #115 (the Home.md indexing self-check reports
