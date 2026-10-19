@@ -643,7 +643,13 @@ MCP.
 2. **S1's mechanism is unavailable.** `Verification.md:129` names gRPC `capture_screenshot`. Correct
    it to the scripted texture read as the gate, with the MCP screenshot as the human-facing check and
    the reason stated (a PNG cannot be inspected by an image-less model).
-3. **The wiki step-4 row omits G19** while #107 includes it — add it.
+3. **The wiki step-4 row omits G19** while #107 includes it — add it. **Already discharged when
+   checked 2026-10-19:** `TDD_Parallax-Scrolling.Verification.md`'s pixel table carries a full G19 row
+   with its mutation column, so nothing was owed here; the check itself is the record. Corrections 1
+   and 2 landed on the wiki's `docs/parallax-step4-corrections` branch on 2026-10-19, together with
+   the measured corrections to G5/G7/G12 and the findings that no row can hold (the zoom-1 `152` px
+   residual's data cause, `sun.png`'s `period_px` 130, the whole-period-DELTA rule for pans, and the
+   drawer's fills riding the previous layer's transform).
 
 **Separate — follow-up ticket #115, not part of #107.** The Home.md indexing self-check in
 `.opencode/AGENTS.md` false-positives on sub-pages of an already-linked parent: it flags all four
