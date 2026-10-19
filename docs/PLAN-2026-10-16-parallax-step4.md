@@ -685,7 +685,7 @@ _Filled in as work ships; one row per landed step._
 | Three scope clarifications posted to #107 so the plan traces to the ticket | 2026-10-18, comment on #107 |
 | **plan-ticket-gate >= 90** | **pass — 95/100**, iteration 4 (history below) |
 | GDScript suites: `test_parallax_backdrop` (30), `test_world_view` (24), `test_camera_controller` (18), `test_parallax_pixels` (G5/G7/G12/S1), `test_parallax_stretch` (5) | **all exit 0**; pixel + stretch need `DISPLAY=:0.0` (headless `RendererDummy` has no framebuffer) |
-| Implementation of #107 | pending — windowed suites + mutation battery landed 2026-10-19; docs pass and push ask remain |
+| Implementation of #107 | **done and pushed 2026-10-19** — windowed suites + mutation battery landed, docs pass done, both repos pushed (`trunk` = `af0684b`, wiki `master` = `ff55a33`); gate re-run at `af0684b`: 138 Rust tests, seven GDScript suites, all exit 0 |
 
 ### Plan gate record (2026-10-18)
 

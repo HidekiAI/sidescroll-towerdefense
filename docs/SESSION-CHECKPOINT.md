@@ -7,26 +7,70 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-19. Step 4 (#107) implementation is in flight on `local/feat/parallax-step4`
-(seven commits past `fba7b46`; the gated plan is `docs/PLAN-2026-10-16-parallax-step4.md`). Steps 1-3
-are code-complete on their own local branches. The Godot MCP bridge (#112) is installed and verified;
-the Godot 4 learnings ledger shipped to the wiki (#113). **Nothing in either repo is pushed.**
+_Last updated: 2026-10-19, after the push. **Both repos are pushed and merged.** Code repo `trunk` =
+`af0684b` (was `cf0962d`); wiki `master` = `ff55a33` (was `d32efd2`). The gated plan of record is
+`docs/PLAN-2026-10-16-parallax-step4.md`. Steps 1-3 and step 4 (#107) all landed, together with the
+backdrop-PNG cleanup (#68) and the `editor/README.md` 4.7 toolchain fix (#102). The Godot MCP bridge
+(#112) is installed and verified; the Godot 4 learnings ledger (#113) and the step-1/2 wiki rows
+(#104/#105/#106) are on the wiki. **Closed on GitHub:** #107 (gate evidence in its closing comment),
+and #88, #99, #101 (each closed with its own mechanism-level evidence — their root causes, the
+`Parallax2D` registration and `backdrop_preview.tscn`'s hard-coded `position.y`, were deleted by this
+step in `547d500`), and #113 (the `Godot4-Learnings.md` page, now on wiki `master`). **Open:**
+#116-#118 (the follow-ups below), plus the pre-existing #111, #112, #114, #115. **Not yet
+verified:** #104, #105, #106 — their steps are code-complete and now on `trunk`, but nobody has
+re-read their acceptance criteria against the landed code, so they stay open until a session does
+that and either closes them or says why not.
 
-**NEXT MOVE: the single push ask.** All six of plan section 6's suites are green — the two windowed
-ones (`test_parallax_pixels.gd` for G5/G7/G12/S1 and `test_parallax_stretch.gd` for G19) landed in
-`bdeda7e` with their `.uid` files, and `b673172` recorded the plan's stale G19 correction. The docs
-pass is done in both repos: the code repo's plan and checkpoint are committed, the wiki corrections
-(`d9fbe19` on `docs/parallax-step4-corrections` in the wiki repo) and the #107 comment settling 4.9's
-scope plus the measured divergences are posted. What remains is one push-permission ask covering both
-repos; nothing in either repo is pushed.
+**NEXT MOVE: step 4 is finished; nothing is in flight.** Open follow-ups, in the order I would take
+them:
 
-0. **Status at a glance (2026-10-19):** six suites green (backdrop 30 checks, world_view 24,
-   camera_controller 18, parallax_pixels G5/G7/G12/S1, parallax_stretch 5, bridge); four pre-existing
-   GDScript suites exit 0; `parallax_draw.gd` unchanged from HEAD (every mutation reverted, `git diff`
-   empty); `editor/project.godot` drift-free; the two throwaway probes (`probe_g5_pan.gd`,
-   `probe_g12_fillorder.gd`) were deleted after the battery. Nothing pushed.
+- **#116** — the emitted `parallax_depth` is a 4-decimal rounding of the retired rates (a
+  deliberate #105 decision), and that is what caps G5's whole-period pan gate at a measured 152 px
+  budget instead of an exact assertion. Decide: author exact rates, or document the budget.
+- **#117** — a layer's `fill_above`/`fill_below` rects are drawn under the *previous* layer's
+  transform (`parallax_draw.gd:76-82` run before the `draw_set_transform` at `:91`). Latent only
+  because every non-first fill is transparent: the mutations measured 0 differing pixels of
+  2073600. A per-corridor stack (#110) would hit it.
+- **#118** — `editor/project.godot`'s `window/viewport_width|height` sit under `[rendering]`, so
+  they are inert and the editor window opens at Godot's default 1152x648, not the 1920x1080 the
+  parallax screen geometry assumes.
 
-1. **Committed so far on this branch** (`git log --oneline fba7b46..HEAD`):
+Left undecided for @me on 2026-10-19 (@me chose "land the PNG cleanup + README fix" only): the
+2026-10-15 lint sweep (~55 warnings, its own branch off `trunk`, see its section below), #115's
+Home.md self-check amendment, and the superseded-branch cleanup below.
+
+0. **Gate re-run at `af0684b` (2026-10-19, every suite gated on its exit code):** `cargo test -p
+   sstd-core` **138 passed**; `test_screen_store`, `test_image_to_map`, `test_terrain_brush`,
+   `test_override_merge` all exit 0 (`failures=0`); `test_parallax_backdrop` exit 0;
+   `test_parallax_pixels` (G5/G7/G12/S1) exit 0 under `DISPLAY=:0.0`; `test_parallax_stretch` (G19)
+   exit 0 under `DISPLAY=:0.0`. `parallax_draw.gd` unchanged from HEAD (every mutation reverted,
+   `git diff` empty); `editor/project.godot` drift-free; both throwaway probes (`probe_g5_pan.gd`,
+   `probe_g12_fillorder.gd`) deleted after the battery.
+
+**Finding — the wiki's `master` was force-updated while our clone was stale.** `git fetch` reported
+`+ 67850b1...d32efd2 master -> origin/master (forced update)`: the remote had rewritten history,
+collapsing 53 local commits into 4 with the same end state. **`git diff --stat master origin/master`
+was empty** — that is the check that distinguishes a history squash from a content change, and it is
+why the recovery could proceed: nothing was lost, only the lineage differed. Consequences: no branch
+built on the old base could fast-forward into `master` any more, and the already-pushed
+`docs/parallax-step4-corrections` carried 56 commits `origin/master` did not want. Fixed by
+cherry-pick, never force — 7 commits re-landed on a new branch off `d32efd2`
+(`docs/parallax-wiki-catchup`), two `TODO.md` conflicts resolved by keeping the newer TS71 text and
+taking their TS72-TS74 table, then `git merge --ff-only` into `master`. A duplicate TS72 ID fell out
+of the merge (the step-1 row and the #113 ledger row both claimed it); the newer ledger row became
+TS75. Local `master` was repointed at the remote tip with `git reset --hard origin/master` first —
+byte-identical trees, so its 53 pre-squash commits remain reachable through the old-lineage branches.
+
+**Branch state (deletions are @me's call; none taken).** Code repo: `trunk` `af0684b` current;
+`feat/parallax-step4` and `chore/backdrop-png-readme` merged into it. Superseded, awaiting a
+decision: `chore/backdrop-png-cleanup` and `docs/fix-readme-godot-version` (their two commits landed
+via `chore/backdrop-png-readme`), and `docs/m1-probe` (3 commits — its queued auto-build instruction
+is already implemented on `trunk` by #103's `bridge_autobuild`, and its AGENTS hunk moved the Python
+section that `trunk` still has intact). Wiki: `master` `ff55a33` current; `docs/parallax-wiki-catchup`
+merged; superseded: `docs/parallax-steps-1-2` and `docs/godot4-learnings` (both re-landed as
+cherry-picks) and the remote `docs/parallax-step4-corrections` (points at the pre-squash lineage).
+
+1. **What the step-4 branch carried, now on `trunk`** (`git log --oneline fba7b46..af0684b`):
    - `f71b465` -- `ValidationMessage.layer` + `journal_line` + the bridge's `stack_invalid` journal
      (core 137, bridge 26).
    - `879ac6d` -- **the integer/float wire fix.** GDScript's `JSON.parse_string` stores every number
