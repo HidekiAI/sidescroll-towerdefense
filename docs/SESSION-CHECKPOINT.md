@@ -12,12 +12,13 @@ _Last updated: 2026-10-19. Step 4 (#107) implementation is in flight on `local/f
 are code-complete on their own local branches. The Godot MCP bridge (#112) is installed and verified;
 the Godot 4 learnings ledger shipped to the wiki (#113). **Nothing in either repo is pushed.**
 
-**NEXT MOVE: the docs pass, then the single push ask.** All six of plan section 6's suites are now
-green — the two windowed ones (`test_parallax_pixels.gd` for G5/G7/G12/S1 and `test_parallax_stretch.gd`
-for G19) landed 2026-10-19 and exit 0 under `DISPLAY=:0.0`. Both are still untracked, so the commit
-that lands them plus their `.uid` files is the next code act; the mutation battery is complete and its
-three unkillable mutations are recorded in plan section 4.3.2 rather than papered over. Then: plan/wiki
-corrections, a #107 comment, and one push-permission ask covering both repos.
+**NEXT MOVE: the single push ask.** All six of plan section 6's suites are green — the two windowed
+ones (`test_parallax_pixels.gd` for G5/G7/G12/S1 and `test_parallax_stretch.gd` for G19) landed in
+`bdeda7e` with their `.uid` files, and `b673172` recorded the plan's stale G19 correction. The docs
+pass is done in both repos: the code repo's plan and checkpoint are committed, the wiki corrections
+(`d9fbe19` on `docs/parallax-step4-corrections` in the wiki repo) and the #107 comment settling 4.9's
+scope plus the measured divergences are posted. What remains is one push-permission ask covering both
+repos; nothing in either repo is pushed.
 
 0. **Status at a glance (2026-10-19):** six suites green (backdrop 30 checks, world_view 24,
    camera_controller 18, parallax_pixels G5/G7/G12/S1, parallax_stretch 5, bridge); four pre-existing
@@ -83,8 +84,9 @@ corrections, a #107 comment, and one push-permission ask covering both repos.
    lifetime, not to a feature branch.
 
 5. **Still owed on this branch, in order:**
-   - **Commit the two windowed suites + their `.uid`** (both untracked as of 2026-10-19). With those,
-     section 6's six suites are all green.
+   - **DONE 2026-10-19: the two windowed suites committed** in `bdeda7e` (`test_parallax_pixels.gd`,
+     `test_parallax_stretch.gd` and both `.uid`, generated with `--import`; `project.godot` showed no
+     drift afterwards). Section 6's six suites are all green.
    - **The measured findings behind the two windowed suites** -- full detail in plan section 4.3.2;
      the short form, because each one cost a run to learn:
      - G5 at zoom 0.25 asserts **in-frame periodicity** (480 px = 1920 x 0.25), not a pan: a
@@ -122,13 +124,12 @@ corrections, a #107 comment, and one push-permission ask covering both repos.
        layer's transform, so only each plane's first layer paints a screen-space fill. The one-line
        fix was measured as a render no-op with this stack; it wants a stack with a mid-layer fill
        colour that differs from the ground, plus its own ticket.
-   - **Docs pass**: plan sections 4.3/4.3.1/4.3.2/6/9 are updated as of 2026-10-19 (the two falsified
-     derivations are corrected in place, not deleted); still owed are the wiki corrections
-     (`TDD_Parallax-Scrolling.Verification.md:127` says G7's overhang reads `#C4CCD2` but `stack.json`
-     emits `#C2CAD0FF`; `:129` names gRPC `capture_screenshot`, unavailable here -- the gate is the
-     scripted `get_texture().get_image()` read with MCP as the human-facing check only; add G19 to the
-     step-4 row) and `TODO.md` TS71, then a #107 comment settling 4.9's scope plus the measured
-     divergences above.
+   - **DONE 2026-10-19: the docs pass.** Plan sections 4.3/4.3.1/4.3.2/6/7/9 are updated (the two
+     falsified derivations corrected in place, not deleted; 7's third correction was checked and is
+     already discharged — the wiki carries a full G19 row). Wiki corrections landed as `d9fbe19` on
+     `docs/parallax-step4-corrections` in the wiki repo (G5/G7/G12/S1 rows plus a measured-findings
+     note; TODO.md TS71 `designed` -> `in progress`). The #107 comment is posted:
+     https://github.com/HidekiAI/sidescroll-towerdefense/issues/107#issuecomment-6278295786
    - **The single push-permission ask** covering both repos, bundling the `chore/backdrop-png-cleanup`
      (`77822e8`) drop/hold decision, the unattempted lint directive, and #115's self-check-loop
      amendment. Also to be raised, not silently filed: the full-precision `parallax_depth` follow-up
