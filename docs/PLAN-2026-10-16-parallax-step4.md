@@ -241,16 +241,26 @@ with `texture_repeat = TEXTURE_REPEAT_ENABLED` on the node. The rect is in unsca
 the transform applies the zoom, so the on-screen period is `period_px * scale` (= `period_px * zoom`)
 — the requirement G5 asserts at both `1` and `0.25`.
 
-**A fill draws with its layer, never in a separate pass.** G12 pins this: with the camera 1000 px
-below a custom anchor, Forest's `fill_below` must paint rows 480..1080 and cover the Hills art in
-480..660; a fills-first pass would put sky between the hills and the ground. A fill is skipped only
-when `transparent` or its height `<= 0`.
+**A fill draws with its layer, never in a separate pass.** Intended so that a nearer fill can cover a
+farther layer's art. A fill is skipped only when `transparent` or its height `<= 0`.
 
-**G7 resolved from source.** The 24 px overhang shows `fill_below`, not sky art: `place_layer`
-repeats **x only** (`// Then the repeat, x only`), so nothing tiles downward past `art_bottom`, and
-G7's own mutation is *"set the fill to `transparent`"* — if art covered those rows, changing the fill
-would not change the observed colour and the mutation could not fail. The colour is `stack.json`'s
-`"fill_below": "#C2CAD0FF"`, not the wiki's stale `#C4CCD2` (TDD correction, section 7).
+**CORRECTED 2026-10-19 by measurement (section 4.3.2).** This paragraph claimed G12 pins "fills draw
+with their layer, never in a separate pass", with a fills-first pass putting "sky between the hills
+and the ground". Measured: hoisting every fill into a first pass produces a **bit-identical frame**
+at five cameras and three zooms (0 of 2,073,600 pixels differ, 10 frame comparisons), so the mutation
+cannot be killed by any assertion at those cameras — the mutant is a rendering no-op, not a weak
+guard. The same measurement shows the fill rects are drawn under the **previous** layer's transform
+(`draw_set_transform` persists), which is why only each plane's first layer has a screen-space fill;
+correcting that is likewise invisible with this stack. See 4.3.2 for the measurements and the
+follow-up.
+
+**G7 CORRECTED 2026-10-19 by measurement (section 4.3.2).** The 24 px overhang *was* derived from
+source as `fill_below`, on the reasoning that `place_layer` repeats **x only**, so nothing tiles
+downward past `art_bottom`. Measured, the bottom-24-row colour is **ground-coloured ART**, not a fill:
+skipping the `fill_below` draw leaves G7's two checks green, and the mutation that kills the fill
+claim is the fills-skipped one over G12's rows. G7 therefore pins the observed colour (`#2E3834`,
+below the Sky fill `#C2CAD0`), and the drawer's own correctness on those rows is carried by G12.
+The wiki's stale `#C4CCD2` correction still stands (TDD correction, section 7).
 
 #### 4.3.1 Spike G5 — the one genuine unknown
 
@@ -270,6 +280,75 @@ code path, not the design.**
 Second G5 assertion, independent of the path: at zoom `1`, `texture_filter` must be `NEAREST`, or the
 probe row above the Hills art top blends and the mutation `set ParallaxDraw.texture_filter = LINEAR`
 turns it red.
+
+**CORRECTED 2026-10-19 (section 4.3.2): that second assertion is unkillable as scoped.** At zoom `1`
+the strips are drawn at their own 1:1 pixel scale, so `NEAREST` and `LINEAR` sample identically; the
+mutation survives every check in both windowed suites. The filter is still asserted (it is a real
+requirement at non-1 zooms) but it has no mutant behind it, and is recorded as such rather than
+counted as falsified coverage.
+
+#### 4.3.2 Measured corrections from the windowed suites (2026-10-19)
+
+Both windowed suites are green headless-of-DISPLAY (`DISPLAY=:0.0`), exit code 0, and their mutation
+battery is recorded here because three of the plan's own derived claims did not survive measurement.
+Every number below is measured, with the command that produced it.
+
+**G5's shape changed, for a measured reason.** A whole-period pan cannot kill the scale mutation at
+all: `first_copy_left_px` is the only pan-dependent quantity the drawer reads, and a whole-period pan
+leaves it at the same phase, so the frame is identical in the correct code *and* in the mutant. The
+plan's "zoom 0.25 repeats the frame after a pan" form was therefore replaced by an **in-frame**
+assertion of the plan's literal claim — the on-screen period is `period_px * zoom`, so at zoom 0.25
+the frame must repeat every **480 px across a single probe row** (`ZOOM_QUARTER_PERIOD_PX = 480`,
+row 620). Measured: 0 mismatches correct, **1205 mismatches under mutation (b)**
+(`Vector2(scale_value, scale_value)` -> `Vector2.ONE`), so the check is falsifiable and the mutation
+is killed by it. Zoom 1 keeps the whole-period pan (`ZOOM_ONE_PAN_PX = 19200`) with a MEASURED budget.
+
+**The zoom-1 pan residual is 152 px, and its cause is data, not code.** `ZOOM_ONE_PAN_PX = 19200` is
+the smallest pan that is whole-period for all six strips (rates k/10, k = 1,2,3,5,7,13), so all six
+return to phase; the residual 152 px comes from `stack.json` carrying `parallax_depth` rounded to 4
+decimal places (2.3333, 0.4286, -0.2308), which makes Foreground's rate 1.30000522 instead of 1.3 —
+0.9984 px of drift over 19200, which `snap()` (`floor(v + 0.5)`) turns into a genuine 1 px shift, and
+the stripe of rows 1015..1033 is that shift. `_pan_rounding_budget()` is therefore **160** (152
+measured + 8 hair), never 0: a 0 budget would be a vacuous exact-equality assert. A node search over
+P = 19200m ± 12 (m <= 400) found **no** pan where all six layers are whole-period, so an exact
+reproduce assert is unachievable with the current data. Full-precision `parallax_depth` in the
+generated stack is a `tools/gen-backdrop` (issue #105) matter, filed as a follow-up rather than fixed
+here.
+
+**A harness bug of my own, worth recording.** The probe first captured at the scene's default camera
+(0,0) and then panned to 960 + 19200, giving a delta of 20160 — not whole periods (Sky drifts 2016 =
+1 period + 96), so the diff was 1202952 px and looked like a rendering defect. Capturing after
+`move_camera_to(960.0, 540.0)` restored the 152. The lesson: **pan invariance depends on the DELTA
+being whole-period, not on the absolute position.** The same probe settled the startup question
+separately — the backdrop does draw at startup (0 clear pixels of 2073600, 7 placements at (0,0),
+zoom 1), so the old "runtime rendering unverified" note is closed as a non-defect for the new stack.
+
+**Per-layer periods, measured at zoom 0.25 (anchor 960/540):** `sky` 1920, `clouds_high`,
+`clouds_low`, `hills`, `forest`, `foreground` all 1920, and **`sun` 130** (a single non-tiling
+sprite). So a full-frame 480-periodicity check does NOT hold at zoom 0.25: measured 1590 mismatches,
+bbox col 591..1877, rows 455..661 — mostly the `sun` band (rows 455..485, up to 62 per row) plus
+1-5-per-row copy-coverage edges in rows 595..661. Rows 0..454 are clean, but row 250 measured
+**variation 0** (flat), which makes a period compare there vacuous, hence probe **row 620** (variation
+204 correct, 78 under the mutation — still above the non-vacuity floor). Zoom 1's period-480 control
+is 734081 mismatches on the anchor frame, which is the non-vacuity proof that at zoom 1 the period is
+not 480.
+
+**Mutants, honest count.** Killed: (a) skip the `fill_below` draw — killed by G12's first check (rows
+400/1000/1070 lose the ground colour), NOT by G7; (b) drop the placement scale — killed by G5's
+zoom-0.25 check (1205 mismatches). Unkillable as scoped, reported rather than papered over: (c) a
+fills-first pass and (d) drawing the fills in screen space by resetting the transform first — both
+measured **bit-identical** to the correct render at zoom 1/0.5/0.25 x cam y 540/1540/2000/3000
+(0 differing pixels in every comparison), so no assertion at those cameras could kill them; the
+`texture_filter = LINEAR` mutation is likewise unkillable at zoom 1 (above). The correct stack's fills
+are all the same ground colour and the front-plane foreground art already covers the band the fills
+would cover, which is why order and transform are unobservable in the render with this data.
+
+**Candidate follow-up (not changed here; the drawer matches 4.3 verbatim and no gate fails):** the
+fill rects are screen-space by construction yet are drawn under the previous layer's transform, so
+only each plane's first layer (Sky on BackPlane — zero-height at these cameras; Foreground on
+FrontPlane) actually paints in screen space. The one-line fix (reset the transform before the fills)
+was measured as a no-op render with the current stack, so it is a latent-correctness change that wants
+a stack whose mid-layer fill colour differs from the ground, plus its own ticket.
 
 ### 4.4 Redraw policy — on `ViewState` change, never per frame
 
@@ -524,6 +603,25 @@ green). Mutants, all four KILLED:
 The non-kill is the useful record: a test that passed on arrival and could not fail was not
 coverage, and only the mutation showed it.
 
+**As executed (2026-10-19), the two windowed suites landed.** `test_parallax_pixels.gd` (G5, G7, G12,
+S1) and `test_parallax_stretch.gd` (G19, 5 checks) both exit 0 under `DISPLAY=:0.0` — the suites set
+`root.size = 1920x1080` themselves, because `editor/project.godot`'s viewport size is inert (it sits
+under `[rendering]`, not `[display]`, so the window opens 1152x648). Their mutation results, including
+three mutations that are **unkillable as scoped** and why, are in 4.3.2 — the plan's G5 pan form, its
+G7 fill derivation and its G12 "fills-first" claim were all corrected there by measurement.
+
+Three row-by-row notes on this section's own predictions, kept because they are the falsifiable part
+of the plan:
+
+- **G7's mutation as written here does not exist.** The row implies the overhang colour *is* the fill;
+  measured, it is ground-coloured art, so skipping the fill leaves G7 green and it is G12's first
+  check that kills the fill mutation. G7 now pins coverage rather than mechanism.
+- **G12's second check cannot kill a fills-first pass**, measured bit-identical (see 4.3.2).
+- **S1 asserts a full-frame coverage invariant**, not a golden PNG. Golden frames were deliberately
+  NOT committed: the render is GPU-produced and not bit-reproducible across machines, and this model
+  cannot view an image to approve one, so a stored PNG would be a baseline nobody can re-baseline
+  honestly. The invariant (0 clear-colour pixels in the anchored frame) is re-derivable anywhere.
+
 Two harness defects surfaced while proving the table above and are written up in
 `$HOME/Documents/opencode/test-falsifiability-and-mutation-verification.md` §8: a build-failure
 detector loose enough to match `test error::tests::...` (reported every mutant as void), and a
@@ -580,7 +678,8 @@ _Filled in as work ships; one row per landed step._
 | Plan rewritten to full #107 scope, both drawer views kept | 2026-10-18 |
 | Three scope clarifications posted to #107 so the plan traces to the ticket | 2026-10-18, comment on #107 |
 | **plan-ticket-gate >= 90** | **pass — 95/100**, iteration 4 (history below) |
-| Implementation of #107 | pending |
+| GDScript suites: `test_parallax_backdrop` (30), `test_world_view` (24), `test_camera_controller` (18), `test_parallax_pixels` (G5/G7/G12/S1), `test_parallax_stretch` (5) | **all exit 0**; pixel + stretch need `DISPLAY=:0.0` (headless `RendererDummy` has no framebuffer) |
+| Implementation of #107 | pending — windowed suites + mutation battery landed 2026-10-19; docs pass and push ask remain |
 
 ### Plan gate record (2026-10-18)
 

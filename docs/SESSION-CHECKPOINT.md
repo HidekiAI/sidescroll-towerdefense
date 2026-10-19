@@ -7,17 +7,23 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-18. Step 4 (#107) implementation is in flight on `local/feat/parallax-step4`
+_Last updated: 2026-10-19. Step 4 (#107) implementation is in flight on `local/feat/parallax-step4`
 (seven commits past `fba7b46`; the gated plan is `docs/PLAN-2026-10-16-parallax-step4.md`). Steps 1-3
 are code-complete on their own local branches. The Godot MCP bridge (#112) is installed and verified;
 the Godot 4 learnings ledger shipped to the wiki (#113). **Nothing in either repo is pushed.**
 
-**NEXT MOVE: the two windowed pixel suites, then the docs pass, then the push ask.** Every plan
-section that touches code is landed and committed (4.2 through 4.9); four of section 6's six suites
-are green headless. What remains: `test_parallax_pixels.gd` (G5, G7, G12, S1) and
-`test_parallax_stretch.gd` (G19) -- both need `DISPLAY=:0.0`, because headless `RendererDummy` has
-no framebuffer -- then the plan/wiki/ticket corrections, then one push-permission ask covering both
-repos.
+**NEXT MOVE: the docs pass, then the single push ask.** All six of plan section 6's suites are now
+green — the two windowed ones (`test_parallax_pixels.gd` for G5/G7/G12/S1 and `test_parallax_stretch.gd`
+for G19) landed 2026-10-19 and exit 0 under `DISPLAY=:0.0`. Both are still untracked, so the commit
+that lands them plus their `.uid` files is the next code act; the mutation battery is complete and its
+three unkillable mutations are recorded in plan section 4.3.2 rather than papered over. Then: plan/wiki
+corrections, a #107 comment, and one push-permission ask covering both repos.
+
+0. **Status at a glance (2026-10-19):** six suites green (backdrop 30 checks, world_view 24,
+   camera_controller 18, parallax_pixels G5/G7/G12/S1, parallax_stretch 5, bridge); four pre-existing
+   GDScript suites exit 0; `parallax_draw.gd` unchanged from HEAD (every mutation reverted, `git diff`
+   empty); `editor/project.godot` drift-free; the two throwaway probes (`probe_g5_pan.gd`,
+   `probe_g12_fillorder.gd`) were deleted after the battery. Nothing pushed.
 
 1. **Committed so far on this branch** (`git log --oneline fba7b46..HEAD`):
    - `f71b465` -- `ValidationMessage.layer` + `journal_line` + the bridge's `stack_invalid` journal
@@ -77,26 +83,58 @@ repos.
    lifetime, not to a feature branch.
 
 5. **Still owed on this branch, in order:**
-   - **The two windowed pixel suites** -- the last code-shaped work. `test_parallax_pixels.gd`
-     (G5, G7, G12, S1) and `test_parallax_stretch.gd` (G19, section 4.6's runtime stretch), both
-     needing `DISPLAY=:0.0`; headless Godot runs `RendererDummy`, which has no framebuffer to read
-     back. Together with the four suites already green (`test_parallax_backdrop`,
-     `test_parallax_bridge`, `test_world_view`, `test_camera_controller`) that completes section 6's
-     six. Mutation count so far on this branch's GDScript suites: **14 of 14 killed**
-     (5 backdrop + 5 world_view + 4 camera_controller).
-   - **Docs pass**: plan updates to match what shipped -- §4.9's scope resolution (scrollbars and
-     `simulator.gd`/`simulator.tscn`/`_instantiate_tabs` deleted, no scrub rewiring), the §4.7 HUD
-     landing in `world_view.tscn`, and §6's suite-name reconciliation (already recorded there in
-     `ba9f605`) -- plus wiki corrections: `TDD_Parallax-Scrolling.Verification.md:127` says G7's
-     overhang reads `#C4CCD2` but `stack.json` emits `#C2CAD0FF` (measured 2026-10-18: 194,202,208
-     vs 196,204,210, and the stack value carries alpha); `:129` specifies S1 "via gRPC
-     `capture_screenshot`", which needs grpcurl plus a running server that do not exist here -- the
-     gate stays the scripted `SubViewport.get_texture().get_image()` read, with MCP recorded as the
-     human-facing check (this model cannot view images, so an MCP screenshot cannot gate it). Add
-     G19 to the step-4 row and update TODO.md TS71. Then a #107 comment settling §4.9's scope.
+   - **Commit the two windowed suites + their `.uid`** (both untracked as of 2026-10-19). With those,
+     section 6's six suites are all green.
+   - **The measured findings behind the two windowed suites** -- full detail in plan section 4.3.2;
+     the short form, because each one cost a run to learn:
+     - G5 at zoom 0.25 asserts **in-frame periodicity** (480 px = 1920 x 0.25), not a pan: a
+       whole-period pan leaves `first_copy_left_px` at the same phase, so it is identical in the
+       correct code and in the scale mutant -- the pan form could not have killed the mutation.
+       Measured 0 mismatches correct, **1205** under the mutant, on probe row 620.
+     - G5 at zoom 1 uses `ZOOM_ONE_PAN_PX = 19200` (whole-period for all six strips: rates k/10 with
+       k = 1,2,3,5,7,13) with a MEASURED 152 px residual and `_pan_rounding_budget()` = **160**
+       (152 + 8). Cause of the 152: `stack.json`'s `parallax_depth` is rounded to 4 dp
+       (2.3333, 0.4286, -0.2308), making Foreground's rate 1.30000522 -- 0.9984 px over 19200, which
+       `snap()` (`floor(v + 0.5)`) turns into a real 1 px shift on rows 1015..1033. No pan exists
+       where all six are whole-period (searched P = 19200m ± 12, m <= 400), so a 0 budget is
+       unachievable; full-precision depth is a `gen-backdrop` (#105) follow-up, not #107's.
+     - **Harness lesson:** pan invariance needs the **DELTA** to be whole-period. Capturing at the
+       scene default (0,0) then panning to 960 + 19200 gives delta 20160 = 1 period + 96 for Sky, and
+       a 1202952 px diff that is not a defect. `move_camera_to(960.0, 540.0)` before the first
+       capture restores 152.
+     - The backdrop **does** draw at startup (0 clear pixels of 2073600, 7 placements, camera (0,0),
+       zoom 1) -- the old "runtime rendering unverified" note is closed as a non-defect for the new
+       stack.
+     - Per-layer `period_px` at 0.25: `sky` and all five strips 1920, **`sun` 130** (single
+       non-tiling sprite). So full-frame 480-periodicity is FALSE at 0.25 (1590 mismatches: the sun
+       band rows 455..485 plus 1-5-per-row coverage edges in rows 595..661), row 250 is flat
+       (variation 0, a vacuous probe), and row 620 is the probe row (variation 204 correct, 78 under
+       the mutant).
+     - **Mutations: 2 killed, 3 unkillable as scoped, all recorded.** Killed: skip `fill_below`
+       (G12's first check, not G7), drop the placement scale (G5 zoom 0.25). Unkillable: a fills-first
+       pass and the screen-space-fill reset are both **bit-identical** to the correct render at zoom
+       1/0.5/0.25 x cam y 540/1540/2000/3000 (0 of 2073600 pixels differ, 10 comparisons), and
+       `texture_filter = LINEAR` is a no-op at zoom 1 where the strips draw 1:1. The reason is data:
+       every fill in the stack is the same ground colour and the front-plane foreground art already
+       covers the band the fills would cover.
+     - **Latent defect, deliberately NOT changed** (the drawer matches plan 4.3 verbatim and no gate
+       fails): the fill rects are screen-space by construction but are drawn under the **previous**
+       layer's transform, so only each plane's first layer paints a screen-space fill. The one-line
+       fix was measured as a render no-op with this stack; it wants a stack with a mid-layer fill
+       colour that differs from the ground, plus its own ticket.
+   - **Docs pass**: plan sections 4.3/4.3.1/4.3.2/6/9 are updated as of 2026-10-19 (the two falsified
+     derivations are corrected in place, not deleted); still owed are the wiki corrections
+     (`TDD_Parallax-Scrolling.Verification.md:127` says G7's overhang reads `#C4CCD2` but `stack.json`
+     emits `#C2CAD0FF`; `:129` names gRPC `capture_screenshot`, unavailable here -- the gate is the
+     scripted `get_texture().get_image()` read with MCP as the human-facing check only; add G19 to the
+     step-4 row) and `TODO.md` TS71, then a #107 comment settling 4.9's scope plus the measured
+     divergences above.
    - **The single push-permission ask** covering both repos, bundling the `chore/backdrop-png-cleanup`
      (`77822e8`) drop/hold decision, the unattempted lint directive, and #115's self-check-loop
-     amendment.
+     amendment. Also to be raised, not silently filed: the full-precision `parallax_depth` follow-up
+     (#105-side), the fill-transform latent defect, and `editor/project.godot`'s inert viewport size
+     (it sits under `[rendering]`, so the window opens 1152x648 and both windowed suites must set
+     `root.size` themselves).
 
 6. **Two follow-ups are filed rather than smuggled in**: #114 (the `sstd-core` version bump that
    `journal_line`'s signature change needs) and #115 (the Home.md indexing self-check reports
@@ -118,6 +156,37 @@ repos.
 
 Newest first. The CURRENT STATE block above is the resume point; this is "what was done, in order,
 with evidence"; the wiki `TODO.md` is the design/work tracker. Every entry names its commit.
+
+### 2026-10-19 — step 4 (#107): the two windowed suites, green, with the mutation battery
+
+The last code-shaped work of #107. Both suites need `DISPLAY=:0.0` (headless `RendererDummy` has no
+framebuffer); both set `root.size = 1920x1080` themselves because `project.godot`'s viewport size is
+inert (misplaced under `[rendering]`, so the window opens 1152x648). Full measurements are in plan
+section 4.3.2 and the CURRENT STATE block above; this entry is the order of events.
+
+1. `test_parallax_pixels.gd` (G5, G7, G12, S1) and `test_parallax_stretch.gd` (G19, 5 checks) both
+   exit 0. Suites are still untracked at the time of writing; the landing commit adds both plus
+   their `.uid`.
+2. **G5's form changed because the plan's form was measured unfalsifiable.** A whole-period pan
+   leaves `first_copy_left_px` at the same phase, so the frame is identical in the correct code AND
+   under the scale mutation — the pan could never kill it. Zoom 0.25 now asserts the plan's literal
+   claim in-frame (period 480 across probe row 620): 0 mismatches correct, 1205 under the mutation.
+   Zoom 1 keeps the 19200 pan (whole-period for all six strips) with the measured 152 residual and a
+   160 budget, replacing the plan's implicit 0.
+3. **Three of the plan's derived claims were falsified and are corrected in the plan, not deleted:**
+   (i) G7's overhang colour is ground-coloured ART, so skipping `fill_below` leaves G7 green — the
+   fill mutation is killed by G12 instead; (ii) G12's "a fills-first pass would put sky between the
+   hills and the ground" is measured as a **bit-identical** frame (0 of 2073600 pixels, at five
+   cameras and three zooms), so that mutation is unkillable because it is a no-op; (iii) the
+   `texture_filter = LINEAR` mutation is a no-op at zoom 1 where strips draw 1:1.
+4. **Honest mutation count for these two suites: 2 killed, 3 unkillable**, the unkillable three
+   each explained by measurement rather than excused.
+5. **A harness bug of my own, recorded:** capturing before `move_camera_to(960, 540)` made the pan
+   delta 20160 (Sky drifts 1 period + 96) and produced a 1202952 px "defect" that was not one.
+   Pan invariance depends on the DELTA being whole-period. The same probe closed the old
+   "runtime rendering unverified" note: the backdrop draws at startup (0 clear pixels of 2073600).
+6. Two throwaway probes (`probe_g5_pan.gd`, `probe_g12_fillorder.gd`) were deleted; `parallax_draw.gd`
+   is at HEAD (`git diff` empty after every mutation).
 
 ### 2026-10-15 — step 2 (#105): the six blocks, green and mutation-verified
 
