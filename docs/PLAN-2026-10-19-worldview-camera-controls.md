@@ -33,8 +33,8 @@ proves it. A criterion with no gate here is a criterion this plan does not actua
 | 2 | the view cannot be panned past the map plus one screen, either axis, at any rung | §4.5 bound derivation and clamp | G18, asserted at all four rungs |
 | 3 | zoom keeps the world point under the cursor fixed, and only lands on `2 / 1 / 0.5 / 0.25` | §4.6 anchored move and ladder | G8 (anchored), G14 (ladder) |
 | 4 | entering the Simulator tab centres on the active screen; picking another screen and returning re-centres | §4.7 one activation rule, including which editor owns the "active" id | G20, with a Placement-tab pick case |
-| 5 | `cargo test -p sstd-core` and the five existing GDScript suites stay green, exit-code gated; the two new gates pass windowed and each is mutation-verified | §9 sequence, §9 baseline reconciliation for #85, §6 mutation battery | every command in §9 exits 0, except `test_screen_store.gd` which must exit exactly what it exited on the pre-branch baseline (#85); each new gate red under its listed mutation |
-| 6 | the wiki design pages are updated to match what shipped (input contract, Start/Jump activation rule, gates) in the same pass | §10 | after the code lands: a read-through of the five named wiki pages against the shipped code, one page at a time, before the code branch is pushed. The pages that already exist describe the *design*; the post-code pass checks they still describe the *implementation* |
+| 5 | `cargo test -p sstd-core` and the five existing GDScript suites stay green, exit-code gated; the two new gates pass windowed and each is mutation-verified | §9 sequence, §9 baseline reconciliation for #85, §6 mutation battery | every suite that exists on the pre-branch `trunk` exits 0 (except `test_screen_store.gd`, which must exit exactly what it exited on that same baseline — #85), `cargo test -p sstd-core` exits 0, and each new gate goes red under its listed mutation. The ticket says "five suites"; the repo has 11 today, so the criterion is read as its intent — no regression against the baseline — and §9.1 records the correction |
+| 6 | the wiki design pages are updated to match what shipped (input contract, Start/Jump activation rule, gates) in the same pass | §10 | every page in §10 holds a sentence stating the shipped behaviour, and the closing comment on #119 cites each page with the claim it now makes. If any page contradicts the code, the ticket stays open. That is a checklist with a named artifact, not a read-through |
 | Rule (ticket, "Rounding") | `cam_center` is rounded to whole world px so tiles and backdrops share one pixel grid | §4.5 (`roundf` before `move_camera_to`) | G18: pan by a fraction (arrow step at zoom 0.25 is 960 px, at zoom 2 it is 120 px; a drag of 1 px at zoom 0.5 gives 2 px, but `view_px / (8 * 0.25)` from an odd centre does not land on an integer) and assert `cam_center == cam_center.round()`. Mutation: drop `roundf` |
 
 
@@ -179,7 +179,7 @@ Event table:
 | `InputEventMouseMotion` with `_dragging_middle` | `_pan_by_world_px(-event.relative / zoom)` |
 | `InputEventKey`, `is_action_pressed(action, true)` for `ui_left/right/up/down` | `_pan_by_world_px(step)` where `step = view_px / (ARROW_PAN_DIVISOR * zoom)`. The second argument is `allow_echo = true`; the Godot 4 default is `false`, which would drop every held-key repeat and make G18's "press and echo" half untestable |
 | `InputEventMouseButton`, wheel up/down, `is_command_or_control_pressed()` | `_step_zoom_rung(-1 / +1, event.position - get_global_rect().position)` |
-| `InputEventKey` `KEY_EQUAL` / `KEY_PLUS` / `KEY_MINUS` | `_step_zoom_rung(±1, _viewport.size * 0.5)` |
+| `InputEventKey` `KEY_EQUAL` / `KEY_PLUS` / `KEY_MINUS`, **`pressed` and not `is_echo()`** | `_step_zoom_rung(±1, _viewport.size * 0.5)`. The filters matter: without `pressed` a release steps the ladder again, and without the echo test one held `+` shifts two rungs per repetition interval |
 | wheel without Ctrl | untouched — the Map tab's brush radius (G14) |
 
 `event.position` is in root-viewport coordinates; `_step_zoom_rung` takes a position measured
@@ -257,9 +257,10 @@ func _apply_cam_center_clamped(world_px_center: Vector2) -> void:
     move_camera_to(roundf(target.x), roundf(target.y))
 ```
 
-`CameraController._clamp_center` is promoted to `static func clamp_center(...)`; its body and
-its small-bound case (`bound_low + half view`, **not** the midpoint) are unchanged, and its one
-internal call site becomes `clamp_center(...)`. One copy, two users.
+`CameraController._clamp_center` (`camera_controller.gd:92-96`) is promoted to
+`static func clamp_center(...)`; its body and its small-bound case (`bound_low + half view`,
+**not** the midpoint) are unchanged, and its two internal call sites (`:78-79`, one per axis)
+become `clamp_center(...)`. One copy, two users.
 
 ### 4.6 Zoom ladder and the anchored move
 
@@ -325,6 +326,12 @@ Read, not copy: writing Placement's id back into `map_editor` would change what 
 shows, which is a behaviour neither the ticket nor the design asks for. The asymmetry is
 pre-existing (`main.gd:270` copies one way only) and is recorded here rather than "fixed".
 
+This also satisfies the design's Jump clause, "moves `cam_center` to that screen's centre and
+makes it the active screen for add / delete / move / clone": the pick already made that screen
+active inside the editor that owns those operations, and the Simulator performs none of them, so
+there is nothing for it to promote. What the clause needs from this ticket is only that the
+camera reads the pick, which is what the read-not-copy rule does.
+
 ```gdscript
 func center_on_screen(screen_id: int) -> void:
     if _screen_store == null:
@@ -384,7 +391,7 @@ echo "exit=$?"
 |---|---|---|
 | G18 pan and clamp | middle drag `(dx, dy)` at zoom 1 moves `cam_center` by exactly `(-dx, -dy)`; at zoom 0.5 by `(-dx/0.5, -dy/0.5)`; one arrow press and one echo move `view_px / (8 * zoom)`; a drag far past the bound stops at `bound ± view/(2*zoom)` on that axis **and does so at all four rungs** (2, 1, 0.5, 0.25 — the view extent doubles as the zoom halves, so one rung cannot stand in for another); every editor `Control` keeps its global rect; `is_processing_input()` is true; and every centre it lands on is whole world px (the ticket's rounding rule — one arrow step at zoom 0.25 from an even centre would otherwise land on a half px) | (a) pan `+` instead of `-`; (b) pan `event.relative` without `/ zoom`; (c) drop the one-screen margin from the bound; (d) drop the half-view inset; (e) `set_process_input(false)`; (f) remove the `is_visible_in_tree()` gate and assert a hidden view does not pan; (g) drop the `roundf` |
 | G20 start and jump | entering the tab puts `cam_center` at the active screen's centre for `(0,0)` and `(1,0)`; picking another screen and re-entering re-centres; a pick made inside the **Placement** tab also re-centres (set `current_tab = 3`, set `placement_editor._screen_id` to the second screen, call `_on_tab_changed(4)`) | (a) always centre on `(0,0)`; (b) centre on the screen's top-left corner; (c) skip the clamp so an edge screen is centred off-bound — caught by asserting the clamped value for a far screen; (d) read `map_editor._screen_id` unconditionally, which the Placement case turns red |
-| G8 (wiki, existing, previously unbuildable) | cursor `(1500, 300)`, view `1920x1080`, `cam (960,528)`, zoom `1 -> 0.5`: the world point under the cursor is unchanged within 0.5 px; expected `cam (420, 768)` per Math §6.1 | zoom about the view centre |
+| G8 (wiki, existing, previously unbuildable) | the suite forces the drawn size: it sets the `WorldView`'s own `size` to `1920x1080` inside a larger root window, then awaits two frames so `SubViewportContainer` (`stretch = true`) drives `SubViewport.size` to match — the same mechanism the app uses, so nothing is assigned that layout did not produce. With `cam_center (960, 528)`, zoom `1 -> 0.5` and the cursor at `(1500, 300)`, the world point under the cursor is unchanged within 0.5 px, and the resulting centre equals `(420, 768)` **recomputed from the measured `_viewport.size`** rather than hard-coded, so a suite that fails to reach 1920x1080 reports a mismatch instead of passing on the wrong fixture | zoom about the view centre |
 | G14 (wiki, existing, previously unbuildable) | the ladder only ever lands on `2 / 1 / 0.5 / 0.25`; the ends stop; plain wheel leaves zoom at 1 | allow `0.75`; let plain wheel zoom |
 
 G14's other half — "plain wheel changes the Map tab's brush radius" — is deliberately **not**
@@ -435,9 +442,10 @@ fired and the mutant parses, then read the exit code (never the printed counter)
    requires `focus_owner.is_visible_in_tree()`, so arrow keys pan the Simulator instead of
    silently changing a hidden spinner.
 4. **Off-ladder zoom.** Nothing else writes `Camera2D.zoom` today (measured: `world_view.gd:113`
-   is a read only), so the current value is always a rung and `ZOOM_LADDER.find()` answers. The
-   `-1` branch exists only so a future writer degrades to the `1.0` rung instead of indexing the
-   array with `-1`; it is two lines, not a helper.
+   is a read only), so the current value is always a rung and `ZOOM_LADDER.find()` answers. No
+   defensive branch is written for `-1`: `clampi(-1 + direction, 0, size - 1)` would land on
+   `2.0`, which is a wrong answer quietly, so the invariant is what protects the code. G14's
+   "only ever lands on a rung" assertion is the tripwire if a future writer breaks it.
 5. **No world loaded.** `_editor_bound_world_px()` returns an empty `Rect2` and the clamp is
    skipped; pan and zoom still work, which is what a designer sees before any screen exists.
    Recorded on the ticket (issue #119, comment 1, section 2), which is also why A/C 2's bound
@@ -508,6 +516,7 @@ comment, so the plan follows the comment:
 | formulas go in `TDD_Parallax-Scrolling.Math` section 7 | sections **6.1** (anchored zoom) and **6.2** (pan step); section 7 is the drawing/input/resize/headless page |
 | G8 and G14 belong to the design's step 5 | step 5 is #108 (Map Editor); G8/G14 test the Simulator camera and are this ticket's. The design's step table gained a step 8 row for #119 and step 5's gate list dropped them |
 | "x9, x1" call sites | 8 in `test_parallax_pixels.gd`, 1 in `test_world_view.gd` |
+| "the five existing GDScript suites stay green" | the repo carries 11 suites today (`test_screen_store`, `test_image_to_map`, `test_terrain_brush`, `test_override_merge`, `test_bridge_autobuild`, `test_camera_controller`, `test_parallax_backdrop`, `test_parallax_bridge`, `test_parallax_pixels`, `test_parallax_stretch`, `test_world_view`), so the criterion is read as its intent — nothing regressed against the pre-branch baseline — and §9 lists them all |
 
 Both extra behaviours (editor-hint guard, no-world skip) are recorded in the same comment,
 which is why §7 cites it.
