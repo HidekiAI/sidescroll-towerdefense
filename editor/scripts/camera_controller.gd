@@ -75,8 +75,8 @@ func _process(_delta_seconds: float) -> void:
     # Both axes, every frame. A controller that only followed x would leave the camera pinned at
     # its start height, which is G13's "follow x only" mutation.
     _camera.position = Vector2(
-        _clamp_center(_target_world_px.x, _view_extent_px.x, _bound_low_px.x, _bound_high_px.x),
-        _clamp_center(_target_world_px.y, _view_extent_px.y, _bound_low_px.y, _bound_high_px.y))
+        clamp_center(_target_world_px.x, _view_extent_px.x, _bound_low_px.x, _bound_high_px.x),
+        clamp_center(_target_world_px.y, _view_extent_px.y, _bound_low_px.y, _bound_high_px.y))
 
 
 # Transcribed from `sstd-core::parallax::clamp_center`, the design of record for this branch
@@ -84,12 +84,15 @@ func _process(_delta_seconds: float) -> void:
 # `#[func]` for one call per axis per frame is the cost, and the plan records that choice
 # (section 4.5).
 #
+# Static so the editor camera (`WorldView`) can share this one copy instead of transcribing it a
+# second time; the two callers differ only in where their bound comes from.
+#
 # The small-bound case is the one the source comment calls out as "the one that gets written
 # wrong": when the bound is narrower than the view there is no range to clamp into (low would
 # exceed high), so the view is lined up with the bound's low edge instead. That is bound_low plus
 # half a view, NOT the bound's midpoint -- Math section 5's zoom-0.25 example fixes the centre at
 # 1104 where the midpoint would be 1056.
-func _clamp_center(center_value: float, view_extent_px: float, bound_low_px: float, bound_high_px: float) -> float:
+static func clamp_center(center_value: float, view_extent_px: float, bound_low_px: float, bound_high_px: float) -> float:
     var half_extent_px: float = view_extent_px * 0.5
     if bound_high_px - bound_low_px < view_extent_px:
         return bound_low_px + half_extent_px

@@ -26,6 +26,9 @@ var entity_editor: Node
 var map_editor: Node
 var placement_editor: Node
 var simulator: Node
+# The Simulator tab is a plain Control wrapping `world_view.tscn` (main.tscn:826), so the camera
+# controls live one node below the tab root. Separate field because the tab root has no script.
+var simulator_world_view: Node
 
 const TAB_NAMES: Array[String] = [
 	"tile", "entity", "map", "placement", "simulator",
@@ -56,6 +59,7 @@ func _ready() -> void:
 	map_editor = tabs.get_child(2)
 	placement_editor = tabs.get_child(3)
 	simulator = tabs.get_child(4)
+	simulator_world_view = simulator.get_node_or_null("WorldView")
 	_load_bridge()
 	_init_config_db()
 	_seed_config_defaults()
@@ -217,6 +221,14 @@ func _wire_editors() -> void:
 		terrain_editor.set_framework_terrains(_framework_terrains)
 	if entity_editor and not _framework_entities.is_empty():
 		entity_editor.set_framework_entities(_framework_entities)
+	# The Simulator tab root has no script, so the camera controls on the WorldView child are wired
+	# here. Only these two: the bridge reaches WorldView through the loader's own default, and
+	# wiring it from here would change what the backdrop renders, which #119 does not ask for.
+	if simulator_world_view != null:
+		if simulator_world_view.has_method("set_grid_config"):
+			simulator_world_view.set_grid_config(_grid_config)
+		if simulator_world_view.has_method("set_screen_store"):
+			simulator_world_view.set_screen_store(screen_store)
 
 func _sync_tile_set_categories_to_db() -> void:
 	if not _bridge or not _bridge.has_method("set_tile_set_category"):
@@ -251,6 +263,7 @@ func _auto_load_last_map() -> void:
 	print("[main] world_package_path=%s screens=%d" % [screen_store.world_package_path if screen_store else "", screen_store.screens.size() if screen_store else 0])
 
 func _on_tab_changed(tab: int) -> void:
+	var tab_was: int = current_tab
 	current_tab = tab
 	print("[%s] Switched to tab" % get_current_tab_name())
 	if tab == 0:
@@ -277,6 +290,16 @@ func _on_tab_changed(tab: int) -> void:
 			var grid: Dictionary = map_editor.get_tile_grid()
 			placement_editor.set_tile_grid(grid["tiles"], grid["tile_data"])
 		placement_editor._update_hud()
+	if tab == 4 and simulator_world_view != null:
+		# Start and Jump are one rule: entering the tab centres on the active screen. The Simulator
+		# performs no add / delete / move / clone, so "active" is whichever editor was just on
+		# screen -- Placement's pick when coming from Placement, Map's otherwise. Read, not copied:
+		# writing Placement's id back into map_editor would change what the Map tab shows.
+		var active_screen_id: int = map_editor._screen_id
+		if tab_was == 3:
+			active_screen_id = placement_editor._screen_id
+		if simulator_world_view.has_method("center_on_screen"):
+			simulator_world_view.center_on_screen(active_screen_id)
 
 func new_project() -> void:
 	if await _confirm_save_dirty() == 0:

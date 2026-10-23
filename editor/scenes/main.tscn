@@ -817,7 +817,9 @@ layout_mode = 2
 ;
 ; The scrollbars went WITH that wiring rather than being rewired: they only ever moved one
 ; camera, #107 asks for no scrub control over the new stack, and a control nothing reads
-; is worse than no control. A scrub for WorldView, if wanted, is its own ticket.
+; is worse than no control. #119 does not bring them back: the camera is driven by the
+; WorldView's own input instead (middle drag, arrow keys, Ctrl+wheel and `+` / `-` over the
+; zoom ladder -- TDD_Parallax-Scrolling section 4.1), which needs no scrub widget.
 ;
 ; What survives is the isolation #101 established and G3 asserts: a SubViewport owns its
 ; canvas, so the Camera2D inside it rewrites only that canvas and cannot reach the root
