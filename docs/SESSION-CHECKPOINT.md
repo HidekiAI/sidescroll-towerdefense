@@ -7,16 +7,19 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-22. **#119 (Simulator camera controls) is IN FLIGHT.** Code branch
-`local/feat/worldview-camera-controls` (cut from `docs/worldview-camera-plan`), wiki branch
-`docs/simulator-camera-controls`. Neither is pushed. Plan of record:
-`docs/PLAN-2026-10-19-worldview-camera-controls.md` (gate score 90/100, PASS).
+_Last updated: 2026-10-23. **#119 (Simulator camera controls) is MERGED to `trunk` (code) — the wiki
+half is NOT merged yet.** Code branch `feat/worldview-camera-controls` pushed and fast-forwarded into
+`trunk`; wiki branch `docs/simulator-camera-controls` is pushed but `master` gained `3adbaa1` (the
+Godot-MCP removal note, #112) after the branch was cut, so `--ff-only` refused and the wiki merge is
+waiting on @me's call (rebase would need a force on an already-pushed branch; a merge commit is the
+other option). Plan of record: `docs/PLAN-2026-10-19-worldview-camera-controls.md` (gate score 90/100,
+PASS).
 
-**State: code complete and green; the five code files are still UNCOMMITTED.** `world_view.gd`
-(input, zoom ladder, derived bound, per-frame latch clear), `camera_controller.gd` (`_clamp_center`
-promoted to `static func clamp_center`, both call sites moved), `main.gd` (WorldView wiring plus
-the tab-4 "centre on the active screen" branch), `editor/scenes/main.tscn` (comment only), and the
-new `editor/tests/test_world_view_controls.gd`. The plan doc and the wiki page are committed.
+**State: code shipped and green.** The five files are in `trunk`: `world_view.gd` (input, zoom ladder,
+derived bound, per-frame latch clear), `camera_controller.gd` (`_clamp_center` promoted to
+`static func clamp_center`, both call sites moved), `main.gd` (WorldView wiring plus the tab-4 "centre
+on the active screen" branch), `editor/scenes/main.tscn` (comment only), and the new
+`editor/tests/test_world_view_controls.gd`. The plan doc and the wiki pages are committed.
 
 Gate evidence, measured 2026-10-22 on 4.7.2 (`DISPLAY=:0.0`, exit-code gated, never the printed
 counter):
@@ -34,17 +37,19 @@ counter):
 
 **NEXT MOVE, in order:**
 
-1. Paced Code Comprehension walkthrough of the five files to @me, in bites, waiting for each.
-2. `git add` the five explicit paths (never `-A`), commit referencing #119, self-review with the
-   scope check against the ticket, then `git branch -m local/feat/worldview-camera-controls
-   feat/worldview-camera-controls` before the first push.
-3. Ask @me ONCE for push permission (it covers both repos), push by explicit remote name, then
-   `git merge --ff-only` back into `trunk` and `master`, update this block, close #119 with its
-   gate evidence and the wiki pages it cites, and offer the local-branch deletion.
-4. **Separately, and not on the #119 branch:** the godot MCP server was removed from
-   `SSTD/opencode.json` (see "Workspace config" below). `SSTD/` is not a git repo, so that fact is
-   only durable once it is written into the code repo's `.opencode/AGENTS.md`, on its own branch
-   off `trunk`.
+1. Wiki: resolve the diverged `master` for `docs/simulator-camera-controls` (ask @me: a `git merge
+   master` commit on the branch, or re-cut it), then close #119 with its gate evidence and the wiki
+   pages it cites.
+2. Offer @me the local-branch deletion for `feat/worldview-camera-controls` and
+   `docs/simulator-camera-controls` (delete only on an explicit yes; the remote branches are @me's).
+3. The godot MCP removal is **already recorded on wiki `master`** (`3adbaa1`,
+   `Godot4-Learnings.md` section 6, issue #112 closed) and inside `SSTD/opencode.json` itself as a
+   comment. `SSTD/` is not a git repo, so **no `.opencode/AGENTS.md` note is added**: that would be a
+   second copy of a record that already exists, which the Always-Update-All-Documents rule is
+   against.
+4. Still @me's call: #116, #117, #118, lint sweep, #115, the two `/tmp` branch-cleanup scripts,
+   verifying #104/#105/#106, and the stray `chore/remove-godot-mcp` branch (created by another
+   actor, not this session's to delete).
 
 ### Superseded: step-4 (#107) state, 2026-10-19
 
