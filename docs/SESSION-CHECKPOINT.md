@@ -7,6 +7,47 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
+_Last updated: 2026-10-22. **#119 (Simulator camera controls) is IN FLIGHT.** Code branch
+`local/feat/worldview-camera-controls` (cut from `docs/worldview-camera-plan`), wiki branch
+`docs/simulator-camera-controls`. Neither is pushed. Plan of record:
+`docs/PLAN-2026-10-19-worldview-camera-controls.md` (gate score 90/100, PASS).
+
+**State: code complete and green; the five code files are still UNCOMMITTED.** `world_view.gd`
+(input, zoom ladder, derived bound, per-frame latch clear), `camera_controller.gd` (`_clamp_center`
+promoted to `static func clamp_center`, both call sites moved), `main.gd` (WorldView wiring plus
+the tab-4 "centre on the active screen" branch), `editor/scenes/main.tscn` (comment only), and the
+new `editor/tests/test_world_view_controls.gd`. The plan doc and the wiki page are committed.
+
+Gate evidence, measured 2026-10-22 on 4.7.2 (`DISPLAY=:0.0`, exit-code gated, never the printed
+counter):
+
+- All 12 GDScript suites exit 0 — including `test_screen_store`, which the notes above record as
+  known-red on 4.7.2 (#85) and which exited **0** in this windowed run. `cargo test -p sstd-core`
+  **138 passed**. Re-run everything with `bash /tmp/user/1000/opencode/run-suites.sh`.
+- The new suite is **37 `ok:` lines, exit 0**: `bash /tmp/user/1000/opencode` recipe is
+  `DISPLAY=:0.0 $HOME/bin/godot4 --path editor --script res://tests/test_world_view_controls.gd`.
+- **24 mutants, 24 caught, 0 void** via `/tmp/user/1000/opencode/mutation-battery.sh`, which runs
+  against a throwaway copy (`/tmp/user/1000/opencode/mut/editor`) so the repo tree is never
+  mutated. One mutant was void on its first run (dropping the per-frame latch clear left an empty
+  `if` block, a GDScript parse error) and was fixed with `pass` before it caught anything: a void
+  mutant is a broken experiment, not a vacuous gate. `FILTER=<label>` re-runs one.
+
+**NEXT MOVE, in order:**
+
+1. Paced Code Comprehension walkthrough of the five files to @me, in bites, waiting for each.
+2. `git add` the five explicit paths (never `-A`), commit referencing #119, self-review with the
+   scope check against the ticket, then `git branch -m local/feat/worldview-camera-controls
+   feat/worldview-camera-controls` before the first push.
+3. Ask @me ONCE for push permission (it covers both repos), push by explicit remote name, then
+   `git merge --ff-only` back into `trunk` and `master`, update this block, close #119 with its
+   gate evidence and the wiki pages it cites, and offer the local-branch deletion.
+4. **Separately, and not on the #119 branch:** the godot MCP server was removed from
+   `SSTD/opencode.json` (see "Workspace config" below). `SSTD/` is not a git repo, so that fact is
+   only durable once it is written into the code repo's `.opencode/AGENTS.md`, on its own branch
+   off `trunk`.
+
+### Superseded: step-4 (#107) state, 2026-10-19
+
 _Last updated: 2026-10-19, after the push. **Both repos are pushed and merged.** Code repo `trunk` =
 `af0684b` (was `cf0962d`); wiki `master` = `ff55a33` (was `d32efd2`). The gated plan of record is
 `docs/PLAN-2026-10-16-parallax-step4.md`. Steps 1-3 and step 4 (#107) all landed, together with the
@@ -1700,3 +1741,21 @@ Discovery:
 
 Action taken:
 - Updated editor/scenes/backdrop_preview.tscn Backdrops.position from (-960,-780) to (-960,-291) and corrected stale comment block (no longer references ANCHOR_MODE_DRAG_CENTER/camera derivation context that changed post-#89). Probe kept temporarily for verification.
+
+## Workspace config — the godot MCP server was removed (2026-10-22)
+
+`SSTD/opencode.json` (the workspace parent, which is **not** a git repo) no longer carries an
+`mcp` block. The `godot` MCP server was spawning a `godot-mcp` process per session and exposing
+386 tools, which made every session's tool catalog enormous; @me asked for it to be deleted.
+
+- `enabled: false` inside the server block is **not honoured** by this build: a service started
+  after the edit still spawned `godot-mcp`, so the whole block had to go.
+- Verified after removal: `opencode mcp list` shows only `opencode_console`, `pgrep -af godot-mcp`
+  is empty, and the 386 godot tools are absent from the catalog.
+- To re-enable, restore a `"godot"` entry under `mcp` in `SSTD/opencode.json` (command
+  `npx -y @modelcontextprotocol/godot-mcp` was the previous shape). The re-enable recipe is also
+  in a comment in that file.
+
+**Durable-record gap:** `SSTD/` is not versioned, so this note and that file's comment are the only
+copies. The same fact belongs in the code repo's `.opencode/AGENTS.md`; do that on its own branch
+off `trunk`, not on the #119 branch.
