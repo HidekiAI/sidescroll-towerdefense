@@ -153,13 +153,29 @@ func _input(event: InputEvent) -> void:
     # viewport uses that button to pan. The app run is the only place camera input belongs.
     if Engine.is_editor_hint():
         return
-    if _camera == null:
+    if _camera == null or _viewport == null:
         return                       # input can arrive before _ready's node lookup resolves
     if not is_visible_in_tree():
         _dragging_middle = false     # tab switched mid-drag: a later motion must not pan
         return                       # another tab is showing
     ...
 ```
+
+The latch is cleared in two places, and both are needed. `_input` clears it whenever the view is
+not visible, but that guard only runs when an event arrives; a tab switch is not an event, so a
+drag that spans one would leave the latch set until the next event. `_process` therefore clears it
+on every frame in which `is_visible_in_tree()` is false:
+
+```gdscript
+func _process(_delta_seconds: float) -> void:
+    if not is_visible_in_tree():
+        _dragging_middle = false
+    _poll_view_state()
+```
+
+`visibility_changed` is not a substitute: a `TabContainer` hides the *page*, not the `WorldView`
+inside it, so the node's own `visible` never changes and that signal never fires here. `_process`
+still runs while the page is hidden, which is what makes the per-frame clear work.
 
 Why `_input` and not `_unhandled_input`: `SubViewportContainer` has `stretch = true` and
 `mouse_filter` defaults to `STOP`, so it consumes GUI mouse events; unhandled input would never
@@ -469,7 +485,7 @@ echo "exit=$?"
 
 | Gate | Assertion | Mutations (each must turn it red) |
 |---|---|---|
-| G18 pan and clamp | middle drag `(dx, dy)` at zoom 1 moves `cam_center` by exactly `(-dx, -dy)`; at zoom 0.5 by `(-dx/0.5, -dy/0.5)`; one arrow press and one echo move `view_px / (8 * zoom)`; a drag far past the bound stops at `bound ± view/(2*zoom)` on that axis **at all four rungs** (the 3x3 fixture keeps the view narrower than the bound everywhere, so one range form covers the ladder); on the **one-screen fixture at `0.25`** it stops at Math §5's small-bound form `bound_low + view/2` on both axes (the range assertions are exact because the fixtures use a 1920x1080 panel; an odd panel size would leave up to half a snap step of overshoot, since Math §6.1 clamps before snapping); the snap is asserted by calling `_apply_cam_center_clamped(Vector2(100.4, 700.6))` directly and reading `cam_center` at zoom `1` / `2` / `0.5` (§1.1's Rule row: `(100, 701)` / `(100.5, 700.5)` / `(100.4, 700.6)`); a `SpinBox` that is visible and focused blocks arrow pans while a hidden one with focus does not; every editor `Control` keeps its global rect; `is_processing_input()` is true; a middle release outside the rect, and a tab switch mid-drag, each clear the latch so the next motion without a button does not pan | (a) pan `+` instead of `-`; (b) pan `event.relative` without `/ zoom`; (c) drop the one-screen margin from the bound; (d) drop the half-view inset; (e) `set_process_input(false)`; (f) remove the `is_visible_in_tree()` gate and assert a hidden view does not pan; (g) drop the snap; (h) gate the middle-button *release* on rect containment, so a drag ending outside the panel leaves the latch set and this assertion's follow-up motion pans with no button held; (i) drop the `is_visible_in_tree()` test on the focus owner, so the hidden `SpinBox` eats arrow keys; (j) pan with no world loaded (`_editor_bound_world_px()` returning a one-screen rect); (k) drop the small-bound branch, so the `0.25` case on the one-screen fixture clamps to a range the view does not fit in |
+| G18 pan and clamp | middle drag `(dx, dy)` at zoom 1 moves `cam_center` by exactly `(-dx, -dy)`; at zoom 0.5 by `(-dx/0.5, -dy/0.5)`; one arrow press and one echo move `view_px / (8 * zoom)`; a drag far past the bound stops at `bound ± view/(2*zoom)` on that axis **at all four rungs** (the 3x3 fixture keeps the view narrower than the bound everywhere, so one range form covers the ladder); on the **one-screen fixture at `0.25`** it stops at Math §5's small-bound form `bound_low + view/2` on both axes (the range assertions are exact because the fixtures use a 1920x1080 panel; an odd panel size would leave up to half a snap step of overshoot, since Math §6.1 clamps before snapping); the snap is asserted by calling `_apply_cam_center_clamped(Vector2(100.4, 700.6))` directly and reading `cam_center` at zoom `1` / `2` / `0.5` (§1.1's Rule row: `(100, 701)` / `(100.5, 700.5)` / `(100.4, 700.6)`); a `SpinBox` that is visible and focused blocks arrow pans while a hidden one with focus does not; every editor `Control` keeps its global rect; `is_processing_input()` is true; a middle release outside the rect, and a tab switch mid-drag, each clear the latch so the next motion without a button does not pan | (a) pan `+` instead of `-`; (b) pan `event.relative` without `/ zoom`; (c) drop the one-screen margin from the bound; (d) drop the half-view inset; (e) `set_process_input(false)`; (f) remove the `is_visible_in_tree()` gate and assert a hidden view does not pan; (g) drop the snap; (h) gate the middle-button *release* on rect containment, so a drag ending outside the panel leaves the latch set and this assertion's follow-up motion pans with no button held; (i) drop the `is_visible_in_tree()` test on the focus owner, so the hidden `SpinBox` eats arrow keys; (j) pan with no world loaded (`_editor_bound_world_px()` returning a one-screen rect); (k) drop the small-bound branch, so the `0.25` case on the one-screen fixture clamps to a range the view does not fit in; (l) drop the per-frame latch clear in `_process`, so a drag spanning a tab switch resumes panning when the tab comes back |
 | G20 start and jump | entering the tab puts `cam_center` at the active screen's centre for `(0,0)` and `(1,0)`; picking another screen and re-entering re-centres; a pick made inside the **Placement** tab also re-centres (`current_tab = 3`, **then** the pick — `main.gd:270` overwrites `placement_editor._screen_id` on entry, so setting it before entering the tab would test the Map id instead — then `tabs.current_tab = 4`); a screen registered at **`(-1, -1)`** is centred, not skipped | (a) always centre on `(0,0)`; (b) centre on the screen's top-left corner + half a tile instead of half a screen; (c) test the cell with `position_of_id(...).x < 0` instead of `has_id(...)`, which the `(-1,-1)` case turns red; (d) read `map_editor._screen_id` unconditionally, which the Placement case turns red |
 | G8 (wiki, existing, previously unbuildable) | the suite forces the drawn size: it sets the `WorldView`'s own `size` to `1920x1080` inside a larger root window, then awaits two frames so `SubViewportContainer` (`stretch = true`) drives `SubViewport.size` to match — the same mechanism the app uses, so nothing is assigned that layout did not produce. With `cam_center (960, 528)`, zoom `1 -> 0.5` and the cursor at `(1500, 300)`, the world point under the cursor is unchanged within 0.5 px, and the resulting centre equals `(420, 768)` **recomputed from the measured `_viewport.size`** rather than hard-coded, so a suite that fails to reach 1920x1080 reports a mismatch instead of passing on the wrong fixture | zoom about the view centre |
 | G14 (wiki, existing, previously unbuildable) | the ladder only ever lands on `2 / 1 / 0.5 / 0.25`; the ends stop; Ctrl+wheel at a given cursor and `KEY_EQUAL` / `KEY_MINUS` reach the same rung by different anchors — the wheel keeps the world point under the cursor fixed (G8's invariance, re-asserted here with the cursor off-centre), the keys keep the world point at the view centre fixed, so a key press must leave `cam_center` exactly where it was before and after the zoom (the centre is the fixed point; the camera is parked mid-map first, so no clamp can mask a drift); a `KEY_EQUAL` **echo** event is rejected and a **release** event is rejected, so one held key advances exactly one rung; plain wheel leaves zoom at 1 | allow `0.75`; let plain wheel zoom; anchor the keys on the cursor instead of the view centre; drop `pressed`, so a release steps again; drop the echo test, so a held key steps twice |
@@ -514,6 +530,15 @@ trap as "a probe that assigns the value it then asserts on".
 
 Every gate above is mutation-verified before it is reported green: confirm the substitution
 fired and the mutant parses, then read the exit code (never the printed counter).
+
+**Battery result (2026-10-22): 24 mutants, 24 caught, 0 void, 0 refuted.** The list is G18 (a)-(m),
+G20 (a)-(d), G8, G14 (a)-(e), and the promotion's midpoint mutant, each run against a throwaway
+copy of the project under `/tmp/user/1000/opencode/mut/editor` (the repo tree is never mutated).
+One mutant was void on its first run and was fixed, not reinterpreted: dropping the per-frame
+latch clear left the `if` with an empty block, which is a parse error in GDScript, so the
+experiment never ran. Replacing the body with `pass` made it parse, and it then turned exactly
+the drag-across-a-tab-switch assertion red. That is the "validate the mutation before interpreting
+it" trap in practice.
 
 ## 7. Risks and open points
 
