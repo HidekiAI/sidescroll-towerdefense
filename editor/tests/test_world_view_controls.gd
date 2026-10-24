@@ -317,10 +317,20 @@ func _test_g18() -> void:
     await process_frame
     check(camera.position == Vector2(4800.0 - pan_step.x, 2640.0),
         "g18: one left arrow moves view/(8*zoom) = %s (got %s)" % [pan_step, camera.position])
+    # Consumed (issue #120): `ui_left` / `ui_right` are also the TabBar's tab-navigation actions,
+    # so an unconsumed press pans AND changes the selected tab. `push_input` resets the handled
+    # flag per event, so this reads only the arrow's own result.
+    check(world_view.get_viewport().is_input_handled(),
+        "g18: a pan arrow is consumed, so the TabBar cannot also act on it (issue #120)")
     _send(world_view, _key_event(KEY_DOWN, true, true))
     await process_frame
     check(camera.position == Vector2(4800.0 - pan_step.x, 2640.0 + pan_step.y),
         "g18: a key echo pans too, by the same step (got %s)" % [camera.position])
+    # ... and only the arrows are consumed: a key this panel ignores stays available to the GUI.
+    _send(world_view, _key_event(KEY_Q, true, false))
+    await process_frame
+    check(not world_view.get_viewport().is_input_handled(),
+        "g18: a key that is not a pan arrow is not consumed (issue #120)")
 
     # Clamped at every rung, and the expectation is arithmetic on the live view.
     for zoom_rung in [2.0, 1.0, 0.5, 0.25]:

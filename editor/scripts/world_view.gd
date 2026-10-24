@@ -214,15 +214,21 @@ func _handle_key(key_event: InputEventKey) -> void:
             _step_zoom_rung(1, _viewport.size * 0.5)
         return
     # Arrows DO accept echo: holding one is a steady pan (Math section 6.2), unlike the ladder.
-    var pan_world_px: Vector2 = _viewport.size / (ARROW_PAN_DIVISOR * _camera.zoom.x)
-    if key_event.is_action_pressed("ui_left", true):
-        _pan_by_world_px(Vector2(-pan_world_px.x, 0.0))
-    elif key_event.is_action_pressed("ui_right", true):
-        _pan_by_world_px(Vector2(pan_world_px.x, 0.0))
-    elif key_event.is_action_pressed("ui_up", true):
-        _pan_by_world_px(Vector2(0.0, -pan_world_px.y))
-    elif key_event.is_action_pressed("ui_down", true):
-        _pan_by_world_px(Vector2(0.0, pan_world_px.y))
+    #
+    # Consumed (issue #120): `ui_left` / `ui_right` are also the focused TabBar's tab-navigation
+    # actions, so an unconsumed press pans the camera AND moves the tab selection -- and because
+    # the Simulator is the right-most tab, only left-arrow visibly jumps away. Consumed whether or
+    # not the camera moved: an arrow at the editor bound is still an arrow this panel handled.
+    var pan_direction: Vector2 = (
+        Vector2.LEFT if key_event.is_action_pressed("ui_left", true)
+        else Vector2.RIGHT if key_event.is_action_pressed("ui_right", true)
+        else Vector2.UP if key_event.is_action_pressed("ui_up", true)
+        else Vector2.DOWN if key_event.is_action_pressed("ui_down", true)
+        else Vector2.ZERO)
+    if pan_direction == Vector2.ZERO:
+        return
+    _pan_by_world_px(pan_direction * (_viewport.size / (ARROW_PAN_DIVISOR * _camera.zoom.x)))
+    get_viewport().set_input_as_handled()
 
 
 # A visible text-entry Control owns the focus and the keys. The visibility test is not cosmetic: a
