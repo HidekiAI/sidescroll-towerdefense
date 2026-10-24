@@ -7,6 +7,24 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
+_Last updated: 2026-10-24. **#119 and #120 are both MERGED to `trunk`; both wiki halves are merged to
+`master`.** `trunk` = `df2cda5`, wiki `master` = `3de68f1`. #119 added the Simulator camera (pan,
+zoom ladder, jump on tab entry) and #120 fixed the arrow keys also switching tabs (`ui_left` /
+`ui_right` are the TabBar's own actions, so the handled flag is now set). Both are closed.
+Plan of record: `docs/PLAN-2026-10-19-worldview-camera-controls.md`.
+
+Note the earlier wiki-merge episode: `docs/simulator-camera-controls` was cut before `master` gained
+`3adbaa1`, so `--ff-only` refused; it was landed by cherry-picking the 8 commits onto a fresh branch
+(`docs/simulator-camera-controls-v2`) rather than rebasing an already-pushed branch.
+
+_Next: #121 (editor slice of `CameraService`: `ScrollTo`, `SetZoom`, `GetVisibleBounds` over RPC) is
+filed and unimplemented — see its body for the proto shape and the clamp reconciliation. Open
+questions from @me awaiting a ticket: the backdrop layers appear to move at one rate (clouds as fast
+as the mountains), which points at per-layer `scroll_scale` not reaching `ParallaxDraw`; #91 and #100
+are the related open tickets.
+
+_(Historical: below is the #119 state as it stood on 2026-10-23.)_
+
 _Last updated: 2026-10-23. **#119 (Simulator camera controls) is MERGED to `trunk` (code) — the wiki
 half is NOT merged yet.** Code branch `feat/worldview-camera-controls` pushed and fast-forwarded into
 `trunk`; wiki branch `docs/simulator-camera-controls` is pushed but `master` gained `3adbaa1` (the
