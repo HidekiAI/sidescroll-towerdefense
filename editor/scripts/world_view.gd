@@ -62,6 +62,12 @@ func _ready() -> void:
     _camera = get_node_or_null("SubViewportContainer/Viewport/Camera2D") as Camera2D
     _status_label = get_node_or_null("StatusLabel") as Label
     _loader = ParallaxLoader.new()
+    # try to grab bridge from root
+    var root = get_tree().root
+    if root != null:
+        var main = root.get_node_or_null("Main")
+        if main != null and main.has_method("get") and main.get("_bridge") != null:
+            _bridge_obj = main.get("_bridge")
     var world_node := get_node_or_null("SubViewportContainer/Viewport/World") as Node2D
     if world_node != null:
         _ground_layer = Node2D.new()
