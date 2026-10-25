@@ -74,16 +74,10 @@ func _ready() -> void:
         _ground_layer.name = "GroundLayer"
         _ground_layer.set_script(load("res://scripts/world_view_ground.gd"))
         world_node.add_child(_ground_layer)
-        _avatar = Sprite2D.new()
+        _avatar = Node2D.new()
         _avatar.name = "Avatar"
         _avatar.position = Vector2(100, -100)
-        var tex := GradientTexture2D.new()
-        var grad := Gradient.new()
-        grad.colors = [Color(0.9,0.7,0.2), Color(0.9,0.5,0.1)]
-        tex.gradient = grad
-        tex.width = 12
-        tex.height = 16
-        _avatar.texture = tex
+        _avatar.set_script(load("res://scripts/avatar_stickman.gd"))
         _avatar.z_index = 10
         world_node.add_child(_avatar)
         _walker_state = {"pos_x":100.0,"pos_y":-100.0,"vel_x":0.0,"vel_y":0.0,"grounded":false}
