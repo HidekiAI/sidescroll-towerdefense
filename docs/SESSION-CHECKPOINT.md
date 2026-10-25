@@ -1782,3 +1782,18 @@ Action taken:
 **Durable-record gap:** `SSTD/` is not versioned, so this note and that file's comment are the only
 copies. The same fact belongs in the code repo's `.opencode/AGENTS.md`; do that on its own branch
 off `trunk`, not on the #119 branch.
+
+## GROUND/WALK #122 (IN PROGRESS)
+- Branch: feat/sim-ground-walk-122 (on top of trunk caa1990)
+- Issue: #122 "feat(sim): ground layer + avatar walk in Simulator"
+- TDD: wiki TechnicalDesign/TDD_Simulator-Ground-Walk.md (updated with gRPC/gamepad/mouse control notes), indexed in Home.md
+- Wiki: master db57f9d/887356f committed and pushed
+- Commits (code): 9c4d897 "feat(sim): ground walk physics + bridge + world view groundwork (#122)"
+- What exists: `crates/sstd-core/src/physics.rs` (ground_profile_px/ground_y_for_column/step_walker + tests), module wired in lib.rs; bridge `walk_step` added; WorldView adds GroundLayer + Avatar nodes, sets up ground drawing script, adds movement key hook placeholder.
+- Tests: `cargo test -p sstd-core` passes (143 passed, 0 failed). GDScript `test_world_view_controls.gd` passes (0 failures).
+- Notes: control mapping is gRPC-based / input-mapper territory (GDD); Simulator and Play both can use same commands.
+
+## NEXT SMALL STEP (do this first)
+1. **Wire tiles into ground**: in `WorldView`, collect walkable tiles from `ScreenStore` + cached screens/grid config into `_tiles_cache` (format `{world_tile_x,world_tile_y,is_walkable}`) and pass to `GroundLayer.set_data(...)`. Also populate grid dict `{tile_w,tile_h,...}`.
+2. **Add WASD/click input + walk_step call**: read WASD (and mouse click-to-move), build `WalkerInput`/`WalkerState` JSON, call `bridge_obj.walk_step(...)` if available, update `_avatar.position` from result, update `_walker_state`.
+3. **Keep it tiny**: test with existing world data in Simulator; don't change parallax/camera logic. Commit after this step with checkpoint update.
