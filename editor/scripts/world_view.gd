@@ -52,6 +52,7 @@ var _ground_layer: Node2D = null
 var _avatar: Sprite2D = null
 var _walker_state: Dictionary = {"pos_x":0,"pos_y":0,"vel_x":0,"vel_y":0,"grounded":false}
 var _tiles_cache: Array = []
+var _walk_input: Dictionary = {"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false}
 
 
 func _ready() -> void:
@@ -83,13 +84,14 @@ func _ready() -> void:
     _last_anchor = {}
 
 
-func _process(_delta_seconds: float) -> void:
+func _process(delta_seconds: float) -> void:
     if not is_visible_in_tree():
         # A tab switch hides the PAGE, not this node, so this node's own `visible` never changes
         # and `visibility_changed` never fires here: the latch is cleared per frame instead. A
         # drag that spans a tab switch must not resume panning when the tab comes back.
         _dragging_middle = false
     _poll_view_state()
+    _update_walker(delta_seconds)
 
 
 # Test and tooling seam: hand the loader a stand-in bridge, exactly as `ParallaxLoader.set_bridge`
@@ -145,6 +147,7 @@ func viewport() -> SubViewport:
 # moving or cloning a screen needs no invalidation call.
 func set_screen_store(store: ScreenStore) -> void:
     _screen_store = store
+    _rebuild_ground_tiles()
 
 
 func set_grid_config(config: Dictionary) -> void:
@@ -428,3 +431,72 @@ func _handle_movement_keys(key_event: InputEventKey) -> void:
         return
     if key_event.keycode == KEY_SPACE:
         return
+
+
+func _rebuild_ground_tiles() -> void:
+    _tiles_cache.clear()
+    if _screen_store == null:
+        return
+    var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
+    var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
+    var grid_dict: Dictionary = {"tile_w": float(tw), "tile_h": float(th)}
+    for pos in _screen_store.occupied_positions():
+        var cached: Dictionary = _screen_store.get_cache(pos.x, pos.y)
+        var screen_data: Dictionary = cached
+        if screen_data.is_empty():
+            screen_data = _screen_store.screen_at(pos.x, pos.y)
+        var tiles_arr: Array = screen_data.get("tiles", []) as Array
+        var sx: int = pos.x
+        var sy: int = pos.y
+        for td in tiles_arr:
+            var wx_local = int(td.get("x", 0))
+            var wy_local = int(td.get("y", 0))
+            var terr = String(td.get("terrain", ""))
+            # walkable heuristic: terrain types with is_walkable true by default
+            var walkable = true
+            if terr == "air" or terr == "wall" or terr == "lava":
+                walkable = false
+            _tiles_cache.append({"world_tile_x": sx * 60 + wx_local, "world_tile_y": sy * 33 + wy_local, "is_walkable": walkable})
+    if _ground_layer != null and _ground_layer.has_method("set_data"):
+        _ground_layer.call("set_data", _tiles_cache, grid_dict)
+
+
+func _update_walker(dt: float) -> void:
+    if Engine.is_editor_hint():
+        return
+    if not is_visible_in_tree():
+        return
+    if _avatar == null:
+        return
+    # WASD input
+    var mx: float = 0.0
+    var my: float = 0.0
+    if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
+        mx -= 1.0
+    if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+        mx += 1.0
+    if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
+        my -= 1.0
+    if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
+        my += 1.0
+    _walk_input["move_x"] = mx
+    _walk_input["move_y"] = my
+    if _bridge_obj == null or not _bridge_obj.has_method("walk_step"):
+        # fallback: simple move
+        _avatar.position += Vector2(mx, my) * 200.0 * dt
+        return
+    var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
+    var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
+    var req: Dictionary = {
+        "grid": {"tile_w": float(tw), "tile_h": float(th)},
+        "tiles": _tiles_cache,
+        "input": _walk_input,
+        "walker": _walker_state,
+        "dt": dt
+    }
+    var req_json := JSON.stringify(req)
+    var res_json = _bridge_obj.call("walk_step", req_json)
+    var parsed = JSON.parse_string(res_json)
+    if typeof(parsed) == TYPE_DICTIONARY and parsed.has("walker"):
+        _walker_state = parsed["walker"]
+        _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
