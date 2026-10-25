@@ -48,6 +48,10 @@ var _last_view: Dictionary = {}
 var _last_anchor: Dictionary = {}
 var _last_placements: Array = []
 var _status_text: String = ""
+var _ground_layer: Node2D = null
+var _avatar: Sprite2D = null
+var _walker_state: Dictionary = {"pos_x":0,"pos_y":0,"vel_x":0,"vel_y":0,"grounded":false}
+var _tiles_cache: Array = []
 
 
 func _ready() -> void:
@@ -57,6 +61,23 @@ func _ready() -> void:
     _camera = get_node_or_null("SubViewportContainer/Viewport/Camera2D") as Camera2D
     _status_label = get_node_or_null("StatusLabel") as Label
     _loader = ParallaxLoader.new()
+    var world_node := get_node_or_null("SubViewportContainer/Viewport/World") as Node2D
+    if world_node != null:
+        _ground_layer = Node2D.new()
+        _ground_layer.name = "GroundLayer"
+        _ground_layer.set_script(load("res://scripts/world_view_ground.gd"))
+        world_node.add_child(_ground_layer)
+        _avatar = Sprite2D.new()
+        _avatar.name = "Avatar"
+        _avatar.position = Vector2(100, 0)
+        var tex := GradientTexture2D.new()
+        var grad := Gradient.new()
+        grad.colors = [Color(0.2,0.6,1.0), Color(0.2,0.6,1.0)]
+        tex.gradient = grad
+        tex.width = 16
+        tex.height = 24
+        _avatar.texture = tex
+        world_node.add_child(_avatar)
     # Force one query on the first poll, whatever the camera happens to start at.
     _last_view = {}
     _last_anchor = {}
@@ -78,6 +99,12 @@ func set_bridge(bridge: Object) -> bool:
         return false
     _loader.call("set_bridge", bridge)
     return true
+
+
+var _bridge_obj: Object = null
+
+func set_bridge_obj(bridge: Object) -> void:
+    _bridge_obj = bridge
 
 
 # Point the view at a different stack. Clears the last ViewState so the next poll reloads.
@@ -160,6 +187,9 @@ func _input(event: InputEvent) -> void:
         return
     if event is InputEventKey:
         _handle_key(event as InputEventKey)
+        _handle_movement_keys(event as InputEventKey)
+        return
+
 
 
 func _handle_mouse_button(mouse_button: InputEventMouseButton) -> void:
@@ -387,3 +417,14 @@ func _refresh_placements() -> void:
         _back_draw.call("apply", back_plane, view_w_px, view_h_px, stack_dir)
     if _front_draw != null:
         _front_draw.call("apply", front_plane, view_w_px, view_h_px, stack_dir)
+
+
+func _handle_movement_keys(key_event: InputEventKey) -> void:
+    if not key_event.pressed:
+        return
+    if Engine.is_editor_hint():
+        return
+    if _text_entry_has_focus():
+        return
+    if key_event.keycode == KEY_SPACE:
+        return

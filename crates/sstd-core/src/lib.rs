@@ -7,6 +7,7 @@ pub mod items;
 pub mod luckbot;
 pub mod map;
 pub mod parallax;
+pub mod physics;
 pub mod resurrection;
 pub mod storage;
 pub mod terrain;

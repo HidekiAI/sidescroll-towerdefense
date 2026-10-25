@@ -245,6 +245,11 @@ impl SstdBridge {
     /// Drain pending gRPC commands and fulfil them on the Godot main thread.
     /// Call every frame from `main.gd._process`. Returns count of commands handled.
     #[func]
+    fn walk_step(&mut self, request_json: GString) -> GString {
+        GString::from(walk_step_impl(&request_json.to_string()).as_str())
+    }
+
+    #[func]
     fn poll_grpc_commands(&mut self) -> i32 {
         let mut handled = 0;
         loop {
@@ -2268,4 +2273,64 @@ mod tests {
             );
         }
     }
+}
+
+// --- ground/walk (issue #122) ---
+use serde_json as json;
+use sstd_core::physics as phys;
+
+#[derive(serde::Deserialize)]
+struct WalkStepReq {
+    cam: Option<json::Value>,
+    grid: WalkGrid,
+    screens: Option<json::Value>,
+    tiles: Option<Vec<WalkTile>>,
+    input: phys::WalkerInput,
+    walker: phys::WalkerState,
+    dt: Option<f64>,
+}
+
+#[derive(serde::Deserialize)]
+struct WalkGrid {
+    tile_w: f64,
+    tile_h: f64,
+}
+
+#[derive(serde::Deserialize)]
+struct WalkTile {
+    world_tile_x: i32,
+    world_tile_y: i32,
+    is_walkable: bool,
+}
+
+fn walk_step_impl(req_json: &str) -> String {
+    let req: WalkStepReq = match json::from_str(req_json) {
+        Ok(v) => v,
+        Err(e) => return json::json!({"error": e.to_string()}).to_string(),
+    };
+    let grid = phys::GridConfig {
+        tile_w: req.grid.tile_w,
+        tile_h: req.grid.tile_h,
+    };
+    let tiles: Vec<phys::Tile> = if let Some(t) = req.tiles {
+        t.into_iter()
+            .map(|x| phys::Tile {
+                world_tile_x: x.world_tile_x,
+                world_tile_y: x.world_tile_y,
+                is_walkable: x.is_walkable,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let dt = req.dt.unwrap_or(1.0 / 60.0);
+    let out = phys::step_walker(
+        req.walker,
+        &req.input,
+        dt,
+        &grid,
+        &tiles,
+        phys::DEFAULT_AVATAR_SPEED_PPS,
+    );
+    json::json!({ "walker": out }).to_string()
 }
