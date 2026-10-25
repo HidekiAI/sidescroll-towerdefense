@@ -536,3 +536,15 @@ func _handle_place_interact(place_flag: bool, interact_flag: bool) -> void:
     var res_json = _bridge_obj.call("walk_step", JSON.stringify(req))
     # response ignored for now; placement logic will be expanded
     var _parsed = JSON.parse_string(res_json)
+
+
+func _notification(what: int) -> void:
+    if what == NOTIFICATION_VISIBILITY_CHANGED:
+        if is_visible_in_tree():
+            _rebuild_ground_tiles()
+            if _bridge_obj == null:
+                var root = get_tree().root
+                if root != null:
+                    var main = root.get_node_or_null("Main")
+                    if main != null and main.get("_bridge") != null:
+                        _bridge_obj = main.get("_bridge")
