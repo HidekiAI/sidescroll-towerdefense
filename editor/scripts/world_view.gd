@@ -184,6 +184,11 @@ func _input(event: InputEvent) -> void:
 
     if event is InputEventMouseButton:
         _handle_mouse_button(event as InputEventMouseButton)
+        var mb = event as InputEventMouseButton
+        if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+            _handle_place_interact(true, false)
+        if mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+            _handle_place_interact(false, true)
         return
     if event is InputEventMouseMotion:
         _handle_mouse_motion(event as InputEventMouseMotion)
@@ -500,3 +505,28 @@ func _update_walker(dt: float) -> void:
     if typeof(parsed) == TYPE_DICTIONARY and parsed.has("walker"):
         _walker_state = parsed["walker"]
         _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
+
+
+func _handle_place_interact(place_flag: bool, interact_flag: bool) -> void:
+    if Engine.is_editor_hint():
+        return
+    if _text_entry_has_focus():
+        return
+    if _bridge_obj == null or not _bridge_obj.has_method("walk_step"):
+        return
+    var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
+    var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
+    var inp = _walk_input.duplicate()
+    inp["place"] = place_flag
+    inp["alt_place"] = interact_flag
+    inp["interact"] = interact_flag
+    var req: Dictionary = {
+        "grid": {"tile_w": float(tw), "tile_h": float(th)},
+        "tiles": _tiles_cache,
+        "input": inp,
+        "walker": _walker_state,
+        "dt": 0.0
+    }
+    var res_json = _bridge_obj.call("walk_step", JSON.stringify(req))
+    # response ignored for now; placement logic will be expanded
+    var _parsed = JSON.parse_string(res_json)
