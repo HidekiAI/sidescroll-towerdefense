@@ -1797,3 +1797,8 @@ off `trunk`, not on the #119 branch.
 1. **Wire tiles into ground**: in `WorldView`, collect walkable tiles from `ScreenStore` + cached screens/grid config into `_tiles_cache` (format `{world_tile_x,world_tile_y,is_walkable}`) and pass to `GroundLayer.set_data(...)`. Also populate grid dict `{tile_w,tile_h,...}`.
 2. **Add WASD/click input + walk_step call**: read WASD (and mouse click-to-move), build `WalkerInput`/`WalkerState` JSON, call `bridge_obj.walk_step(...)` if available, update `_avatar.position` from result, update `_walker_state`.
 3. **Keep it tiny**: test with existing world data in Simulator; don't change parallax/camera logic. Commit after this step with checkpoint update.
+
+## GROUND/WALK #122 (PROGRESS UPDATE)
+- Code commits: 9c4d897, 5685a2d, 850b75b, fabef06
+- Added: bridge `walk_step`, physics module + tests, GroundLayer/Avatar in WorldView, tiles wired from ScreenStore, WASD + click place/interact, auto-acquire bridge from Main.
+- Tests: cargo test -p sstd-core ok; test_world_view_controls.gd ok.
