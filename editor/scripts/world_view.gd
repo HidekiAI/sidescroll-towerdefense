@@ -548,3 +548,14 @@ func _notification(what: int) -> void:
                     var main = root.get_node_or_null("Main")
                     if main != null and main.get("_bridge") != null:
                         _bridge_obj = main.get("_bridge")
+
+
+# helper to set bridge from outside
+func try_get_bridge() -> void:
+    if _bridge_obj != null:
+        return
+    var root = get_tree().root
+    if root != null:
+        var main = root.get_node_or_null("Main")
+        if main != null and main.get("_bridge") != null:
+            _bridge_obj = main.get("_bridge")
