@@ -76,15 +76,17 @@ func _ready() -> void:
         world_node.add_child(_ground_layer)
         _avatar = Sprite2D.new()
         _avatar.name = "Avatar"
-        _avatar.position = Vector2(100, 0)
+        _avatar.position = Vector2(100, -100)
         var tex := GradientTexture2D.new()
         var grad := Gradient.new()
-        grad.colors = [Color(0.2,0.6,1.0), Color(0.2,0.6,1.0)]
+        grad.colors = [Color(0.9,0.7,0.2), Color(0.9,0.5,0.1)]
         tex.gradient = grad
-        tex.width = 16
-        tex.height = 24
+        tex.width = 12
+        tex.height = 16
         _avatar.texture = tex
+        _avatar.z_index = 10
         world_node.add_child(_avatar)
+        _walker_state = {"pos_x":100.0,"pos_y":-100.0,"vel_x":0.0,"vel_y":0.0,"grounded":false}
     # Force one query on the first poll, whatever the camera happens to start at.
     _last_view = {}
     _last_anchor = {}
