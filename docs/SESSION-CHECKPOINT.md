@@ -1802,3 +1802,11 @@ off `trunk`, not on the #119 branch.
 - Code commits: 9c4d897, 5685a2d, 850b75b, fabef06
 - Added: bridge `walk_step`, physics module + tests, GroundLayer/Avatar in WorldView, tiles wired from ScreenStore, WASD + click place/interact, auto-acquire bridge from Main.
 - Tests: cargo test -p sstd-core ok; test_world_view_controls.gd ok.
+
+## RUN CHECKLIST (what to expect)
+- Launch editor: `$HOME/bin/godot4 --path editor`
+- Go to Simulator tab. 
+- Expect: parallax backdrop unchanged from previous checkpoint (no visual difference in parallax). 
+- Expect: new ground layer visible (greenish rectangles) under avatar area where tiles exist; stickman avatar appears near start.
+- WASD moves avatar; left/right click pass place/interact through bridge.
+- If bridge not ready, avatar moves with simple fallback (no crash).
