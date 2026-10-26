@@ -240,10 +240,15 @@ func query_placements(request: Dictionary) -> Dictionary:
         return {"ok": false, "error": "bridge unavailable: SstdBridge.parallax_placements", "journal": []}
     var req_str = JSON.stringify(request)
     var resp = bridge.call("parallax_placements", req_str)
-    var response_text := str(resp)
-    var response: Variant = JSON.parse_string(response_text)
+    var response: Variant = null
+    if typeof(resp) == TYPE_STRING:
+        response = JSON.parse_string(resp)
+    elif typeof(resp) == TYPE_DICTIONARY:
+        response = resp
+    else:
+        return {"ok": false, "error": "bridge returned non-object JSON: %s" % str(resp).left(120), "journal": []}
     if typeof(response) != TYPE_DICTIONARY:
-        return {"ok": false, "error": "bridge returned non-object JSON: %s" % response_text.left(120), "journal": []}
+        return {"ok": false, "error": "bridge returned non-object JSON: %s" % str(resp).left(120), "journal": []}
     var response_object := response as Dictionary
     if not response_object.has("error"):
         if typeof(response_object.get("placements", null)) != TYPE_ARRAY:
