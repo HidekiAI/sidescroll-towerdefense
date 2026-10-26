@@ -555,3 +555,9 @@ func try_get_bridge() -> void:
         var main = root.get_node_or_null("Main")
         if main != null and main.get("_bridge") != null:
             _bridge_obj = main.get("_bridge")
+
+
+func get_avatar_position() -> Vector2:
+    if _avatar == null:
+        return Vector2.ZERO
+    return _avatar.position
