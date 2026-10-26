@@ -229,6 +229,10 @@ func _wire_editors() -> void:
 			simulator_world_view.set_grid_config(_grid_config)
 		if simulator_world_view.has_method("set_screen_store"):
 			simulator_world_view.set_screen_store(screen_store)
+		if simulator_world_view.has_method("set_bridge_obj") and _bridge != null:
+			simulator_world_view.set_bridge_obj(_bridge)
+		elif simulator_world_view.has_method("try_get_bridge"):
+			simulator_world_view.try_get_bridge()
 
 func _sync_tile_set_categories_to_db() -> void:
 	if not _bridge or not _bridge.has_method("set_tile_set_category"):
