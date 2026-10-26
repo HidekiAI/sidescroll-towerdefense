@@ -66,8 +66,10 @@ func _ready() -> void:
     var root = get_tree().root
     if root != null:
         var main = root.get_node_or_null("Main")
-        if main != null and main.has_method("get") and main.get("_bridge") != null:
+        if main != null and main.get("_bridge") != null:
             _bridge_obj = main.get("_bridge")
+            if _loader != null and _bridge_obj != null:
+                _loader.call("set_bridge", _bridge_obj)
     var world_node := get_node_or_null("SubViewportContainer/Viewport/World") as Node2D
     if world_node != null:
         _ground_layer = Node2D.new()
@@ -378,6 +380,8 @@ func _poll_view_state() -> void:
         return
     _last_view = view
     _last_anchor = anchor
+    if _bridge_obj != null and _loader != null and _loader.has_method("set_bridge"):
+        _loader.call("set_bridge", _bridge_obj)
     _refresh_placements()
 
 
@@ -394,6 +398,10 @@ func _resolve_anchor(view: Dictionary) -> Dictionary:
 
 
 func _refresh_placements() -> void:
+    if _loader == null:
+        return
+    if _bridge_obj != null and _loader.has_method("set_bridge"):
+        _loader.call("set_bridge", _bridge_obj)
     var view_w_px: float = float(_last_view.get("view_w_px", 0.0))
     var view_h_px: float = float(_last_view.get("view_h_px", 0.0))
     var result: Dictionary = _loader.load_stack(_stack_path, _last_view, _last_anchor)
