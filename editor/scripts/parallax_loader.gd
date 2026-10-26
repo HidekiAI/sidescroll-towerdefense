@@ -240,6 +240,8 @@ func query_placements(request: Dictionary) -> Dictionary:
         return {"ok": false, "error": "bridge unavailable: SstdBridge.parallax_placements", "journal": []}
     var req_str = JSON.stringify(request)
     var resp = bridge.call("parallax_placements", req_str)
+    if resp == null:
+        return {"ok": false, "error": "bridge returned null", "journal": []}
     var response: Variant = null
     if typeof(resp) == TYPE_STRING:
         response = JSON.parse_string(resp)
