@@ -1810,3 +1810,6 @@ off `trunk`, not on the #119 branch.
 - Expect: new ground layer visible (greenish rectangles) under avatar area where tiles exist; stickman avatar appears near start.
 - WASD moves avatar; left/right click pass place/interact through bridge.
 - If bridge not ready, avatar moves with simple fallback (no crash).
+
+## LATEST (2026-10-26)
+- Added helper get_avatar_position(), bridge passed from Main. All tests green.
