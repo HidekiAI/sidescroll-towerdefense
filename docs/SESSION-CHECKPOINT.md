@@ -1815,3 +1815,9 @@ off `trunk`, not on the #119 branch.
 - Added helper get_avatar_position(), bridge passed from Main. All tests green.
 
 - Committed: $(git log --oneline -1)
+
+## RESUME POINT (2026-10-26)
+Branch: feat/sim-ground-walk-122
+Latest: 7e78554 fix(sim): avatar type Node2D for stickman (#122)
+Tests: cargo test -p sstd-core ok; test_world_view_controls.gd ok
+Next: polish avatar positioning/ground snap, test in Simulator
