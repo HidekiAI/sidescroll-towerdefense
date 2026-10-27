@@ -516,13 +516,29 @@ func _update_walker(dt: float) -> void:
     _walk_input["move_x"] = mx
     _walk_input["move_y"] = my
     if _bridge_obj == null or not _bridge_obj.has_method("walk_step"):
-        # fallback: simple move
+        # fallback: simple move with ground snap attempt
+        var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
+        var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
         _avatar.position += Vector2(mx, my) * 200.0 * dt
+        # try to snap vertically
+        var col_f = _avatar.position.x / float(tw)
+        var col_i = int(floor(col_f))
+        # scan tiles_cache for ground at this column
+        var best_y: float = _avatar.position.y
+        var found: bool = false
+        for td in _tiles_cache:
+            if int(td.get("world_tile_x", 0)) == col_i and bool(td.get("is_walkable", false)):
+                var ty = float(int(td.get("world_tile_y", 0))) * float(th)
+                if not found or ty < best_y:
+                    best_y = ty
+                    found = true
+        if found:
+            _avatar.position.y = best_y
         return
-    var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
-    var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
+    var tw2: int = int(_grid_config.get("tile_width_in_pixels", 64))
+    var th2: int = int(_grid_config.get("tile_height_in_pixels", 64))
     var req: Dictionary = {
-        "grid": {"tile_w": float(tw), "tile_h": float(th)},
+        "grid": {"tile_w": float(tw2), "tile_h": float(th2)},
         "tiles": _tiles_cache,
         "input": _walk_input,
         "walker": _walker_state,
