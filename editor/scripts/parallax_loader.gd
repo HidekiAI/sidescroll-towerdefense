@@ -269,7 +269,10 @@ func query_placements(request: Dictionary) -> Dictionary:
 
 func _resolve_bridge() -> Object:
 	if _bridge != null and is_instance_valid(_bridge):
-		return _bridge
+		# Check if it's a placeholder
+		if _bridge.has_method("parallax_placements"):
+			return _bridge
+		_bridge = null
 	# Try to get from Main first
 	var ml = Engine.get_main_loop()
 	if ml != null:
@@ -278,17 +281,23 @@ func _resolve_bridge() -> Object:
 			var main = root.get_node_or_null("Main")
 			if main != null:
 				var b = main.get("_bridge")
-				if b != null and is_instance_valid(b):
+				if b != null and is_instance_valid(b) and b.has_method("parallax_placements"):
 					_bridge = b
 					return _bridge
-	# Also try autoloads/singletons pattern
+			# search all children
+			for child in root.get_children():
+				if child != null and is_instance_valid(child) and child.has_method("parallax_placements"):
+					_bridge = child
+					return _bridge
 	if not ClassDB.class_exists("SstdBridge"):
 		return null
 	var bridge_instance: Variant = ClassDB.instantiate("SstdBridge")
 	if bridge_instance == null or not is_instance_valid(bridge_instance):
 		return null
-	_bridge = bridge_instance as Object
-	return _bridge
+	if bridge_instance.has_method("parallax_placements"):
+		_bridge = bridge_instance as Object
+		return _bridge
+	return null
 
 
 func _stack_key_of(stack_path: String) -> String:
