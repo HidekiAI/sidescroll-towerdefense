@@ -268,19 +268,24 @@ func query_placements(request: Dictionary) -> Dictionary:
 
 
 func _resolve_bridge() -> Object:
-	if _bridge != null:
+	if _bridge != null and is_instance_valid(_bridge):
 		return _bridge
 	# Try to get from Main first
-	var root = Engine.get_main_loop().root if Engine.get_main_loop() != null else null
-	if root != null:
-		var main = root.get_node_or_null("Main")
-		if main != null and main.get("_bridge") != null:
-			_bridge = main.get("_bridge")
-			return _bridge
+	var ml = Engine.get_main_loop()
+	if ml != null:
+		var root = ml.root
+		if root != null:
+			var main = root.get_node_or_null("Main")
+			if main != null:
+				var b = main.get("_bridge")
+				if b != null and is_instance_valid(b):
+					_bridge = b
+					return _bridge
+	# Also try autoloads/singletons pattern
 	if not ClassDB.class_exists("SstdBridge"):
 		return null
 	var bridge_instance: Variant = ClassDB.instantiate("SstdBridge")
-	if bridge_instance == null:
+	if bridge_instance == null or not is_instance_valid(bridge_instance):
 		return null
 	_bridge = bridge_instance as Object
 	return _bridge
