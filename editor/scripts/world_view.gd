@@ -66,10 +66,18 @@ func _ready() -> void:
     var root = get_tree().root
     if root != null:
         var main = root.get_node_or_null("Main")
-        if main != null and main.get("_bridge") != null:
-            _bridge_obj = main.get("_bridge")
-            if _loader != null and _bridge_obj != null:
-                _loader.call("set_bridge", _bridge_obj)
+        if main != null:
+            if main.get("_bridge") != null:
+                _bridge_obj = main.get("_bridge")
+            elif main.has_method("get_bridge"):
+                var b = main.call("get_bridge")
+                if b != null:
+                    _bridge_obj = b
+        if _bridge_obj == null:
+            # search recursively
+            _bridge_obj = try_find_bridge(root)
+    if _loader != null and _bridge_obj != null:
+        _loader.call("set_bridge", _bridge_obj)
     var world_node := get_node_or_null("SubViewportContainer/Viewport/World") as Node2D
     if world_node != null:
         _ground_layer = Node2D.new()
@@ -589,15 +597,29 @@ func _notification(what: int) -> void:
                         _bridge_obj = main.get("_bridge")
 
 
+func try_find_bridge(node: Node) -> Object:
+    if node == null:
+        return null
+    if node.get("_bridge") != null:
+        return node.get("_bridge")
+    if node.has_method("get_bridge"):
+        var b = node.call("get_bridge")
+        if b != null:
+            return b
+    for c in node.get_children():
+        var r = try_find_bridge(c)
+        if r != null:
+            return r
+    return null
+
+
 # helper to set bridge from outside
 func try_get_bridge() -> void:
     if _bridge_obj != null:
         return
     var root = get_tree().root
     if root != null:
-        var main = root.get_node_or_null("Main")
-        if main != null and main.get("_bridge") != null:
-            _bridge_obj = main.get("_bridge")
+        _bridge_obj = try_find_bridge(root)
 
 
 func get_avatar_position() -> Vector2:
