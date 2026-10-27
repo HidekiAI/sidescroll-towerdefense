@@ -78,11 +78,11 @@ func _ready() -> void:
         world_node.add_child(_ground_layer)
         _avatar = Node2D.new()
         _avatar.name = "Avatar"
-        _avatar.position = Vector2(100, -100)
+        _avatar.position = Vector2(100, -200)
         _avatar.set_script(load("res://scripts/avatar_stickman.gd"))
         _avatar.z_index = 10
         world_node.add_child(_avatar)
-        _walker_state = {"pos_x":100.0,"pos_y":-100.0,"vel_x":0.0,"vel_y":0.0,"grounded":false}
+        _walker_state = {"pos_x":100.0,"pos_y":-200.0,"vel_x":0.0,"vel_y":0.0,"grounded":false}
     # Force one query on the first poll, whatever the camera happens to start at.
     _last_view = {}
     _last_anchor = {}
@@ -455,6 +455,9 @@ func _rebuild_ground_tiles() -> void:
     var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
     var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
     var grid_dict: Dictionary = {"tile_w": float(tw), "tile_h": float(th)}
+    # default grid dimensions if missing
+    var max_w: int = int(_grid_config.get("max_tiles_per_screen_x", 60))
+    var max_h: int = int(_grid_config.get("max_tiles_per_screen_y", 33))
     for pos in _screen_store.occupied_positions():
         var cached: Dictionary = _screen_store.get_cache(pos.x, pos.y)
         var screen_data: Dictionary = cached
@@ -471,9 +474,25 @@ func _rebuild_ground_tiles() -> void:
             var walkable = true
             if terr == "air" or terr == "wall" or terr == "lava":
                 walkable = false
-            _tiles_cache.append({"world_tile_x": sx * 60 + wx_local, "world_tile_y": sy * 33 + wy_local, "is_walkable": walkable})
+            _tiles_cache.append({"world_tile_x": sx * max_w + wx_local, "world_tile_y": sy * max_h + wy_local, "is_walkable": walkable})
     if _ground_layer != null and _ground_layer.has_method("set_data"):
         _ground_layer.call("set_data", _tiles_cache, grid_dict)
+    # try to snap avatar to ground on first build
+    if _avatar != null and _bridge_obj != null and _bridge_obj.has_method("walk_step"):
+        var req: Dictionary = {
+            "grid": {"tile_w": float(tw), "tile_h": float(th)},
+            "tiles": _tiles_cache,
+            "input": {"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false},
+            "walker": _walker_state,
+            "dt": 0.0
+        }
+        var res_json = _bridge_obj.call("walk_step", JSON.stringify(req))
+        var parsed = JSON.parse_string(res_json)
+        if typeof(parsed) == TYPE_DICTIONARY and parsed.has("walker"):
+            _walker_state = parsed["walker"]
+            _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
+    elif _avatar != null:
+        _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
 
 
 func _update_walker(dt: float) -> void:

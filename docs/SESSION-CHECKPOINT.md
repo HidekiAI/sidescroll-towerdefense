@@ -1811,13 +1811,12 @@ off `trunk`, not on the #119 branch.
 - WASD moves avatar; left/right click pass place/interact through bridge.
 - If bridge not ready, avatar moves with simple fallback (no crash).
 
-## LATEST (2026-10-26)
-- Added helper get_avatar_position(), bridge passed from Main. All tests green.
+## LATEST (2026-10-27)
+- Polished avatar spawn/ground snap in WorldView (drop from higher Y, snap after rebuilding tiles using bridge walk_step when available). Use grid dimensions from config for tile indexing.
+- Rebuilt bridge; all tests green.
 
-- Committed: $(git log --oneline -1)
-
-## RESUME POINT (2026-10-26)
+## RESUME POINT (2026-10-27)
 Branch: feat/sim-ground-walk-122
-Latest: 7e78554 fix(sim): avatar type Node2D for stickman (#122)
-Tests: cargo test -p sstd-core ok; test_world_view_controls.gd ok
-Next: polish avatar positioning/ground snap, test in Simulator
+Latest: polish avatar positioning/ground snap (#122)
+Tests: cargo test -p sstd-core ok; test_world_view_controls.gd ok; test_parallax_backdrop.gd ok
+Next: test in Simulator (WASD/click/place/interact) and polish if needed
