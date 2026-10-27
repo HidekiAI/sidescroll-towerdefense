@@ -271,6 +271,7 @@ func _resolve_bridge() -> Object:
 	if _bridge != null and is_instance_valid(_bridge):
 		# Check if it's a placeholder
 		if _bridge.has_method("parallax_placements"):
+			# Try to call to see if it's real
 			return _bridge
 		_bridge = null
 	# Try to get from Main first
@@ -286,9 +287,15 @@ func _resolve_bridge() -> Object:
 					return _bridge
 			# search all children
 			for child in root.get_children():
-				if child != null and is_instance_valid(child) and child.has_method("parallax_placements"):
-					_bridge = child
-					return _bridge
+				if child != null and is_instance_valid(child):
+					if child.has_method("parallax_placements"):
+						_bridge = child
+						return _bridge
+					# also check if it's named SstdBridge
+					if child.get_class() == "SstdBridge" or str(child).find("SstdBridge") >= 0:
+						if child.has_method("parallax_placements"):
+							_bridge = child
+							return _bridge
 	if not ClassDB.class_exists("SstdBridge"):
 		return null
 	var bridge_instance: Variant = ClassDB.instantiate("SstdBridge")
