@@ -1813,10 +1813,11 @@ off `trunk`, not on the #119 branch.
 
 ## LATEST (2026-10-27)
 - Polished avatar spawn/ground snap in WorldView (drop from higher Y, snap after rebuilding tiles using bridge walk_step when available). Use grid dimensions from config for tile indexing.
+- Improved bridge discovery (recursive search) and fallback ground snap.
 - Rebuilt bridge; all tests green.
 
 ## RESUME POINT (2026-10-27)
 Branch: feat/sim-ground-walk-122
-Latest: polish avatar positioning/ground snap (#122)
-Tests: cargo test -p sstd-core ok; test_world_view_controls.gd ok; test_parallax_backdrop.gd ok
+Latest: improve bridge discovery + fallback snap (#122)
+Tests: cargo test -p sstd-core ok (141); test_world_view_controls.gd ok; test_parallax_backdrop.gd ok
 Next: test in Simulator (WASD/click/place/interact) and polish if needed
