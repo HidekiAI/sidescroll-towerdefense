@@ -239,7 +239,9 @@ func query_placements(request: Dictionary) -> Dictionary:
 	if bridge == null or not bridge.has_method("parallax_placements"):
 		return {"ok": false, "error": "bridge unavailable: SstdBridge.parallax_placements", "journal": []}
 	var req_str = JSON.stringify(request)
-	var resp = bridge.call("parallax_placements", req_str)
+	var resp
+	var call_error = OK
+	resp = bridge.call("parallax_placements", req_str)
 	if resp == null:
 		return {"ok": false, "error": "bridge returned null", "journal": []}
 	var response: Variant = null
