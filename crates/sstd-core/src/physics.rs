@@ -10,6 +10,8 @@ pub struct WalkerState {
     pub vel_x: f64,
     pub vel_y: f64,
     pub grounded: bool,
+    pub hp: f64,
+    pub fall_start_y: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -88,85 +90,82 @@ pub fn step_walker(
     speed_pps: f64,
 ) -> WalkerState {
     let dt = if dt <= 0.0 { 1.0 / 60.0 } else { dt };
-    // horizontal
-    let mut mx = input.move_x;
-    let my = input.move_y;
-    // click-to-move simple: if move_to_world set, point toward it horizontally if grounded-like
-    if let Some((tx, ty)) = input.move_to_world {
-        let dx = tx - state.pos_x;
-        let dy = ty - state.pos_y;
-        let len = (dx * dx + dy * dy).sqrt();
-        if len > 1.0 {
-            mx = if dx.abs() > 0.001 { dx.signum() } else { 0.0 };
-            // vertical not directly driven by click in this slice; gravity handles
-            let _ = dy;
-            let _ = my;
-        } else {
-            mx = 0.0;
-        }
-    }
-    mx = mx.max(-1.0).min(1.0);
+    let mx = input.move_x.max(-1.0).min(1.0);
     state.vel_x = mx * speed_pps;
 
     // vertical gravity
     state.vel_y += GRAVITY_PPS2 * dt;
 
-    // propose
-    let mut nx = state.pos_x + state.vel_x * dt;
-    let mut ny = state.pos_y + state.vel_y * dt;
-
-    // wall/block horizontally by checking target column tiles
-    let col_nx = ((nx / grid.tile_w).floor() as i32);
-    let row_ny = ((ny / grid.tile_h).floor() as i32);
-    // block if target tile not walkable
-    let mut blocked_x = false;
+    // propose new position
+    let mut min_x: f64 = 0.0;
+    let mut max_x: f64 = grid.tile_w;
+    let mut first = true;
     for t in tiles {
-        if t.world_tile_x == col_nx && t.world_tile_y == row_ny && !t.is_walkable {
-            blocked_x = true;
-            break;
+        let wx = t.world_tile_x as f64 * grid.tile_w;
+        if first {
+            min_x = wx;
+            max_x = wx;
+            first = false;
+        } else {
+            min_x = f64::min(min_x, wx);
+            max_x = f64::max(max_x, wx);
         }
     }
-    if blocked_x {
-        nx = state.pos_x;
-        state.vel_x = 0.0;
+    let next_x = (state.pos_x + state.vel_x * dt).clamp(min_x, max_x);
+    let feet_was_y = state.pos_y;
+    let next_vel_y = state.vel_y;
+    let feet_now_y = feet_was_y + next_vel_y * dt;
+    let feet_col = (next_x / grid.tile_w).floor() as i32;
+
+    // world bounds from tiles for column clamping
+    let last_world_col = tiles.iter().map(|t| t.world_tile_x).max().unwrap_or(0);
+    let world_col = feet_col.clamp(0, last_world_col);
+
+    let mut hp = state.hp;
+    let mut fall_start_y = state.fall_start_y;
+    let mut landed = false;
+    let mut ground_y = feet_now_y;
+
+    if let Some(surface_y) = ground_y_for_column(tiles, grid, world_col) {
+        ground_y = surface_y;
+        // Landing from above onto ground (moving down onto surface)
+        if next_vel_y >= 0.0 && feet_was_y <= ground_y && feet_now_y >= ground_y {
+            landed = true;
+        }
+        // Stepping UP onto higher ground (walking up a hill) — only when moving horizontally
+        else if ground_y < feet_was_y && mx != 0.0 {
+            landed = true;
+            fall_start_y = ground_y;
+        }
+    } else {
+        // No ground in this column: hole. Track where the fall began if we were standing.
+        if state.grounded {
+            fall_start_y = feet_was_y;
+        }
     }
 
-    // vertical: ground snap
-    let feet_col = ((nx / grid.tile_w).floor() as i32);
-    match ground_y_for_column(tiles, grid, feet_col) {
-        Some(gy) => {
-            // ground is at gy (top of walkable tile); avatar feet snap to gy
-            if ny >= gy - 1.0 {
-                ny = gy;
-                state.vel_y = 0.0;
-                state.grounded = true;
-            } else {
-                state.grounded = false;
+    if landed {
+        // Fall damage: if we fell from a height above this surface, take 1pt per landing > 32px drop
+        if !state.grounded && ground_y > fall_start_y {
+            let fall_dist = ground_y - fall_start_y;
+            if fall_dist > 32.0 {
+                hp = (hp - 1.0).max(0.0);
             }
         }
-        None => {
-            state.grounded = false;
-            // fall through void
-        }
-    }
-
-    // vertical wall check
-    let col_nx2 = ((nx / grid.tile_w).floor() as i32);
-    let row_ny2 = ((ny / grid.tile_h).floor() as i32);
-    let mut blocked_y = false;
-    for t in tiles {
-        if t.world_tile_x == col_nx2 && t.world_tile_y == row_ny2 && !t.is_walkable {
-            blocked_y = true;
-            break;
-        }
-    }
-    if blocked_y {
-        ny = state.pos_y;
+        state.pos_y = ground_y;
         state.vel_y = 0.0;
+        state.grounded = true;
+        state.fall_start_y = ground_y;
+    } else {
+        state.pos_y = feet_now_y;
+        state.vel_y = next_vel_y;
+        state.grounded = false;
+        state.fall_start_y = fall_start_y;
     }
 
-    state.pos_x = nx;
-    state.pos_y = ny;
+    state.pos_x = next_x;
+    state.vel_x = mx * speed_pps;
+    state.hp = hp;
     state
 }
 
@@ -226,6 +225,8 @@ mod tests {
             vel_x: 0.0,
             vel_y: 500.0,
             grounded: false,
+            hp: 100.0,
+            fall_start_y: 10.0,
         };
         let input = WalkerInput {
             move_x: 0.0,

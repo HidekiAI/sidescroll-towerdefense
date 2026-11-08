@@ -10,6 +10,7 @@ const WORLD_EXT := ".zip"
 # allowed under the "stamp_" key prefix.
 const CANONICAL_TERRAIN: PackedStringArray = [
     "air", "grass", "dirt", "stone", "wall", "water", "lava",
+    "hill_up", "hill_down",
 ]
 
 const MANIFEST_PATH := "manifest.json"

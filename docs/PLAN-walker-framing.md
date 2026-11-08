@@ -2,7 +2,7 @@
 
 TL;DR: Make the Simulator show the avatar, not merely spawn it. Keep the existing GDScript stepper; frame the avatar after screen-entry placement.
 
-Scope: #122 (Simulator ground walker), narrowed by @me to a three-screen flat prototype. No GDD/TDD expansion.
+Scope: #122 (Simulator ground walker), narrowed by @me to a three-screen flat prototype, extended to 30° hill slopes (up/down) as walkable terrain.
 
 ## Evidence and approach
 

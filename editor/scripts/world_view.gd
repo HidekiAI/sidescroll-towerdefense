@@ -112,7 +112,8 @@ func _ready() -> void:
         # Placeholder: `_rebuild_ground_tiles` puts the walker on the first ground column as soon
         # as the ScreenStore arrives (#122). Without ground there is nothing to stand on, so this
         # start point is the one that falls.
-        _walker_state = {"pos_x":100.0,"pos_y":-200.0,"vel_x":0.0,"vel_y":0.0,"grounded":false}
+        _walker_state = {"pos_x":100.0,"pos_y":-200.0,"vel_x":0.0,"vel_y":0.0,"grounded":false,
+            "hp":100.0,"fall_start_y":-200.0}
     # Force one query on the first poll, whatever the camera happens to start at.
     _last_view = {}
     _last_anchor = {}
@@ -546,12 +547,11 @@ static func step_walker(state: Dictionary, move_x: float, dt: float, ground_y_by
         tile_w_px: float, world_left_px: float, world_right_px: float) -> Dictionary:
     # Intent: advance `state` by one frame. Gravity always pulls; the horizontal move is applied
     # and clamped to the world edges; then the feet snap onto the surface of the column they are
-    # now in -- but ONLY when they come DOWN onto it. That one condition is the whole difference
-    # between "a hole lets you fall through" and the current Rust bridge behaviour, which
-    # teleports you back up onto a hole forever (`ny >= gy - 1.0` in `physics.rs`).
+    # now in. Handles both falling DOWN onto ground (from above) and stepping UP onto higher
+    # ground (walking up a hill). A column with no walkable tile means a hole: the walker falls.
     #
-    # Contract the test pins: returns a NEW dictionary and never mutates `state`, so two identical
-    # calls give an identical result; keys stay pos_x, pos_y, vel_x, vel_y, grounded.
+    # Contract: returns a NEW dictionary and never mutates `state`, keys stay pos_x, pos_y,
+    # vel_x, vel_y, grounded, hp, fall_start_y.
     var next_state: Dictionary = state.duplicate()
     var feet_was_y: float = float(next_state.get("pos_y", 0.0))
     var next_vel_y: float = float(next_state.get("vel_y", 0.0)) + WALKER_GRAVITY_PPS2 * dt
@@ -561,16 +561,47 @@ static func step_walker(state: Dictionary, move_x: float, dt: float, ground_y_by
         world_left_px, world_right_px)
     var last_world_col: int = int(ceil(world_right_px / tile_w_px)) - 1
     var world_col: int = mini(int(floor(next_pos_x / tile_w_px)), last_world_col)
-    var landed: bool = (
-        ground_y_by_col.has(world_col)
-        and next_vel_y >= 0.0
-        and feet_was_y <= float(ground_y_by_col[world_col])
-        and feet_now_y >= float(ground_y_by_col[world_col]))
+    var hp: float = float(next_state.get("hp", 100.0))
+    var fall_start_y: float = float(next_state.get("fall_start_y", feet_was_y))
+    var landed: bool = false
+    var ground_y: float = feet_now_y
+
+    if ground_y_by_col.has(world_col):
+        ground_y = float(ground_y_by_col[world_col])
+        # Landing from above onto ground (moving down onto surface)
+        if next_vel_y >= 0.0 and feet_was_y <= ground_y and feet_now_y >= ground_y:
+            landed = true
+        # Stepping UP onto higher ground (walking up a hill) -- only when moving horizontally
+        elif ground_y < feet_was_y and move_x != 0.0:
+            landed = true
+            feet_now_y = ground_y
+            next_vel_y = 0.0
+            # reset fall start: we were standing, now stepped up onto higher ground
+            fall_start_y = feet_now_y
+    else:
+        # No ground in this column: hole. Track where the fall began if we were standing.
+        if bool(next_state.get("grounded", false)):
+            fall_start_y = feet_was_y
+
+    if landed:
+        # Fall damage: if we fell from a height above this surface, take 1pt per landing beyond a 32px drop
+        if not bool(state.get("grounded", false)) and ground_y > fall_start_y:
+            var fall_dist: float = ground_y - fall_start_y
+            if fall_dist > 32.0:
+                hp = max(0.0, hp - 1.0)
+        next_state["pos_y"] = ground_y
+        next_state["vel_y"] = 0.0
+        next_state["grounded"] = true
+        next_state["fall_start_y"] = ground_y
+    else:
+        next_state["pos_y"] = feet_now_y
+        next_state["vel_y"] = next_vel_y
+        next_state["grounded"] = false
+        next_state["fall_start_y"] = fall_start_y
+
     next_state["pos_x"] = next_pos_x
     next_state["vel_x"] = move_x * WALKER_SPEED_PPS
-    next_state["pos_y"] = float(ground_y_by_col[world_col]) if landed else feet_now_y
-    next_state["vel_y"] = 0.0 if landed else next_vel_y
-    next_state["grounded"] = landed
+    next_state["hp"] = hp
     return next_state
 
 
@@ -665,6 +696,8 @@ func _place_walker_on_col(world_col: int, tile_w: int) -> void:
         "vel_x": 0.0,
         "vel_y": 0.0,
         "grounded": true,
+        "hp": 100.0,
+        "fall_start_y": float(_ground_y_by_col[world_col]),
     }
     _avatar.position = Vector2(float(_walker_state["pos_x"]), float(_walker_state["pos_y"]))
 

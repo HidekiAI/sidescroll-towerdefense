@@ -30,6 +30,8 @@ const GUARDS: Array[String] = [
     "clamps_left",
     "clamps_right",
     "deterministic",
+    "hill_climb",
+    "hill_fall_damage",
 ]
 
 var _failures: int = 0
@@ -83,6 +85,20 @@ func _step_many(state: Dictionary, move_x: float, ground_y_by_col: Dictionary,
     for step_index in range(step_count):
         settled = _step(settled, move_x, ground_y_by_col)
     return settled
+
+
+# Walker with HP and fall tracking, so the hill tests can assert on the new keys.
+func _walker_hp(pos_x: float, pos_y: float, grounded: bool, hp: float = 100.0,
+        fall_start_y: float = 0.0) -> Dictionary:
+    return {
+        "pos_x": pos_x,
+        "pos_y": pos_y,
+        "vel_x": 0.0,
+        "vel_y": 0.0,
+        "grounded": grounded,
+        "hp": hp,
+        "fall_start_y": fall_start_y,
+    }
 
 
 func _test_walker_step() -> void:
@@ -178,3 +194,34 @@ func _test_walker_step() -> void:
     check(first_run == second_run,
         "deterministic: identical state and input give an identical walker state")
     _completed.append("deterministic")
+
+    # --- hill climb: walking right onto a column whose surface is above the feet ---
+    var hill_up: Dictionary = {}
+    hill_up[0] = GROUND_TOP_PX     # flat ground at 992
+    hill_up[1] = 900.0             # hill top at 900 (y-down: smaller y is higher ground)
+    var on_flat: Dictionary = _walker_hp(16.0, GROUND_TOP_PX, true, 100.0, GROUND_TOP_PX)
+    on_flat = _step_many(on_flat, 1.0, hill_up, 12)           # walk into column 1
+    on_flat = _step_many(on_flat, 0.0, hill_up, SETTLE_STEPS) # step up onto the hill surface
+    check(bool(on_flat.get("grounded", false)), "hill_climb: stands on the hill surface")
+    check(is_equal_approx(float(on_flat.get("pos_y", 0.0)), 900.0),
+        "hill_climb: feet settle on the higher surface (%.1f, want %.1f)" % [
+            float(on_flat.get("pos_y", 0.0)), 900.0])
+    check(float(on_flat.get("hp", 0.0)) == 100.0,
+        "hill_climb: stepping up causes no fall damage")
+    _completed.append("hill_climb")
+
+    # --- hill fall damage: walking off a hill edge onto lower ground ---
+    var hill_down: Dictionary = {}
+    hill_down[0] = 900.0             # hill top at 900
+    hill_down[1] = GROUND_TOP_PX     # flat ground at 992 below the hill edge
+    var at_hill_top: Dictionary = _walker_hp(16.0, 900.0, true, 100.0, 900.0)
+    at_hill_top = _step_many(at_hill_top, 1.0, hill_down, 12)   # walk off the hill edge
+    at_hill_top = _step_many(at_hill_top, 0.0, hill_down, SETTLE_STEPS)  # fall onto lower ground
+    check(bool(at_hill_top.get("grounded", false)), "hill_fall_damage: settles on lower ground")
+    check(is_equal_approx(float(at_hill_top.get("pos_y", 0.0)), GROUND_TOP_PX),
+        "hill_fall_damage: feet settle on the flat ground (%.1f, want %.1f)" % [
+            float(at_hill_top.get("pos_y", 0.0)), GROUND_TOP_PX])
+    check(float(at_hill_top.get("hp", 0.0)) < 100.0,
+        "hill_fall_damage: loses hp falling off the hill edge (hp=%.1f)" % [
+            float(at_hill_top.get("hp", 0.0))])
+    _completed.append("hill_fall_damage")
