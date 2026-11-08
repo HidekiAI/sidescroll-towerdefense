@@ -12,10 +12,25 @@
 ;
 ; The SubViewport keeps #101's isolation: its Camera2D moves that canvas only, which is what G3
 ; asserts -- every editor Control keeps its global rect after the camera moves and zooms.
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/world_view.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/parallax_draw.gd" id="2"]
+
+; #122 -- the translucent backing both HUD readouts sit on. Black at 45% alpha, because a bare
+; Label has no background of its own and light text over a bright backdrop is unreadable. The
+; content margins are the padding between the glyphs and the box edge; without them the text
+; touches the rounded corners. One sub_resource shared by both labels: they must look identical.
+[sub_resource type="StyleBoxFlat" id="hud_panel"]
+content_margin_left = 6.0
+content_margin_top = 2.0
+content_margin_right = 6.0
+content_margin_bottom = 2.0
+bg_color = Color(0, 0, 0, 0.45)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
 
 [node name="WorldView" type="Control"]
 layout_mode = 3
@@ -63,6 +78,43 @@ script = ExtResource("2")
 [node name="Overlay" type="CanvasLayer" parent="."]
 layer = 2
 follow_viewport_enabled = true
+
+; #122 -- the two Simulator readouts. Declared AFTER SubViewportContainer so they draw over it
+; (tree order decides for same-canvas siblings), the same reason StatusLabel sits last.
+;
+; Each is pinned by ONE edge and left to size itself through its grow direction: the hint to the
+; bottom-left (grows up from the bottom edge, `grow_vertical = 0`), health to the top-right
+; (grows left from the right edge, `grow_horizontal = 0`). No width or height is written down, so
+; a font-size change moves the box instead of clipping the text.
+;
+; The hint is bottom-left because StatusLabel already owns the top strip (the parallax load
+; status), and both at the top would overlap.
+[node name="WalkHint" type="Label" parent="."]
+layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -12.0
+offset_right = 12.0
+offset_bottom = -12.0
+grow_vertical = 0
+theme_override_styles/normal = SubResource("hud_panel")
+text = "Use WASD to move avatar"
+mouse_filter = 2
+
+; Placeholder value: no health system is wired to the avatar yet. It is drawn now so the readout's
+; place and style are settled, and wiring real HP later is a text assignment, not a layout change.
+[node name="HealthLabel" type="Label" parent="."]
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -12.0
+offset_top = 12.0
+offset_right = -12.0
+grow_horizontal = 0
+theme_override_styles/normal = SubResource("hud_panel")
+text = "HP 100"
+mouse_filter = 2
 
 ; Section 4.7's status HUD. It lives HERE and not in the Simulator tab, because section 6 of the
 ; same plan requires the suite to instantiate WorldView: a HUD the suite cannot reach is a HUD no
