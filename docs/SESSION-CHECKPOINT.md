@@ -23,6 +23,10 @@ questions from @me awaiting a ticket: the backdrop layers appear to move at one 
 as the mountains), which points at per-layer `scroll_scale` not reaching `ParallaxDraw`; #91 and #100
 are the related open tickets.
 
+#122 (walker framing): commit `09f3db5` on `local/fix/walker-framing` merged into `trunk`.
+The Simulator now frames the avatar on entry, and the walker stepper runs with ground clamping.
+The new test suites `test_walker_step` and `test_walker_visibility` both pass 29/29 with zero failures.
+
 _(Historical: below is the #119 state as it stood on 2026-10-23.)_
 
 _Last updated: 2026-10-23. **#119 (Simulator camera controls) is MERGED to `trunk` (code) — the wiki
