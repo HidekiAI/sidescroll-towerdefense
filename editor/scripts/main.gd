@@ -214,9 +214,47 @@ func get_world_entity_defs_for_save() -> Array:
 		return entity_editor.collect_world_entity_defs()
 	return []
 
+func inject_simulator_hills(store: ScreenStore) -> void:
+	if store == null:
+		return
+	if store.is_occupied(1, 0) or store.is_occupied(2, 0):
+		return  # boot world already has these screens; do not clobber
+	var max_w: int = int(_grid_config.get("max_tiles_per_screen_x", 60))
+	var max_h: int = int(_grid_config.get("max_tiles_per_screen_y", 33))
+	var ground_row: int = max_h - 2  # ground line: row 31 on a 33-row screen
+	var tile_h: int = int(_grid_config.get("tile_height_in_pixels", 32))
+
+	# Screen 2 at position (1, 0): 30-degree up-slope hill at the left edge (columns 0-3).
+	var key2: String = "1,0"
+	store.screens[key2] = {"x": 1, "y": 0, "id": 2, "file": ""}
+	var tiles2: Array = []
+	for i in range(max_w):
+		if i < 4:
+			tiles2.append({"x": i, "y": ground_row - i, "terrain": "hill_up"})
+		else:
+			tiles2.append({"x": i, "y": ground_row, "terrain": "dirt"})
+	store.cache[key2] = {"tiles": tiles2}
+
+	# Screen 3 at position (2, 0): jump-hill at local columns 14-19, up then down.
+	var key3: String = "2,0"
+	store.screens[key3] = {"x": 2, "y": 0, "id": 3, "file": ""}
+	var tiles3: Array = []
+	for i in range(max_w):
+		if i >= 14 and i < 20:
+			if i < 17:
+				tiles3.append({"x": i, "y": ground_row - (i - 13), "terrain": "hill_up"})
+			else:
+				tiles3.append({"x": i, "y": ground_row + (i - 17), "terrain": "hill_down"})
+		else:
+			tiles3.append({"x": i, "y": ground_row, "terrain": "dirt"})
+	store.cache[key3] = {"tiles": tiles3}
+
 func _wire_editors() -> void:
 	screen_store = ScreenStore.new()
 	screen_store.load_world(_world_json_path)
+	# #122: inject visible hill terrain into the simulator so hills are verifiable.
+	# Boot loads an empty manifest (zero screens), so add hills directly.
+	inject_simulator_hills(screen_store)
 	for ed in [terrain_editor, entity_editor, map_editor, placement_editor, simulator]:
 		if ed.has_method("set_bridge"):
 			ed.set_bridge(_bridge)
