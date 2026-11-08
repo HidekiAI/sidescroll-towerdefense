@@ -28,6 +28,17 @@ const ZOOM_LADDER: Array[float] = [2.0, 1.0, 0.5, 0.25]
 # One arrow press moves the view by this fraction of what is on screen (Math section 6.2's 8).
 const ARROW_PAN_DIVISOR: float = 8.0
 
+# Issue #122 -- the prototype walker. These two numbers are `sstd-core::physics`'s
+# `DEFAULT_AVATAR_SPEED_PPS` and `GRAVITY_PPS2`, so a later port to `physics.rs` moves the code
+# without moving the feel. 200 px/s crosses one 1920 px screen in 9.6 s, which is slow enough to
+# see every ground column go by.
+const WALKER_SPEED_PPS: float = 200.0
+const WALKER_GRAVITY_PPS2: float = 980.0
+# Where the camera looks when the avatar first lands: the prototype world's ground line (tile row
+# 31 of 32 px tiles = 992 px) minus half a 1080 px view plus a 200 px margin, so the ground sits
+# about a fifth of a screen above the bottom edge and there is room to see the avatar fall.
+const GROUND_VIEW_CENTER_Y_PX: float = 652.0
+
 var _loader: ParallaxLoader = null
 var _back_draw: ParallaxDraw = null
 var _front_draw: ParallaxDraw = null
@@ -52,6 +63,14 @@ var _ground_layer: Node2D = null
 var _avatar: Node2D = null
 var _walker_state: Dictionary = {"pos_x":0,"pos_y":0,"vel_x":0,"vel_y":0,"grounded":false}
 var _tiles_cache: Array = []
+# Column index -> the y (px) of that column's surface. Built once per `_rebuild_ground_tiles`
+# instead of rescanning `_tiles_cache` per frame: the prototype world is 180 columns wide.
+var _ground_y_by_col: Dictionary = {}
+# #122 -- the prototype follows the avatar. OFF by default: #119/#120's camera belongs to the
+# user (pan, zoom, screen jump) and `test_world_view` / `test_world_view_controls` pin exactly
+# that, so a follow that always won would silently delete twenty assertions. `main.gd` turns it
+# on for the Simulator, which is the one place the walker runs.
+var _camera_follow_enabled: bool = false
 var _walk_input: Dictionary = {"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false}
 
 
@@ -90,6 +109,9 @@ func _ready() -> void:
         _avatar.set_script(load("res://scripts/avatar_stickman.gd"))
         _avatar.z_index = 10
         world_node.add_child(_avatar)
+        # Placeholder: `_rebuild_ground_tiles` puts the walker on the first ground column as soon
+        # as the ScreenStore arrives (#122). Without ground there is nothing to stand on, so this
+        # start point is the one that falls.
         _walker_state = {"pos_x":100.0,"pos_y":-200.0,"vel_x":0.0,"vel_y":0.0,"grounded":false}
     # Force one query on the first poll, whatever the camera happens to start at.
     _last_view = {}
@@ -162,8 +184,24 @@ func set_screen_store(store: ScreenStore) -> void:
     _rebuild_ground_tiles()
 
 
+# Public seam for main.gd: the store is shared and mutated in place (a world load replaces its
+# screens, a paint replaces its tiles), so nothing has to hand it over again -- the ground table
+# just has to be derived from it again.
+func refresh_ground() -> void:
+    _rebuild_ground_tiles()
+
+
 func set_grid_config(config: Dictionary) -> void:
     _grid_config = config
+
+
+# #122 -- opt in to the follow camera. See `_camera_follow_enabled` for why it is not the default.
+func set_camera_follow(enabled: bool) -> void:
+    _camera_follow_enabled = enabled
+    # The placeholder foreground is opaque over the walking surface. Its CanvasLayer draws
+    # above every world z-index, so omit it in the walker prototype, not in parallax previews.
+    var front_draw: Node2D = get_node("SubViewportContainer/Viewport/FrontPlane/ParallaxDraw") as Node2D
+    front_draw.visible = not enabled
 
 
 # Jump: put the camera on the centre of one screen. Registered id first -- `position_of_id()`
@@ -346,19 +384,29 @@ func _screen_size_world_px() -> Vector2:
         float(_grid_config.get("max_tiles_per_screen_y", 0)) * float(_grid_config.get("tile_height_in_pixels", 0)))
 
 
+# The map rectangle in world px: the occupied screen cells times one screen. Empty when the store
+# is not injected yet or the grid config is not loaded, which is what tells callers "nothing to
+# clamp to" instead of handing them a rectangle at the origin.
+func _map_world_px() -> Rect2:
+    if _screen_store == null:
+        return Rect2()
+    var screen_size_px: Vector2 = _screen_size_world_px()
+    if screen_size_px.x <= 0.0 or screen_size_px.y <= 0.0:
+        return Rect2()
+    var cells: Rect2i = _screen_store.bounds()
+    return Rect2(
+        Vector2(cells.position) * screen_size_px,
+        Vector2(cells.size) * screen_size_px)
+
+
 # The map rectangle grown by one screen on every side (Math section 5, `camera_bound(editor =
 # true)`). Derived per call: ScreenStore.bounds() is a pass over the screens map, which the editor
 # holds at single-digit size, and deriving it removes every invalidation path.
 func _editor_bound_world_px() -> Rect2:
-    if _screen_store == null:
-        return Rect2()                      # bare scene, store not injected yet: nothing to clamp
+    var map_world_px: Rect2 = _map_world_px()
+    if map_world_px.size.x <= 0.0 or map_world_px.size.y <= 0.0:
+        return Rect2()
     var screen_size_px: Vector2 = _screen_size_world_px()
-    if screen_size_px.x <= 0.0 or screen_size_px.y <= 0.0:
-        return Rect2()                      # grid config not loaded yet: same case
-    var cells: Rect2i = _screen_store.bounds()
-    var map_world_px: Rect2 = Rect2(
-        Vector2(cells.position) * screen_size_px,
-        Vector2(cells.size) * screen_size_px)
     return map_world_px.grow_individual(
         screen_size_px.x, screen_size_px.y, screen_size_px.x, screen_size_px.y)
 
@@ -456,6 +504,76 @@ func _handle_movement_keys(key_event: InputEventKey) -> void:
         return
 
 
+# Issue #122 -- "what is the surface of column N", derived from the same tile list the ground
+# layer draws. Pure and static so the walker test can call it with a hand-built tile array.
+#
+# The prototype world has 3 screens x 60 columns of 32 px tiles with ground at rows 31-32, so the
+# table is 180 entries all holding 992.0 -- the flat, seam-free ground across all three screens.
+#
+# `tile_h_px` rather than `tile_w_px` because a surface is a ROW: a non-square tile grid would
+# make the two differ, and the caller passes both.
+static func build_ground_column_table(tiles: Array, tile_h_px: float) -> Dictionary:
+    # Intent: one pass over the tiles -> "what is the surface of column N". The surface is the
+    # SMALLEST `world_tile_y` among that column's walkable tiles, converted to px (row *
+    # tile_h_px). A column whose tiles are all non-walkable has NO surface at all, so it is
+    # simply ABSENT from the table -- and `step_walker` reads absence as a hole.
+    #
+    # Why a column table and not the tile list: `step_walker` runs 60 times a second and needs one
+    # answer per frame. Scanning 360 tiles a frame is exactly the cost the Rust bridge was paying
+    # as 29 KB of JSON per frame; the table pays it once, per rebuild.
+     var surface_row_by_col: Dictionary = {}
+     for tile in tiles:
+         if not bool(tile.get("is_walkable", false)):
+             continue
+         var world_col: int = int(tile.get("world_tile_x", 0))
+         var world_row: int = int(tile.get("world_tile_y", 0))
+         surface_row_by_col[world_col] = mini(
+             int(surface_row_by_col.get(world_col, world_row)), world_row)
+     var ground_y_by_col: Dictionary = {}
+     for world_col in surface_row_by_col:
+         ground_y_by_col[world_col] = float(surface_row_by_col[world_col]) * tile_h_px
+     return ground_y_by_col
+
+
+# Issue #122 -- one frame of walker physics. Pure and static for the same reason: the test drives
+# it 600 steps with no scene, no input device and no Godot frame loop.
+#
+# Not modelled on purpose, because the prototype world is flat and the ticket is not: stepping UP
+# onto a higher surface (the walker walks into it), slopes, walls, jumping, and anything living in
+# the column above the feet. Only the seam behaviour is real, and it is real because the table has
+# no gap at a screen boundary: column 59 and column 60 share one ground line.
+static func step_walker(state: Dictionary, move_x: float, dt: float, ground_y_by_col: Dictionary,
+        tile_w_px: float, world_left_px: float, world_right_px: float) -> Dictionary:
+    # Intent: advance `state` by one frame. Gravity always pulls; the horizontal move is applied
+    # and clamped to the world edges; then the feet snap onto the surface of the column they are
+    # now in -- but ONLY when they come DOWN onto it. That one condition is the whole difference
+    # between "a hole lets you fall through" and the current Rust bridge behaviour, which
+    # teleports you back up onto a hole forever (`ny >= gy - 1.0` in `physics.rs`).
+    #
+    # Contract the test pins: returns a NEW dictionary and never mutates `state`, so two identical
+    # calls give an identical result; keys stay pos_x, pos_y, vel_x, vel_y, grounded.
+    var next_state: Dictionary = state.duplicate()
+    var feet_was_y: float = float(next_state.get("pos_y", 0.0))
+    var next_vel_y: float = float(next_state.get("vel_y", 0.0)) + WALKER_GRAVITY_PPS2 * dt
+    var feet_now_y: float = feet_was_y + next_vel_y * dt
+    var next_pos_x: float = clampf(
+        float(next_state.get("pos_x", 0.0)) + move_x * WALKER_SPEED_PPS * dt,
+        world_left_px, world_right_px)
+    var last_world_col: int = int(ceil(world_right_px / tile_w_px)) - 1
+    var world_col: int = mini(int(floor(next_pos_x / tile_w_px)), last_world_col)
+    var landed: bool = (
+        ground_y_by_col.has(world_col)
+        and next_vel_y >= 0.0
+        and feet_was_y <= float(ground_y_by_col[world_col])
+        and feet_now_y >= float(ground_y_by_col[world_col]))
+    next_state["pos_x"] = next_pos_x
+    next_state["vel_x"] = move_x * WALKER_SPEED_PPS
+    next_state["pos_y"] = float(ground_y_by_col[world_col]) if landed else feet_now_y
+    next_state["vel_y"] = 0.0 if landed else next_vel_y
+    next_state["grounded"] = landed
+    return next_state
+
+
 func _rebuild_ground_tiles() -> void:
     _tiles_cache.clear()
     if _screen_store == null:
@@ -485,22 +603,70 @@ func _rebuild_ground_tiles() -> void:
             _tiles_cache.append({"world_tile_x": sx * max_w + wx_local, "world_tile_y": sy * max_h + wy_local, "is_walkable": walkable})
     if _ground_layer != null and _ground_layer.has_method("set_data"):
         _ground_layer.call("set_data", _tiles_cache, grid_dict)
-    # try to snap avatar to ground on first build
-    if _avatar != null and _bridge_obj != null and _bridge_obj.has_method("walk_step"):
-        var req: Dictionary = {
-            "grid": {"tile_w": float(tw), "tile_h": float(th)},
-            "tiles": _tiles_cache,
-            "input": {"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false},
-            "walker": _walker_state,
-            "dt": 0.0
-        }
-        var res_json = _bridge_obj.call("walk_step", JSON.stringify(req))
-        var parsed = JSON.parse_string(res_json)
-        if typeof(parsed) == TYPE_DICTIONARY and parsed.has("walker"):
-            _walker_state = parsed["walker"]
-            _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
-    elif _avatar != null:
-        _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
+    _ground_y_by_col = build_ground_column_table(_tiles_cache, float(th))
+    _spawn_walker_on_ground(tw)
+
+
+# Issue #122 -- put the walker on the leftmost column that has ground, feet exactly ON the
+# surface, and aim the camera at it once so the ground line is on screen at all.
+#
+# Only when the walker is not already standing: `_rebuild_ground_tiles` also runs on every tab
+# switch, and respawning there would teleport the avatar back mid-walk. A walker that fell
+# through a hole counts as not standing, so switching tabs recovers it.
+func _spawn_walker_on_ground(tile_w: int) -> void:
+    if _avatar == null or _ground_y_by_col.is_empty():
+        return
+    if bool(_walker_state.get("grounded", false)):
+        return
+    var first_col: int = int(_ground_y_by_col.keys().min())
+    _place_walker_on_col(first_col, tile_w)
+    if _camera_follow_enabled:
+        move_camera_to(float(_walker_state["pos_x"]), GROUND_VIEW_CENTER_Y_PX)
+        follow_avatar()
+
+
+# Entering the Simulator starts the walk on the screen the other tabs were on. The camera jump
+# already centred there, so the avatar has to stand there too: #119/#120 pin that jump, and a tab
+# that opens on a view without the avatar looks broken even though the walker is fine.
+func reset_walker_on_screen(screen_id: int) -> void:
+    if _avatar == null or _screen_store == null or not _screen_store.has_id(screen_id):
+        return
+    var cols_per_screen: int = int(_grid_config.get("max_tiles_per_screen_x", 60))
+    var first_col_of_screen: int = _screen_store.position_of_id(screen_id).x * cols_per_screen
+    var cols_on_screen: Array = _ground_y_by_col.keys().filter(
+        func(world_col: int) -> bool:
+            return world_col >= first_col_of_screen and world_col < first_col_of_screen + cols_per_screen)
+    if cols_on_screen.is_empty():
+        return                                  # ground exists, but not on this screen
+    _place_walker_on_col(int(cols_on_screen.min()), int(_grid_config.get("tile_width_in_pixels", 32)))
+    _frame_walker_on_entry.call_deferred()
+
+
+# Screen-centred cameras can exclude ground near the bottom of a screen entirely. Frame the
+# actual feet after tab layout, leaving one quarter of the visible height beneath the ground.
+func _frame_walker_on_entry() -> void:
+    if not _camera_follow_enabled or _camera == null or _viewport == null:
+        return
+    var ground_clearance_fraction: float = 0.25
+    var visible_height_px: float = float(_viewport.size.y) / _camera.zoom.y
+    follow_avatar()
+    move_camera_to(_camera.position.x,
+        float(_walker_state["pos_y"]) - visible_height_px * ground_clearance_fraction)
+    print("walker.frame feet=%s camera=%s viewport=%s zoom=%s" % [
+        _avatar.position, _camera.position, _viewport.size, _camera.zoom])
+
+
+# Both spawn paths end here: state on the surface of `world_col`, node mirroring it. The camera is
+# the caller's business, because boot and tab entry want different camera behaviour.
+func _place_walker_on_col(world_col: int, tile_w: int) -> void:
+    _walker_state = {
+        "pos_x": (float(world_col) + 0.5) * float(tile_w),   # cell centre, not the cell edge
+        "pos_y": float(_ground_y_by_col[world_col]),
+        "vel_x": 0.0,
+        "vel_y": 0.0,
+        "grounded": true,
+    }
+    _avatar.position = Vector2(float(_walker_state["pos_x"]), float(_walker_state["pos_y"]))
 
 
 func _update_walker(dt: float) -> void:
@@ -510,54 +676,48 @@ func _update_walker(dt: float) -> void:
         return
     if _avatar == null:
         return
-    # WASD input
-    var mx: float = 0.0
-    var my: float = 0.0
-    if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
-        mx -= 1.0
-    if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
-        mx += 1.0
-    if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
-        my -= 1.0
-    if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
-        my += 1.0
-    _walk_input["move_x"] = mx
-    _walk_input["move_y"] = my
-    if _bridge_obj == null or not _bridge_obj.has_method("walk_step"):
-        # fallback: simple move with ground snap attempt
-        var tw: int = int(_grid_config.get("tile_width_in_pixels", 64))
-        var th: int = int(_grid_config.get("tile_height_in_pixels", 64))
-        _avatar.position += Vector2(mx, my) * 200.0 * dt
-        # try to snap vertically
-        var col_f = _avatar.position.x / float(tw)
-        var col_i = int(floor(col_f))
-        # scan tiles_cache for ground at this column
-        var best_y: float = _avatar.position.y
-        var found: bool = false
-        for td in _tiles_cache:
-            if int(td.get("world_tile_x", 0)) == col_i and bool(td.get("is_walkable", false)):
-                var ty = float(int(td.get("world_tile_y", 0))) * float(th)
-                if not found or ty < best_y:
-                    best_y = ty
-                    found = true
-        if found:
-            _avatar.position.y = best_y
+    # A/D only. The arrows belong to the editor camera (#120) -- holding one pans the view, and
+    # the avatar must not move at the same time. W/S are read by nothing: no jump, no crouch.
+    var move_x: float = 0.0
+    if Input.is_key_pressed(KEY_A):
+        move_x -= 1.0
+    if Input.is_key_pressed(KEY_D):
+        move_x += 1.0
+    _walker_state = step_walker(
+        _walker_state,
+        move_x,
+        dt,
+        _ground_y_by_col,
+        float(_grid_config.get("tile_width_in_pixels", 32)),
+        _map_world_px().position.x,
+        _map_world_px().end.x)
+    _avatar.position = Vector2(
+        float(_walker_state.get("pos_x", 0.0)), float(_walker_state.get("pos_y", 0.0)))
+    if move_x != 0.0:
+        follow_avatar()
+
+
+# The game camera follows the avatar along x and leaves y alone, so a middle-drag pan or a zoom
+# survives the next frame. While walking, called only while a direction key is held: standing
+# still must not re-centre the view, or the arrow-key pan and the entry jump would be undone one
+# frame after the user made them. Entering the Simulator calls it once explicitly, because the
+# avatar is what the Simulator is for and it may not be on the screen the other tabs were on.
+func follow_avatar() -> void:
+    if not _camera_follow_enabled:
         return
-    var tw2: int = int(_grid_config.get("tile_width_in_pixels", 64))
-    var th2: int = int(_grid_config.get("tile_height_in_pixels", 64))
-    var req: Dictionary = {
-        "grid": {"tile_w": float(tw2), "tile_h": float(th2)},
-        "tiles": _tiles_cache,
-        "input": _walk_input,
-        "walker": _walker_state,
-        "dt": dt
-    }
-    var req_json := JSON.stringify(req)
-    var res_json = _bridge_obj.call("walk_step", req_json)
-    var parsed = JSON.parse_string(res_json)
-    if typeof(parsed) == TYPE_DICTIONARY and parsed.has("walker"):
-        _walker_state = parsed["walker"]
-        _avatar.position = Vector2(float(_walker_state.get("pos_x", _avatar.position.x)), float(_walker_state.get("pos_y", _avatar.position.y)))
+    if _camera == null or _viewport == null:
+        return
+    var map_world_px: Rect2 = _map_world_px()
+    if map_world_px.size.x <= 0.0:
+        return
+    var view_world_px: Vector2 = _viewport.size / _camera.zoom.x   # Camera2D zoom = magnification
+    move_camera_to(
+        CameraController.clamp_center(
+            float(_walker_state.get("pos_x", 0.0)),
+            view_world_px.x,
+            map_world_px.position.x,
+            map_world_px.end.x),
+        _camera.position.y)
 
 
 func _handle_place_interact(place_flag: bool, interact_flag: bool) -> void:

@@ -193,7 +193,16 @@ func on_world_loaded(data: Dictionary) -> void:
 		entity_editor.set_framework_entities(_framework_entities)
 		if not _world_entity_defs.is_empty():
 			entity_editor.apply_world_entity_defs(_world_entity_defs)
-	print("[main] World loaded: %d terrain overrides, %d world entity defs" % [_terrain_overrides.size(), _world_entity_defs.size()])
+	if simulator_world_view != null and simulator_world_view.has_method("refresh_ground"):
+		# The Simulator's ground table is derived from the ScreenStore, so it is rebuilt whenever a
+		# world replaces the store's contents. Boot auto-load is the case that needs it: the store was
+		# handed over empty while `_wire_editors` ran, and only got its screens afterwards.
+		simulator_world_view.refresh_ground()
+	print("[main] World loaded: %d terrain overrides, %d world entity defs, avatar at %s" % [
+		_terrain_overrides.size(), _world_entity_defs.size(),
+		str(simulator_world_view.get_avatar_position())
+			if simulator_world_view != null and simulator_world_view.has_method("get_avatar_position")
+			else "unavailable"])
 
 func get_terrain_overrides_for_save() -> Dictionary:
 	if terrain_editor and terrain_editor.has_method("collect_terrain_overrides"):
@@ -227,6 +236,10 @@ func _wire_editors() -> void:
 	if simulator_world_view != null:
 		if simulator_world_view.has_method("set_grid_config"):
 			simulator_world_view.set_grid_config(_grid_config)
+		# #122: the Simulator is the only place the avatar walks, so it is the only view that
+		# follows it. The other WorldView users keep the user-driven camera (#119/#120).
+		if simulator_world_view.has_method("set_camera_follow"):
+			simulator_world_view.set_camera_follow(true)
 		if simulator_world_view.has_method("set_screen_store"):
 			simulator_world_view.set_screen_store(screen_store)
 		if simulator_world_view.has_method("set_bridge_obj") and _bridge != null:
@@ -299,11 +312,20 @@ func _on_tab_changed(tab: int) -> void:
 		# performs no add / delete / move / clone, so "active" is whichever editor was just on
 		# screen -- Placement's pick when coming from Placement, Map's otherwise. Read, not copied:
 		# writing Placement's id back into map_editor would change what the Map tab shows.
+		# The rebuild comes first: a hole painted in the Map tab reaches the stepper only through
+		# the ground table, and the jump below rebuilds nothing.
+		if simulator_world_view.has_method("refresh_ground"):
+			simulator_world_view.refresh_ground()
 		var active_screen_id: int = map_editor._screen_id
 		if tab_was == 3:
 			active_screen_id = placement_editor._screen_id
 		if simulator_world_view.has_method("center_on_screen"):
 			simulator_world_view.center_on_screen(active_screen_id)
+		# The camera jump above is pinned by #119/#120, so the avatar has to come to it: entering
+		# the tab starts the walk on the screen the other tabs were on, or the tab opens on a view
+		# with no avatar in it.
+		if simulator_world_view.has_method("reset_walker_on_screen"):
+			simulator_world_view.reset_walker_on_screen(active_screen_id)
 
 func new_project() -> void:
 	if await _confirm_save_dirty() == 0:
