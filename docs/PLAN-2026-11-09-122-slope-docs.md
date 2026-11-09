@@ -64,8 +64,8 @@ Three facts measured on 2026-11-09 that a later step must not re-derive:
 | S4 | Rewrite the wiki page section | done | one file, headings 1-9 unique | `Step 4 result` |
 | S5 | Index the page in Home.md + TODO.md | done | TS77 present, Home row extended | `Step 5 result` |
 | S6 | Commit the wiki repo | done | `b64b605`, tree clean | branch `docs/122-slope-set` |
-| S7 | Publish both repos, settle issue #122 | todo | | |
-| S8 | Final checkpoint state | todo | | |
+| S7 | Publish both repos, settle issue #122 | done | code `075b88e..fdcf259`, wiki `01de629..b64b605`; #122 stays OPEN | `Step 7 result` |
+| S8 | Final checkpoint state | done | checkpoint says nothing in flight | branch `docs/122-final` |
 
 ## Step specifications
 
@@ -360,3 +360,30 @@ The issue also lists "Slopes (30°)" under **Out of scope**, while the 7x4 slope
 inside #122. So the issue cannot be closed on its own text without recording both facts.
 
 Next step: S7 (needs push permission).
+
+## Step 7 result
+
+Public race check not needed: both remotes are `HidekiAI/*`, which is @me's own account.
+
+| Repo | Branch pushed | Merged ff-only into | Ref range pushed |
+|---|---|---|---|
+| code | `test/122-slope-set` | `trunk` | `075b88e..fdcf259` |
+| wiki | `docs/122-slope-set` | `master` | `01de629..b64b605` |
+
+Neither base branch is protected (`gh api .../branches/<base>/protection` returns 404), so the local
+ff-only merge is the whole mechanism; no PR was opened. Each repo has exactly one remote (`origin`,
+`git@github.com:HidekiAI/...`), so there was no second remote to sync.
+
+Issue #122: decided with @me to **leave it OPEN** with a comment that records what shipped, the
+unmet "blocked by non-walkable" acceptance line, and the fact that slopes were listed out of scope
+but shipped anyway. See `Step 7 precheck` for the criterion-by-criterion verdict.
+
+Next step: S8.
+
+## Step 8 result
+
+Branch `docs/122-final` off `trunk` (`fdcf259`). `docs/SESSION-CHECKPOINT.md` current-state block now
+says nothing is in flight, names the merged page section and the two commits of record, states that
+#122 stays OPEN and why, and drops the "current step" pointer. Ledger rows S7 and S8 set to `done`.
+
+Plan complete. All eight steps are `done` with their evidence recorded above.

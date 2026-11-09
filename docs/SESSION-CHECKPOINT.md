@@ -7,28 +7,34 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-09. **#122 hill terrain: code committed on `trunk`; docs + a regression guard are in
-flight under a step ledger.**
+_Last updated: 2026-11-09. **Nothing in flight. #122 slope set is documented and guarded on `trunk`;
+the issue stays OPEN on one unmet acceptance line.**
 
 - **Objective (from @me):** the next best slope angle besides 45° that tiles perfectly on the square
   grid and works for the hill terrain; close to 30°.
 - **Decision:** the 4:7 (rise 4 over run 7, ≈29.7°) slope is the next best slope that tiles perfectly.
   It is authored as an indivisible **set**: start and end flush on flat ground (`ground_row`).
-- **Shipped and committed on `trunk` (`075b88e`, `14e6fc1`, `45085fa`):** `inject_simulator_hills`
-  emits `slope_up_0`..`slope_up_6` for screen `"1,0"` cols 0-6 and screen `"2,0"` cols 14-20 via
+- **Landed and merged to `trunk` (`fdcf259`):** `inject_simulator_hills` emits
+  `slope_up_0`..`slope_up_6` for screen `"1,0"` cols 0-6 and screen `"2,0"` cols 14-20 via
   `y = ground_row - int(4 * col / 7)`; `CANONICAL_TERRAIN` carries the seven keys; the seven
   authored PNGs exist; `world_view_ground.gd` draws one ramp polygon per contiguous slope run.
+  `editor/tests/test_slope_set.gd` pins the keys, rows, re-injection no-op and ground table, and was
+  mutation-verified three ways (divisor, column index, key prefix).
+- **Docs of record:** `TDD_Simulator-Ground-Walk` section 7 on wiki `master` (`b64b605`) now specifies
+  the set, its keys, the formula, the injection sites, the draw path and the legacy keys; the page was
+  wrong before (it said `hill_up`, duplicated heading 7, and claimed no slopes).
+- **Issue #122 stays OPEN:** its acceptance list includes "blocked by non-walkable", and `step_walker`
+  clamps `pos_x` only to the world edges. A non-walkable column has no surface, so the avatar falls
+  there instead of being stopped. That gap is recorded on the issue, not fixed here.
+- **Not in flight, not started:** any down-slope set (`hill_down` remains a legacy key with no art),
+  and horizontal wall blocking in `step_walker`.
 
-- **Current step: S4 — rewrite the slope section of
-  `TechnicalDesign/TDD_Simulator-Ground-Walk.md` in the wiki repo (branch `docs/122-slope-set`).**
-  S0-S3 are done: ledger written, gate measured, `editor/tests/test_slope_set.gd` written and
-  mutation-verified, code committed.
+- **Nothing is in flight.** All eight steps of `docs/PLAN-2026-11-09-122-slope-docs.md` (S0-S8) are
+  `done`; its ledger is the record of how each was measured. Neither working branch exists any more:
+  `test/122-slope-set` and `docs/122-slope-set` were merged and deleted.
 
-- **Read this and then stop:** `docs/PLAN-2026-11-09-122-slope-docs.md`. It holds the step
-  ledger (S0-S8), the standing constraints, and each step's self-contained instructions. Do not
-  reconstruct state from chat; the plan exists so a different model, hours later, needs nothing else.
-- Branch in flight: `test/122-slope-set` (code repo). The wiki work rides `docs/122-slope-set`
-  (wiki repo) and starts at S4.
+- **Read this and then stop:** `docs/PLAN-2026-11-09-122-slope-docs.md` if you need to know how
+  anything above was measured. Do not reconstruct state from chat.
 
 - **Corrections of record, measured 2026-11-09 — do not re-derive, and do not write a doc that
   contradicts them:**
