@@ -224,13 +224,16 @@ func inject_simulator_hills(store: ScreenStore) -> void:
 	var ground_row: int = max_h - 2  # ground line: row 31 on a 33-row screen
 	var tile_h: int = int(_grid_config.get("tile_height_in_pixels", 32))
 
-	# Screen 2 at position (1, 0): 30-degree up-slope hill at the left edge (columns 0-3).
+	# Screen 2 at position (1, 0): 7x4 slope set at left edge (columns 0-6).
 	var key2: String = "1,0"
 	store.screens[key2] = {"x": 1, "y": 0, "id": 2, "file": ""}
 	var tiles2: Array = []
 	for i in range(max_w):
-		if i < 4:
-			tiles2.append({"x": i, "y": ground_row - i, "terrain": "hill_up"})
+		if i < 7:
+			# 7x4 slope: rise 4 tiles over 7 columns, using integer steps.
+			# y = ground_row - int(4*i/7) gives: i=0→0, i=1→0, i=2→1, i=3→1, i=4→2, i=5→2, i=6→3
+			var y: int = ground_row - int(4 * i / 7)
+			tiles2.append({"x": i, "y": y, "terrain": "hill_up"})
 		else:
 			tiles2.append({"x": i, "y": ground_row, "terrain": "dirt"})
 	store.cache[key2] = {"tiles": tiles2}
