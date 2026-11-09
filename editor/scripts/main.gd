@@ -244,7 +244,9 @@ func inject_simulator_hills(store: ScreenStore) -> void:
 			if i < 17:
 				tiles3.append({"x": i, "y": ground_row - (i - 13), "terrain": "hill_up"})
 			else:
-				tiles3.append({"x": i, "y": ground_row + (i - 17), "terrain": "hill_down"})
+				# Descend toward ground level: peak at col 16 is row 28 (ground_row - 3);
+				# Right side lands flat on ground_row (31), never below ground.
+				tiles3.append({"x": i, "y": ground_row, "terrain": "hill_down"})
 		else:
 			tiles3.append({"x": i, "y": ground_row, "terrain": "dirt"})
 	store.cache[key3] = {"tiles": tiles3}
