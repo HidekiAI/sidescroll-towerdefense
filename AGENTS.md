@@ -815,6 +815,29 @@ contract change**, so it needs its own ticket — do not bundle it with a neighb
   `test_terrain_brush`, `test_override_merge`, all under
   `$HOME/bin/godot4 --headless --path editor --script res://tests/<name>.gd`.
 
+## Debug: Terrain Not Showing After Modifications (MEMO, #122)
+
+If you edit hill/ground terrain in the simulator and it does **not** appear:
+
+1. **Delete or rename** `editor/world.zip` (it's a local boot artifact).
+   - The boot world loads this zip on start. If it already contains screens
+     `(1,0)` and `(2,0)` with plain `dirt` tiles, `inject_simulator_hills()`
+     early-returns and never injects `hill_up`/`hill_down`.
+   - Renaming to `world.zip.disabled` lets the empty manifest load, then
+     `inject_simulator_hills` adds the hills as walkable green terrain.
+
+2. After deleting/renaming, restart the editor (or press **Reload Scripts**).
+   - The ScreenStore will be rebuilt from the empty manifest.
+   - `refresh_ground()` will re-query the ScreenStore and draw the hill tiles.
+
+3. Walk the avatar **right (D key)** from the start (screen 0, x≈16).
+   - Hills are injected on screens 1 (left‑edge 30° up‑slope) and 2 (jump hill).
+   - The avatar starts on screen 0; they are not visible until you move right.
+
+4. Verify with the periodic logging (`AVATAR_POS … RIGHT_EDGE_TERRAIN`) or
+   by checking that `_ground_layer` draws green `hill_up`/`hill_down` rects.
+
+---
 ## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 
 Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of which
