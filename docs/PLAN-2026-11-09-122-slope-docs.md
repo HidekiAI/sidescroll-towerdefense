@@ -63,7 +63,7 @@ Three facts measured on 2026-11-09 that a later step must not re-derive:
 | S3 | Commit the code repo | done | `28f0439`, tree clean | branch `test/122-slope-set` |
 | S4 | Rewrite the wiki page section | done | one file, headings 1-9 unique | `Step 4 result` |
 | S5 | Index the page in Home.md + TODO.md | done | TS77 present, Home row extended | `Step 5 result` |
-| S6 | Commit the wiki repo | todo | | |
+| S6 | Commit the wiki repo | done | `b64b605`, tree clean | branch `docs/122-slope-set` |
 | S7 | Publish both repos, settle issue #122 | todo | | |
 | S8 | Final checkpoint state | todo | | |
 
@@ -330,3 +330,33 @@ Next step: S5.
   which is S4 + S5 combined.
 
 Next step: S6.
+
+## Step 6 result
+
+Committed `b64b605` on `docs/122-slope-set` (wiki): `Home.md`, `TODO.md`,
+`TechnicalDesign/TDD_Simulator-Ground-Walk.md`. `git status --short --branch` afterwards:
+`## docs/122-slope-set`, nothing else.
+
+The code repo then took `744b265` (`docs(sim): record S3-S5 results in the #122 step ledger`) so this
+file's ledger matches what was measured. Two commits total on `test/122-slope-set`: `28f0439`,
+`744b265`.
+
+Next step: S7.
+
+## Step 7 precheck (evidence for the issue decision)
+
+`gh issue view 122` acceptance lines, checked against the code as committed:
+
+| Criterion | Verdict |
+|---|---|
+| Simulator shows ground layer matching placed tiles | met: `world_view.gd::_rebuild_ground_tiles` builds the table, `world_view_ground.gd` draws tiles + ramp polygons |
+| Avatar walks left/right, snaps to ground | met: `step_walker` snaps feet onto the current column's surface |
+| Doesn't fall through walkable ground | met: landing branch snaps on descent |
+| **Blocked by non-walkable** | **NOT met**: `step_walker` clamps `pos_x` only to the world edges. A non-walkable column has no surface, so the walker falls there instead of being blocked. The function's own comment says walls are "not modelled on purpose". |
+| `cargo test -p sstd-core` passes, GDScript suites unchanged, exit codes checked | met: S1 measured all green, and the new suite is green |
+| Deterministic: same input -> same positions | met: `step_walker` is static and pure |
+
+The issue also lists "Slopes (30°)" under **Out of scope**, while the 7x4 slope set provably shipped
+inside #122. So the issue cannot be closed on its own text without recording both facts.
+
+Next step: S7 (needs push permission).
