@@ -60,9 +60,9 @@ Three facts measured on 2026-11-09 that a later step must not re-derive:
 | S0 | Create this ledger, branch, checkpoint pointer | done | commit below, `Step 0 result` | branch `test/122-slope-set` |
 | S1 | Measure the gate and issue #122 state | done | all six suites rc=0, boot rc=0, 141 Rust tests pass, #122 OPEN | plan `Step 1 result` |
 | S2 | Write + mutation-verify `test_slope_set.gd` | done | green rc=0; 3 mutants each rc=1 | `Step 2 result` |
-| S3 | Commit the code repo | todo | | |
-| S4 | Rewrite the wiki page section | todo | | |
-| S5 | Index the page in Home.md + TODO.md | todo | | |
+| S3 | Commit the code repo | done | `28f0439`, tree clean | branch `test/122-slope-set` |
+| S4 | Rewrite the wiki page section | done | one file, headings 1-9 unique | `Step 4 result` |
+| S5 | Index the page in Home.md + TODO.md | done | TS77 present, Home row extended | `Step 5 result` |
 | S6 | Commit the wiki repo | todo | | |
 | S7 | Publish both repos, settle issue #122 | todo | | |
 | S8 | Final checkpoint state | todo | | |
@@ -274,3 +274,59 @@ Note for S3: `test_slope_set.gd` did not get a `.uid` sibling from a `--script` 
 imports generate one), so S3 stages the two pre-existing walker `.uid` files and this `.gd` only.
 
 Next step: S3.
+
+## Step 3 result
+
+Committed `28f0439` on `test/122-slope-set`:
+
+- added `editor/tests/test_slope_set.gd`
+- added the two previously untracked `editor/tests/*.uid` files (`test_walker_step.gd.uid`,
+  `test_walker_visibility.gd.uid`)
+- `docs/PLAN-2026-11-09-122-slope-docs.md` (S1 + S2 results)
+- `docs/SESSION-CHECKPOINT.md` (pointer moved to S4)
+
+`git status --short --branch` afterwards: `## test/122-slope-set`, no other lines. `test_slope_set.gd`
+generated no `.uid` (only editor imports do), so nothing was missed.
+
+Next step: S4.
+
+## Step 4 result
+
+Wiki branch `docs/122-slope-set` created off `master` (which carried the wrong 22-line draft).
+
+One file changed: `TechnicalDesign/TDD_Simulator-Ground-Walk.md` (+43 / -6). Edits:
+
+- front matter: git-hash cite removed, `world_view_ground.gd` and `editor/tests/test_slope_set.gd` added
+  to the code list;
+- §1: "no slopes" replaced by whole-tile slopes drawn as one ramp polygon per contiguous run, and the
+  orphaned "In scope (added 2026-11-08)" line moved here as a slopes-in-scope paragraph pointing at §7;
+- §7 rewritten (key/offset table with `slope_up_0`..`slope_up_6`, formula, injection sites, draw path,
+  walkability + climbing, adjacency, why-not-30°, legacy keys, regression guard);
+- Out of Scope and Related renumbered to 8 and 9.
+
+`grep -n '^## '` output, all unique: `1. Purpose` (7), `2. Data Model` (26), `3. Physics (Minimal)`
+(64), `4. Bridge API` (78), `5. Godot Integration` (100), `6. Testing` (108), `7. Slope Sets (rise/run
+sets that must stay whole)` (112), `8. Out of Scope` (149), `9. Related` (152).
+
+The only surviving `hill_up` mention is the legacy-keys paragraph; no git hash, no "no slopes".
+
+**Finding outside this step's scope, recorded not fixed:** `editor/scripts/world_view.gd`'s doc
+comment above `step_walker` still says "Not modelled on purpose ... stepping UP onto a higher
+surface (the walker walks into it), slopes, walls, jumping", while the function body below models
+stepping up (`elif ground_y < feet_was_y and move_x != 0.0`). The comment is stale and contradicts
+both the code and §7 of the page. One-line follow-up, not part of #122's docs ticket.
+
+Next step: S5.
+
+## Step 5 result
+
+- `Home.md` row 109 for `TDD_Simulator-Ground-Walk` extended with the 7x4 slope set, the ramp
+  polygon draw path and the new guard.
+- `TODO.md`: new `TS77` row added directly after `TS76` (order preserved), and the `*Last updated*`
+  line rewritten to this session with the previous session kept as "Previous session:".
+- Checks: `grep -c TS77 TODO.md` = 2 (row plus the recap line), `grep -in slope Home.md` hits rows 80
+  and 109.
+- `git diff --stat`: three files (`Home.md`, `TODO.md`, `TechnicalDesign/TDD_Simulator-Ground-Walk.md`),
+  which is S4 + S5 combined.
+
+Next step: S6.
