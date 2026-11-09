@@ -7,37 +7,38 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-09. **#122 hill terrain — 7x4 slope set complete; 7 unique collision tiles
-created and wired.**
+_Last updated: 2026-11-09. **#122 hill terrain: code committed on `trunk`; docs + a regression guard are in
+flight under a step ledger.**
 
 - **Objective (from @me):** the next best slope angle besides 45° that tiles perfectly on the square
   grid and works for the hill terrain; close to 30°.
 - **Decision:** the 4:7 (rise 4 over run 7, ≈29.7°) slope is the next best slope that tiles perfectly.
-  It must be authored as an indivisible **set**: start and end flush on flat ground (`ground_row`).
-- **Completed in this session:**
-  1. `editor/scripts/main.gd` (`inject_simulator_hills`): Screen 2 (key `"1,0"`) now emits the
-     7x4 slope set for local columns `0..7` using `y = ground_row - int(4 * col / 7)` and the
-     per-column terrain key `slope_up_<col>`.
-  2. `editor/scripts/world_archive.gd` (`CANONICAL_TERRAIN`): added the seven authored slope
-     keys `"slope_up_0".."slope_up_6"` (plus the prior flat-hill keys `"hill_up"`,
-     `"hill_down"`).
-  3. Created the seven unique visual collision tiles
-     (`editor/assets/tiles/slope_up_0_32x32.png` .. `slope_up_6_32x32.png`) each drawing the
-     ground body below the 4:7 diagonal for its column.
-  4. Verified all six GDScript suites exit 0 (walker_step, walker_visibility, screen_store,
-     image_to_map, terrain_brush, override_merge).
+  It is authored as an indivisible **set**: start and end flush on flat ground (`ground_row`).
+- **Shipped and committed on `trunk` (`075b88e`, `14e6fc1`, `45085fa`):** `inject_simulator_hills`
+  emits `slope_up_0`..`slope_up_6` for screen `"1,0"` cols 0-6 and screen `"2,0"` cols 14-20 via
+  `y = ground_row - int(4 * col / 7)`; `CANONICAL_TERRAIN` carries the seven keys; the seven
+  authored PNGs exist; `world_view_ground.gd` draws one ramp polygon per contiguous slope run.
 
-- **In flight:** verify the ground layer in `world_view.gd` / `world_archive.gd` renders the new
-  `slope_up_<col>` keys as per-step visuals and that walkability (`is_walkable`) treats them as
-  hill.
+- **Current step: S1 — measure the GDScript gate, headless boot, `cargo test -p sstd-core`, and the
+  state of issue #122.**
 
-- **Next move, in order:**
-  1. Confirm the ground-layer draw path resolves `slope_up_<col>` to the authored PNG
-     (`{key}_32x32.png`) and falls back to green hill fill for any unmapped key.
-  2. Re-run the full GDScript gate (the six suites) and a headless boot (`godot4 --headless
-     --path editor --quit-after 120`) to catch parse errors.
-  3. Walk the avatar onto the slope (manual check: screen 1 left edge) to confirm no fall-off at
-     the left edge.
+- **Read this and then stop:** `docs/PLAN-2026-11-09-122-slope-docs.md`. It holds the step
+  ledger (S0-S8), the standing constraints, and each step's self-contained instructions. Do not
+  reconstruct state from chat; the plan exists so a different model, hours later, needs nothing else.
+- Branch in flight: `test/122-slope-set` (code repo). The wiki work rides `docs/122-slope-set`
+  (wiki repo) and starts at S4.
+
+- **Corrections of record, measured 2026-11-09 — do not re-derive, and do not write a doc that
+  contradicts them:**
+  1. The Simulator ground layer never loads a tile PNG. It draws polygons and rects
+     (`world_view_ground.gd`); `{key}_32x32.png` is read only by the palette and editor grids.
+  2. Simulator walkability is a heuristic (`world_view.gd:633-635`: walkable unless `air`, `wall`
+     or `lava`), not a terrain-table lookup.
+  3. `hill_up` / `hill_down` are legacy keys: still in `CANONICAL_TERRAIN` and used by
+     `test_walker_visibility.gd`, no authored PNG, no longer emitted by `inject_simulator_hills`.
+  4. The "all six suites exit 0" claim below was made on this host, where `test_screen_store` is
+     known red (#85, 4.7 `ZIPPacker` directory entry). S1 measures and settles it.
+
 ### Superseded: step-4 (#107) state, 2026-10-19
 
 _Last updated: 2026-10-19, after the push. **Both repos are pushed and merged.** Code repo `trunk` =
