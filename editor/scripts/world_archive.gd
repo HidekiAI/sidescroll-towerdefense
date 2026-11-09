@@ -11,6 +11,7 @@ const WORLD_EXT := ".zip"
 const CANONICAL_TERRAIN: PackedStringArray = [
     "air", "grass", "dirt", "stone", "wall", "water", "lava",
     "hill_up", "hill_down",
+    "slope_up_0", "slope_up_1", "slope_up_2", "slope_up_3", "slope_up_4", "slope_up_5", "slope_up_6",
 ]
 
 const MANIFEST_PATH := "manifest.json"

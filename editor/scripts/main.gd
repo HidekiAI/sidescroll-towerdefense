@@ -233,7 +233,7 @@ func inject_simulator_hills(store: ScreenStore) -> void:
 			# 7x4 slope: rise 4 tiles over 7 columns, using integer steps.
 			# y = ground_row - int(4*i/7) gives: i=0→0, i=1→0, i=2→1, i=3→1, i=4→2, i=5→2, i=6→3
 			var y: int = ground_row - int(4 * i / 7)
-			tiles2.append({"x": i, "y": y, "terrain": "hill_up"})
+			tiles2.append({"x": i, "y": y, "terrain": "slope_up_" + str(i)})
 		else:
 			tiles2.append({"x": i, "y": ground_row, "terrain": "dirt"})
 	store.cache[key2] = {"tiles": tiles2}

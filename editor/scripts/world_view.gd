@@ -633,7 +633,7 @@ func _rebuild_ground_tiles() -> void:
             var walkable = true
             if terr == "air" or terr == "wall" or terr == "lava":
                 walkable = false
-            _tiles_cache.append({"world_tile_x": sx * max_w + wx_local, "world_tile_y": sy * max_h + wy_local, "is_walkable": walkable})
+            _tiles_cache.append({"world_tile_x": sx * max_w + wx_local, "world_tile_y": sy * max_h + wy_local, "is_walkable": walkable, "terrain": terr})
     if _ground_layer != null and _ground_layer.has_method("set_data"):
         _ground_layer.call("set_data", _tiles_cache, grid_dict)
     _ground_y_by_col = build_ground_column_table(_tiles_cache, float(th))

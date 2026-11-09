@@ -7,72 +7,37 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-10-24. **#119 and #120 are both MERGED to `trunk`; both wiki halves are merged to
-`master`.** `trunk` = `df2cda5`, wiki `master` = `3de68f1`. #119 added the Simulator camera (pan,
-zoom ladder, jump on tab entry) and #120 fixed the arrow keys also switching tabs (`ui_left` /
-`ui_right` are the TabBar's own actions, so the handled flag is now set). Both are closed.
-Plan of record: `docs/PLAN-2026-10-19-worldview-camera-controls.md`.
+_Last updated: 2026-11-09. **#122 hill terrain — 7x4 slope set complete; 7 unique collision tiles
+created and wired.**
 
-Note the earlier wiki-merge episode: `docs/simulator-camera-controls` was cut before `master` gained
-`3adbaa1`, so `--ff-only` refused; it was landed by cherry-picking the 8 commits onto a fresh branch
-(`docs/simulator-camera-controls-v2`) rather than rebasing an already-pushed branch.
+- **Objective (from @me):** the next best slope angle besides 45° that tiles perfectly on the square
+  grid and works for the hill terrain; close to 30°.
+- **Decision:** the 4:7 (rise 4 over run 7, ≈29.7°) slope is the next best slope that tiles perfectly.
+  It must be authored as an indivisible **set**: start and end flush on flat ground (`ground_row`).
+- **Completed in this session:**
+  1. `editor/scripts/main.gd` (`inject_simulator_hills`): Screen 2 (key `"1,0"`) now emits the
+     7x4 slope set for local columns `0..7` using `y = ground_row - int(4 * col / 7)` and the
+     per-column terrain key `slope_up_<col>`.
+  2. `editor/scripts/world_archive.gd` (`CANONICAL_TERRAIN`): added the seven authored slope
+     keys `"slope_up_0".."slope_up_6"` (plus the prior flat-hill keys `"hill_up"`,
+     `"hill_down"`).
+  3. Created the seven unique visual collision tiles
+     (`editor/assets/tiles/slope_up_0_32x32.png` .. `slope_up_6_32x32.png`) each drawing the
+     ground body below the 4:7 diagonal for its column.
+  4. Verified all six GDScript suites exit 0 (walker_step, walker_visibility, screen_store,
+     image_to_map, terrain_brush, override_merge).
 
-_Next: #121 (editor slice of `CameraService`: `ScrollTo`, `SetZoom`, `GetVisibleBounds` over RPC) is
-filed and unimplemented — see its body for the proto shape and the clamp reconciliation. Open
-questions from @me awaiting a ticket: the backdrop layers appear to move at one rate (clouds as fast
-as the mountains), which points at per-layer `scroll_scale` not reaching `ParallaxDraw`; #91 and #100
-are the related open tickets.
+- **In flight:** verify the ground layer in `world_view.gd` / `world_archive.gd` renders the new
+  `slope_up_<col>` keys as per-step visuals and that walkability (`is_walkable`) treats them as
+  hill.
 
-#122 (walker framing): commit `09f3db5` on `local/fix/walker-framing` merged into `trunk`.
-The Simulator now frames the avatar on entry, and the walker stepper runs with ground clamping.
-The new test suites `test_walker_step` and `test_walker_visibility` both pass 29/29 with zero failures.
-
-_(Historical: below is the #119 state as it stood on 2026-10-23.)_
-
-_Last updated: 2026-10-23. **#119 (Simulator camera controls) is MERGED to `trunk` (code) — the wiki
-half is NOT merged yet.** Code branch `feat/worldview-camera-controls` pushed and fast-forwarded into
-`trunk`; wiki branch `docs/simulator-camera-controls` is pushed but `master` gained `3adbaa1` (the
-Godot-MCP removal note, #112) after the branch was cut, so `--ff-only` refused and the wiki merge is
-waiting on @me's call (rebase would need a force on an already-pushed branch; a merge commit is the
-other option). Plan of record: `docs/PLAN-2026-10-19-worldview-camera-controls.md` (gate score 90/100,
-PASS).
-
-**State: code shipped and green.** The five files are in `trunk`: `world_view.gd` (input, zoom ladder,
-derived bound, per-frame latch clear), `camera_controller.gd` (`_clamp_center` promoted to
-`static func clamp_center`, both call sites moved), `main.gd` (WorldView wiring plus the tab-4 "centre
-on the active screen" branch), `editor/scenes/main.tscn` (comment only), and the new
-`editor/tests/test_world_view_controls.gd`. The plan doc and the wiki pages are committed.
-
-Gate evidence, measured 2026-10-22 on 4.7.2 (`DISPLAY=:0.0`, exit-code gated, never the printed
-counter):
-
-- All 12 GDScript suites exit 0 — including `test_screen_store`, which the notes above record as
-  known-red on 4.7.2 (#85) and which exited **0** in this windowed run. `cargo test -p sstd-core`
-  **138 passed**. Re-run everything with `bash /tmp/user/1000/opencode/run-suites.sh`.
-- The new suite is **37 `ok:` lines, exit 0**: `bash /tmp/user/1000/opencode` recipe is
-  `DISPLAY=:0.0 $HOME/bin/godot4 --path editor --script res://tests/test_world_view_controls.gd`.
-- **24 mutants, 24 caught, 0 void** via `/tmp/user/1000/opencode/mutation-battery.sh`, which runs
-  against a throwaway copy (`/tmp/user/1000/opencode/mut/editor`) so the repo tree is never
-  mutated. One mutant was void on its first run (dropping the per-frame latch clear left an empty
-  `if` block, a GDScript parse error) and was fixed with `pass` before it caught anything: a void
-  mutant is a broken experiment, not a vacuous gate. `FILTER=<label>` re-runs one.
-
-**NEXT MOVE, in order:**
-
-1. Wiki: resolve the diverged `master` for `docs/simulator-camera-controls` (ask @me: a `git merge
-   master` commit on the branch, or re-cut it), then close #119 with its gate evidence and the wiki
-   pages it cites.
-2. Offer @me the local-branch deletion for `feat/worldview-camera-controls` and
-   `docs/simulator-camera-controls` (delete only on an explicit yes; the remote branches are @me's).
-3. The godot MCP removal is **already recorded on wiki `master`** (`3adbaa1`,
-   `Godot4-Learnings.md` section 6, issue #112 closed) and inside `SSTD/opencode.json` itself as a
-   comment. `SSTD/` is not a git repo, so **no `.opencode/AGENTS.md` note is added**: that would be a
-   second copy of a record that already exists, which the Always-Update-All-Documents rule is
-   against.
-4. Still @me's call: #116, #117, #118, lint sweep, #115, the two `/tmp` branch-cleanup scripts,
-   verifying #104/#105/#106, and the stray `chore/remove-godot-mcp` branch (created by another
-   actor, not this session's to delete).
-
+- **Next move, in order:**
+  1. Confirm the ground-layer draw path resolves `slope_up_<col>` to the authored PNG
+     (`{key}_32x32.png`) and falls back to green hill fill for any unmapped key.
+  2. Re-run the full GDScript gate (the six suites) and a headless boot (`godot4 --headless
+     --path editor --quit-after 120`) to catch parse errors.
+  3. Walk the avatar onto the slope (manual check: screen 1 left edge) to confirm no fall-off at
+     the left edge.
 ### Superseded: step-4 (#107) state, 2026-10-19
 
 _Last updated: 2026-10-19, after the push. **Both repos are pushed and merged.** Code repo `trunk` =
