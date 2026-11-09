@@ -72,6 +72,8 @@ var _ground_y_by_col: Dictionary = {}
 # on for the Simulator, which is the one place the walker runs.
 var _camera_follow_enabled: bool = false
 var _walk_input: Dictionary = {"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false}
+var _last_log_time: int = 0
+var _log_interval: int = 1000  # milliseconds
 
 
 func _ready() -> void:
@@ -728,7 +730,43 @@ func _update_walker(dt: float) -> void:
         float(_walker_state.get("pos_x", 0.0)), float(_walker_state.get("pos_y", 0.0)))
     if move_x != 0.0:
         follow_avatar()
+    # Periodic log every _log_interval ms: position + right edge terrain
+    var now_ms = Time.get_ticks_msec()
+    if now_ms - _last_log_time >= _log_interval:
+        _last_log_time = now_ms
+        _log_avatar_position()
 
+
+func _log_avatar_position() -> void:
+    if _avatar == null:
+        return
+    var pos = _avatar.position
+    var map_world_px = _map_world_px()
+    if map_world_px.size.x <= 0.0:
+        return
+    var screen_right_edge = map_world_px.end.x
+    print("AVATAR_POS: %.1f, %.1f | RIGHT_EDGE_TERRAIN: %s" % [
+        pos.x, pos.y,
+        get_terrain_at_position(screen_right_edge, pos.y)
+    ])
+    
+func get_terrain_at_position(world_x: float, world_y: float) -> String:
+    if _screen_store == null:
+        return "no_store"
+    var tile_w = int(_grid_config.get("tile_width_in_pixels", 32))
+    var tile_h = int(_grid_config.get("tile_height_in_pixels", 32))
+    var col = int(world_x / tile_w)
+    var row = int(world_y / tile_h)
+    var screen_col = col / 60  # SCREEN_COLS = 60
+    var local_col = col % 60
+    var screen_data = _screen_store.get_cache(screen_col, 0)
+    if screen_data.is_empty():
+        screen_data = _screen_store.screen_at(screen_col, 0)
+    var tiles_arr = screen_data.get("tiles", []) as Array
+    for td in tiles_arr:
+        if int(td.get("x", 0)) == local_col and int(td.get("y", 0)) == row:
+            return String(td.get("terrain", "unknown"))
+    return "none_at_pos"
 
 # The game camera follows the avatar along x and leaves y alone, so a middle-drag pan or a zoom
 # survives the next frame. While walking, called only while a direction key is held: standing
