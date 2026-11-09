@@ -238,18 +238,17 @@ func inject_simulator_hills(store: ScreenStore) -> void:
 			tiles2.append({"x": i, "y": ground_row, "terrain": "dirt"})
 	store.cache[key2] = {"tiles": tiles2}
 
-	# Screen 3 at position (2, 0): jump-hill at local columns 14-19, up then down.
+	# Screen 3 at position (2, 0): jump-hill — a 4:7 slope set at local columns 14-20,
+	# rising 4 tiles over 7 columns, flush to flat ground at both edges.
 	var key3: String = "2,0"
 	store.screens[key3] = {"x": 2, "y": 0, "id": 3, "file": ""}
 	var tiles3: Array = []
 	for i in range(max_w):
-		if i >= 14 and i < 20:
-			if i < 17:
-				tiles3.append({"x": i, "y": ground_row - (i - 13), "terrain": "hill_up"})
-			else:
-				# Descend toward ground level: peak at col 16 is row 28 (ground_row - 3);
-				# Right side lands flat on ground_row (31), never below ground.
-				tiles3.append({"x": i, "y": ground_row, "terrain": "hill_down"})
+		if i >= 14 and i < 21:
+			# 4:7 slope set, col offset 0..6 within the set.
+			var col: int = i - 14
+			var slope_key: String = "slope_up_" + str(col)
+			tiles3.append({"x": i, "y": ground_row - int(4 * col / 7), "terrain": slope_key})
 		else:
 			tiles3.append({"x": i, "y": ground_row, "terrain": "dirt"})
 	store.cache[key3] = {"tiles": tiles3}
