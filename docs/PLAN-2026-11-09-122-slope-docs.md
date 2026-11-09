@@ -37,8 +37,9 @@ Three facts measured on 2026-11-09 that a later step must not re-derive:
 
 - Godot: `$HOME/bin/godot4` (4.7.2.stable.mono). Rust: `cargo`.
 - Gate on an **exit code**, never on a printed `failures=0` line.
-- Known-red, NOT to be fixed: `test_screen_store` on 4.7.2 (`world-shared tile stored exactly
-  once`, issue #85 — 4.7's `ZIPPacker` writes a `tiles/` directory entry). Expect exit 1 there.
+- Known-red, claimed but NOT reproduced: `test_screen_store` (#85, `world-shared tile stored
+  exactly once`) was recorded as red on 4.7.2. Measured 2026-11-09 on this host it exits **0**;
+  see `Step 1 result`. Treat the exit code as the fact, not the label.
 - No Python on this host. `jq`, Rust or GDScript instead.
 - No emoji, emoticons or decorative icons in any file, commit message or comment.
 - `git add` by **explicit path** only. Never `git add -A` / `git add .`: `editor/addons/` is
@@ -57,8 +58,8 @@ Three facts measured on 2026-11-09 that a later step must not re-derive:
 | Step | Objective | Status | Evidence | Fingerprints |
 |---|---|---|---|---|
 | S0 | Create this ledger, branch, checkpoint pointer | done | commit below, `Step 0 result` | branch `test/122-slope-set` |
-| S1 | Measure the gate and issue #122 state | todo | | |
-| S2 | Write + mutation-verify `test_slope_set.gd` | todo | | |
+| S1 | Measure the gate and issue #122 state | done | all six suites rc=0, boot rc=0, 141 Rust tests pass, #122 OPEN | plan `Step 1 result` |
+| S2 | Write + mutation-verify `test_slope_set.gd` | done | green rc=0; 3 mutants each rc=1 | `Step 2 result` |
 | S3 | Commit the code repo | todo | | |
 | S4 | Rewrite the wiki page section | todo | | |
 | S5 | Index the page in Home.md + TODO.md | todo | | |
@@ -205,3 +206,71 @@ ledger.
 - Untouched on purpose: the two untracked `editor/tests/*.gd.uid` files (S3 commits them), and
   `editor/project.godot` (only touched if a Godot run rewrites it).
 - Commit subject: `docs(sim): open the #122 slope-set docs-and-guard plan (#122)`.
+- Commit short hash, recorded here by S1 because S0 cannot know its own: `63214fa`.
+
+## Step 1 result
+
+Measured 2026-11-09 on `$HOME/bin/godot4` 4.7.2.stable.mono, `--path editor`, exit codes captured
+per run (no pipeline, so `$?` is the suite's own status).
+
+| Run | Exit | Last line |
+|---|---|---|
+| `test_screen_store.gd` | 0 | `6 resources still in use at exit` (ERROR, not a failure) |
+| `test_image_to_map.gd` | 0 | draw trace of `tile_grid_display.gd` |
+| `test_terrain_brush.gd` | 0 | `PASS (failures=0) (14 assertions)` |
+| `test_override_merge.gd` | 0 | `override merge done, failures=0` |
+| `test_walker_step.gd` | 0 | `0 failures` |
+| `test_walker_visibility.gd` | 0 | `1 ObjectDB instance was leaked at exit` (WARNING) |
+| headless boot `--quit-after 120` | 0 | 0 lines matching `SCRIPT ERROR` / `Parse Error` / `ERROR:` |
+| `cargo test -p sstd-core` | 0 | `141 passed; 0 failed` (lib target; doc-tests 0) |
+| `gh issue view 122` | 0 | `#122 OPEN - feat(sim): ground layer + avatar walk in Simulator` |
+
+Corrections this step establishes:
+
+1. **`test_screen_store` is GREEN here**, so the checkpoint's "all six suites exit 0" was right and
+   the "#85 known red on 4.7.2" expectation is stale for this host. Did not investigate why: out of
+   scope for #122. The standing constraint above was corrected to match the measurement.
+2. **Rust test count is 141, not 110.** The canonical commands in the workspace AGENTS.md and the
+   old resume prompt both say 110; the gate prints 141. Recorded as measured; the stale counts in
+   those two documents are a separate doc fix, not part of this plan.
+3. `editor/project.godot` was NOT rewritten by any run (`git status` clean for it).
+4. The two untracked `editor/tests/*.gd.uid` files remain untracked, as S0 recorded; S3 commits them.
+
+Next step: S2.
+
+## Step 2 result
+
+Created `editor/tests/test_slope_set.gd` (extends `SceneTree`, same harness shape as
+`test_walker_visibility.gd`). Three groups:
+
+1. **Injection contract** — `inject_simulator_hills` on a fresh store: screen `"1,0"` cols 0-6 carry
+   `slope_up_0`..`slope_up_6` at rows 31,31,30,30,29,29,28 and col 7 is `dirt` at row 31; screen
+   `"2,0"` cols 14-20 carry the same seven keys at the same rows, cols 13 and 21 `dirt` at row 31.
+2. **Back-to-back repeat** — one cached tile overwritten with a sentinel (`dirt`/ground row), second
+   call must leave it alone (the `is_occupied` early return must not clobber or half-apply).
+3. **Ground profile** — `world_view.tscn` with the same store: `_ground_y_by_col` over world columns
+   60-66 is 992, 992, 960, 960, 928, 928, 896, and column 67 is flat ground 992.
+
+Run, unmutated: `slope_set failures=0`, **rc=0**.
+
+Mutation verification, each mutant applied alone to `editor/scripts/main.gd`, run, then reverted with
+`git checkout -- editor/scripts/main.gd`:
+
+| Mutant | Edit | Assertion that went red | Run |
+|---|---|---|---|
+| 1 | `int(4 * i / 7)` -> `int(5 * i / 7)` (screen 2) | `1,0 col 3: row 29, expected 30` and the same for cols 5,6; ground profile too | rc=1 |
+| 2 | `"slope_up_" + str(i)` -> `"slope_up_" + str(0)` (screen 2) | `1,0 col 1: terrain slope_up_0, expected slope_up_1` (cols 1-6) | rc=1 |
+| 3 | `"slope_up_"` -> `"hill_up"` (both screens) | `1,0 col 0: terrain hill_up0, expected slope_up_0` (cols 0-6) | rc=1 |
+
+After the third revert: `slope_set failures=0`, rc=0, and `git status --short
+editor/scripts/main.gd` is empty, so the production file is byte-identical to `trunk`.
+
+Not covered on purpose (stated in the test's header): the ramp polygon pixels inside
+`world_view_ground.gd::_draw()`. `draw_polygon` cannot be intercepted from GDScript, so covering it
+would mean reshaping production code for the test. The surface table asserted here is what the
+polygon's top edge is drawn from, so a wrong slope still surfaces as a wrong surface.
+
+Note for S3: `test_slope_set.gd` did not get a `.uid` sibling from a `--script` run (only editor
+imports generate one), so S3 stages the two pre-existing walker `.uid` files and this `.gd` only.
+
+Next step: S3.

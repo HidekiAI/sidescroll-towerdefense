@@ -19,8 +19,10 @@ flight under a step ledger.**
   `y = ground_row - int(4 * col / 7)`; `CANONICAL_TERRAIN` carries the seven keys; the seven
   authored PNGs exist; `world_view_ground.gd` draws one ramp polygon per contiguous slope run.
 
-- **Current step: S1 — measure the GDScript gate, headless boot, `cargo test -p sstd-core`, and the
-  state of issue #122.**
+- **Current step: S4 — rewrite the slope section of
+  `TechnicalDesign/TDD_Simulator-Ground-Walk.md` in the wiki repo (branch `docs/122-slope-set`).**
+  S0-S3 are done: ledger written, gate measured, `editor/tests/test_slope_set.gd` written and
+  mutation-verified, code committed.
 
 - **Read this and then stop:** `docs/PLAN-2026-11-09-122-slope-docs.md`. It holds the step
   ledger (S0-S8), the standing constraints, and each step's self-contained instructions. Do not
