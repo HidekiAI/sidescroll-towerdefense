@@ -106,3 +106,7 @@ Mutation verification (each mutant alone, then reverted and re-run green):
 Note: reverting a mutation with `git checkout -- <file>` on a file whose fix is still uncommitted
 removes the fix too. Both files were re-edited afterwards and re-verified green, which is why the
 numbers above come from the final, unmutated tree.
+
+Published: commit `a4085da` on `fix/122-wall-block`, merged ff-only into `trunk`
+(`e65cd11..a4085da`) and pushed to `origin`. Follow-up comment posted on #122
+(id 6755391632). Issue left OPEN by @me's choice.

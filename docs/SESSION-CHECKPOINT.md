@@ -7,8 +7,9 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-09. **Nothing in flight. #122 slope set is documented and guarded on `trunk`;
-the issue stays OPEN on one unmet acceptance line.**
+_Last updated: 2026-11-09. **Nothing in flight. #122 is fully implemented on `trunk`; the slope set is
+documented and guarded, and every acceptance line including "blocked by non-walkable" now holds. The
+issue itself is still OPEN by choice, not by a gap.**
 
 - **Objective (from @me):** the next best slope angle besides 45° that tiles perfectly on the square
   grid and works for the hill terrain; close to 30°.
@@ -23,11 +24,18 @@ the issue stays OPEN on one unmet acceptance line.**
 - **Docs of record:** `TDD_Simulator-Ground-Walk` section 7 on wiki `master` (`b64b605`) now specifies
   the set, its keys, the formula, the injection sites, the draw path and the legacy keys; the page was
   wrong before (it said `hill_up`, duplicated heading 7, and claimed no slopes).
-- **Issue #122 stays OPEN:** its acceptance list includes "blocked by non-walkable", and `step_walker`
-  clamps `pos_x` only to the world edges. A non-walkable column has no surface, so the avatar falls
-  there instead of being stopped. That gap is recorded on the issue, not fixed here.
+- **"Blocked by non-walkable" fixed and merged to `trunk` (`a4085da`):** both steppers
+  (`editor/scripts/world_view.gd`, `crates/sstd-core/src/physics.rs`) now refuse a horizontal step
+  into a column with no walkable surface, staying on the previous pixel; refusing rather than
+  clamping keeps it direction-agnostic. `test_walker_step.gd` guard `blocked_by_wall` covers right,
+  left and a 120-frame no-creep repeat; Rust test `walker_blocked_by_missing_surface` takes the
+  suite to 142. Both guards mutation-verified. Plan and measurements:
+  `docs/PLAN-2026-11-09-122-wall-block.md`. Consequence recorded on the issue: a pit edge now blocks
+  like a wall, because the ground table cannot tell them apart.
+- **Issue #122 is OPEN by choice, with every acceptance line met.** Closing it is @me's call, not a
+  pending fix.
 - **Not in flight, not started:** any down-slope set (`hill_down` remains a legacy key with no art),
-  and horizontal wall blocking in `step_walker`.
+  and separating a pit from a wall so a pit can be entered.
 
 - **Nothing is in flight.** All eight steps of `docs/PLAN-2026-11-09-122-slope-docs.md` (S0-S8) are
   `done`; its ledger is the record of how each was measured. Neither working branch exists any more:
