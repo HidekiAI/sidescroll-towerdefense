@@ -541,10 +541,15 @@ static func build_ground_column_table(tiles: Array, tile_h_px: float) -> Diction
 # Issue #122 -- one frame of walker physics. Pure and static for the same reason: the test drives
 # it 600 steps with no scene, no input device and no Godot frame loop.
 #
-# Not modelled on purpose, because the prototype world is flat and the ticket is not: stepping UP
-# onto a higher surface (the walker walks into it), slopes, walls, jumping, and anything living in
-# the column above the feet. Only the seam behaviour is real, and it is real because the table has
-# no gap at a screen boundary: column 59 and column 60 share one ground line.
+# Modelled: gravity, landing from above, stepping UP onto a higher surface while moving
+# horizontally, fall damage past a 32 px drop, the world-edge clamp, and, since this ticket's
+# "blocked by non-walkable" acceptance line, a grounded walker refusing to walk into a column that
+# has no walkable surface. Falling through such a column is still possible when the walker is not
+# grounded, or when it does not move.
+#
+# Not modelled on purpose: a separate collider per sub-tile quadrant (the whole tile is the
+# collider), jumping, and anything living in the column above the feet. The seam behaviour is real
+# because the table has no gap at a screen boundary: column 59 and column 60 share one ground line.
 static func step_walker(state: Dictionary, move_x: float, dt: float, ground_y_by_col: Dictionary,
         tile_w_px: float, world_left_px: float, world_right_px: float) -> Dictionary:
     # Intent: advance `state` by one frame. Gravity always pulls; the horizontal move is applied
@@ -563,6 +568,15 @@ static func step_walker(state: Dictionary, move_x: float, dt: float, ground_y_by
         world_left_px, world_right_px)
     var last_world_col: int = int(ceil(world_right_px / tile_w_px)) - 1
     var world_col: int = mini(int(floor(next_pos_x / tile_w_px)), last_world_col)
+    # "Blocked by non-walkable": a column holding only non-walkable tiles has no entry in the ground
+    # table, so a grounded walker that steps into it would fall exactly as if it were a pit. Refuse
+    # the step instead by staying on the previous pixel. An ungrounded walker keeps moving (it is
+    # already falling), and a walker that does not move is unaffected. Refusing rather than clamping
+    # to the column edge keeps this direction-agnostic: the walker is at most one frame's travel
+    # from the boundary, so there is no visible gap.
+    if move_x != 0.0 and bool(next_state.get("grounded", false)) and not ground_y_by_col.has(world_col):
+        next_pos_x = float(next_state.get("pos_x", 0.0))
+        world_col = mini(int(floor(next_pos_x / tile_w_px)), last_world_col)
     var hp: float = float(next_state.get("hp", 100.0))
     var fall_start_y: float = float(next_state.get("fall_start_y", feet_was_y))
     var landed: bool = false

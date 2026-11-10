@@ -111,15 +111,22 @@ pub fn step_walker(
             max_x = f64::max(max_x, wx);
         }
     }
-    let next_x = (state.pos_x + state.vel_x * dt).clamp(min_x, max_x);
+    let mut next_x = (state.pos_x + state.vel_x * dt).clamp(min_x, max_x);
     let feet_was_y = state.pos_y;
     let next_vel_y = state.vel_y;
     let feet_now_y = feet_was_y + next_vel_y * dt;
-    let feet_col = (next_x / grid.tile_w).floor() as i32;
 
     // world bounds from tiles for column clamping
     let last_world_col = tiles.iter().map(|t| t.world_tile_x).max().unwrap_or(0);
-    let world_col = feet_col.clamp(0, last_world_col);
+    let mut world_col = ((next_x / grid.tile_w).floor() as i32).clamp(0, last_world_col);
+    // "Blocked by non-walkable": a column holding only non-walkable tiles has no walkable surface,
+    // so a grounded walker that steps into it would fall exactly as if it were a pit. Refuse the
+    // step instead, staying on the previous pixel. An ungrounded walker keeps moving (it is
+    // already falling), and a walker that does not move is unaffected.
+    if mx != 0.0 && state.grounded && ground_y_for_column(tiles, grid, world_col).is_none() {
+        next_x = state.pos_x;
+        world_col = ((next_x / grid.tile_w).floor() as i32).clamp(0, last_world_col);
+    }
 
     let mut hp = state.hp;
     let mut fall_start_y = state.fall_start_y;
@@ -245,5 +252,58 @@ mod tests {
         }
         assert!(out.grounded);
         assert!(out.pos_y >= 0.0);
+    }
+
+    #[test]
+    fn walker_blocked_by_missing_surface() {
+        let grid = GridConfig {
+            tile_w: 64.0,
+            tile_h: 64.0,
+        };
+        // Columns 0-2 and 4-5 stand on row 1. Column 3 holds no walkable tile, so a grounded walker
+        // that stepped into it would drop exactly as if it were a pit.
+        let tiles: Vec<Tile> = [0, 1, 2, 4, 5]
+            .iter()
+            .map(|column| Tile {
+                world_tile_x: *column,
+                world_tile_y: 1,
+                is_walkable: true,
+            })
+            .collect();
+        let input = WalkerInput {
+            move_x: 1.0,
+            move_y: 0.0,
+            move_to_world: None,
+            scroll_vec: None,
+            place: false,
+            alt_place: false,
+            interact: false,
+            zoom_in: false,
+            zoom_out: false,
+        };
+        let mut out = WalkerState {
+            pos_x: 10.0,
+            pos_y: 64.0,
+            vel_x: 0.0,
+            vel_y: 0.0,
+            grounded: true,
+            hp: 100.0,
+            fall_start_y: 64.0,
+        };
+        for _ in 0..300 {
+            out = step_walker(out, &input, 1.0 / 60.0, &grid, &tiles, 200.0);
+        }
+        assert!(
+            out.pos_x < 3.0 * grid.tile_w,
+            "walker entered the surface-less column: {}",
+            out.pos_x
+        );
+        assert!(out.grounded, "walker lost the ground while blocked");
+        assert_eq!(out.pos_y, 64.0);
+        let blocked_x = out.pos_x;
+        for _ in 0..300 {
+            out = step_walker(out, &input, 1.0 / 60.0, &grid, &tiles, 200.0);
+        }
+        assert_eq!(out.pos_x, blocked_x, "walker crept through the block");
     }
 }

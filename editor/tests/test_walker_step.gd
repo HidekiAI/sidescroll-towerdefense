@@ -29,6 +29,7 @@ const GUARDS: Array[String] = [
     "falls_through_void",
     "clamps_left",
     "clamps_right",
+    "blocked_by_wall",
     "deterministic",
     "hill_climb",
     "hill_fall_damage",
@@ -187,6 +188,39 @@ func _test_walker_step() -> void:
         "clamps_right: and still stands on the ground line (grounded=%s pos_y=%.1f)" % [
             bool(at_right_edge.get("grounded", false)), float(at_right_edge.get("pos_y", 0.0))])
     _completed.append("clamps_right")
+
+    # --- a column with no walkable surface stops a grounded walker ---
+    #
+    # Columns 0-2 and 4-5 stand at 992; column 3 holds only non-walkable tiles, so it has no entry
+    # in the ground table. Walking must stop before column 3 instead of dropping the avatar into
+    # it, because a wall and a pit are the same thing to the table.
+    var wall_gap: Dictionary = {
+        0: GROUND_TOP_PX, 1: GROUND_TOP_PX, 2: GROUND_TOP_PX,
+        4: GROUND_TOP_PX, 5: GROUND_TOP_PX,
+    }
+    var before_wall: Dictionary = _step_many(_walker(16.0, GROUND_TOP_PX, true), 1.0, wall_gap,
+        TRAVEL_STEPS)
+    check(float(before_wall.get("pos_x", -1.0)) < 3.0 * TILE_W_PX,
+        "blocked_by_wall: walking right never enters the surface-less column (%.9f, want < %.1f)" % [
+            float(before_wall.get("pos_x", -1.0)), 3.0 * TILE_W_PX])
+    check(bool(before_wall.get("grounded", false))
+        and float(before_wall.get("pos_y", 0.0)) == GROUND_TOP_PX,
+        "blocked_by_wall: and it still stands on the ground line (grounded=%s pos_y=%.1f)" % [
+            bool(before_wall.get("grounded", false)), float(before_wall.get("pos_y", 0.0))])
+    var still_before_wall: Dictionary = _step_many(before_wall, 1.0, wall_gap, 120)
+    check(float(still_before_wall.get("pos_x", -1.0)) == float(before_wall.get("pos_x", -2.0)),
+        "blocked_by_wall: pushing into it for another 120 frames does not creep")
+    # The reverse direction must block too. A clamp to "one pixel before the column" is
+    # direction-blind and would carry a left-moving walker across the gap onto the far side.
+    var from_far_side: Dictionary = _step_many(
+        _walker(4.0 * TILE_W_PX + 16.0, GROUND_TOP_PX, true), -1.0, wall_gap, TRAVEL_STEPS)
+    check(float(from_far_side.get("pos_x", -1.0)) >= 4.0 * TILE_W_PX,
+        "blocked_by_wall: walking left stops on its own side (%.2f, want >= %.1f)" % [
+            float(from_far_side.get("pos_x", -1.0)), 4.0 * TILE_W_PX])
+    check(bool(from_far_side.get("grounded", false))
+        and float(from_far_side.get("pos_y", 0.0)) == GROUND_TOP_PX,
+        "blocked_by_wall: and the left-moving walker is still grounded at the ground line")
+    _completed.append("blocked_by_wall")
 
     # --- determinism: the same state and input produce the same result ---
     var first_run: Dictionary = _step_many(_walker(100.0, GROUND_TOP_PX, true), 1.0, flat_ground, 37)
