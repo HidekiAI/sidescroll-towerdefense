@@ -583,7 +583,17 @@ static func step_walker(state: Dictionary, move_x: float, dt: float, ground_y_by
     var ground_y: float = feet_now_y
 
     if ground_y_by_col.has(world_col):
-        ground_y = float(ground_y_by_col[world_col])
+        var current_col_y: float = float(ground_y_by_col[world_col])
+        # For smooth slope crossing: interpolate within column if next column has different Y
+        # This spreads the discrete 32px rise across the column rather than snapping at the boundary
+        var next_col: int = min(world_col + 1, last_world_col)
+        if ground_y_by_col.has(next_col) and float(ground_y_by_col[next_col]) != current_col_y:
+            # Fraction of remaining width in current column (0 at left edge, 1 at right edge)
+            var col_offset: float = fmod(next_pos_x, float(tile_w_px))
+            var frac: float = col_offset / float(tile_w_px)
+            ground_y = current_col_y + frac * (float(ground_y_by_col[next_col]) - current_col_y)
+        else:
+            ground_y = current_col_y
         # Landing from above onto ground (moving down onto surface)
         if next_vel_y >= 0.0 and feet_was_y <= ground_y and feet_now_y >= ground_y:
             landed = true

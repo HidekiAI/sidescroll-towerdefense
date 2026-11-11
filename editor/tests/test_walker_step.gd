@@ -18,6 +18,13 @@ const WORLD_RIGHT_PX: float = 5760.0
 const GROUND_TOP_PX: float = 992.0
 const STEP_SECONDS: float = 1.0 / 60.0
 
+# 4:7 slope run geometry (drawn surface in world_view_ground.gd):
+# row for column col (0-indexed from slope start) = GROUND_ROW - int(4 * col / 7)
+# Ground baseline row is 31 -> pixel y 992.
+const GROUND_ROW: int = 31
+const SLOPE_COLS: int = 7
+const SLOPE_START_COL: int = 60  # screen 1 starts at world column 60
+
 # Spending longer than this on a pure-function loop means the step is not converging.
 const SETTLE_STEPS: int = 180
 const TRAVEL_STEPS: int = 600
@@ -33,6 +40,7 @@ const GUARDS: Array[String] = [
     "deterministic",
     "hill_climb",
     "hill_fall_damage",
+    "slope_feet_y_matches_drawn_surface",
 ]
 
 var _failures: int = 0
@@ -259,3 +267,38 @@ func _test_walker_step() -> void:
         "hill_fall_damage: loses hp falling off the hill edge (hp=%.1f)" % [
             float(at_hill_top.get("hp", 0.0))])
     _completed.append("hill_fall_damage")
+
+    # --- slope fidelity: walking up the 4:7 slope hops no more than a small step per frame ---
+    # The prototype's screen (1,0) carries a 7-column 4:7 slope (slope_up_0..6) at world cols
+    # 60..66. Before the fix, the walker snapped 32px at each column boundary (3 discontinuities
+    # over 90 frames). After the fix, each 32px rise is spread across one column.
+    var slope_ground: Dictionary = {}
+    for col in range(SLOPE_COLS):
+        var world_col: int = SLOPE_START_COL + col
+        var row: int = GROUND_ROW - int(4 * col / 7)
+        slope_ground[world_col] = float(row) * TILE_H_PX
+    for col in range(SLOPE_START_COL):
+        slope_ground[col] = GROUND_TOP_PX
+    for col in range(SLOPE_START_COL + SLOPE_COLS, int(WORLD_RIGHT_PX / TILE_W_PX)):
+        slope_ground[col] = GROUND_TOP_PX
+
+    var slope_walker: Dictionary = _walker_hp(
+        float(SLOPE_START_COL) * TILE_W_PX + 16.0, GROUND_TOP_PX, true, 100.0, GROUND_TOP_PX)
+    var max_step_up: float = 0.0
+    var min_y: float = GROUND_TOP_PX
+    for step_index in range(90):
+        var prev_y: float = float(slope_walker.get("pos_y", 0.0))
+        slope_walker = _step(slope_walker, 1.0, slope_ground)
+        var current_y: float = float(slope_walker.get("pos_y", 0.0))
+        var step_up: float = prev_y - current_y  # positive = moved up
+        if step_up > max_step_up:
+            max_step_up = step_up
+        if current_y < min_y:
+            min_y = current_y
+    check(max_step_up < 16.0,
+        "slope_feet_y_matches_drawn_surface: no single-frame rise exceeds half a tile (%.1f, want < 16.0)" % [
+            max_step_up])
+    check(min_y < GROUND_TOP_PX - 1.0,
+        "slope_feet_y_matches_drawn_surface: walker actually rises above the start (%.1f, want < %.1f)" % [
+            min_y, GROUND_TOP_PX])
+    _completed.append("slope_feet_y_matches_drawn_surface")
