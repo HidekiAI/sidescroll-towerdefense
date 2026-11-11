@@ -7,6 +7,34 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
+_Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the slope still hops, but the single-frame rise dropped from 32 px to 3.33 px. Full Path A (interpolate across the whole slope run) is not implemented.**_
+
+- **Issue #124 (avatar hops one tile per column on the 30° slope):** fix merged to `trunk` as
+  `47716b9` (`feat: smooth slope climbing via pixel-based interpolation`). The working branch
+  `fix/smooth-slope-climbing-via-interpolation` was merged non-squash and deleted.
+- **What the fix does:** `step_walker` in `editor/scripts/world_view.gd` interpolates between the
+  current column's table Y and the next column's table Y over the column width, instead of
+  snapping to the current column's Y. `build_ground_column_table` is unchanged.
+- **Probe re-run 2026-11-11** (`/tmp/user/1000/opencode/probe_slope_hop.gd`):
+  - Largest single-frame rise on the climb: **3.33 px** (was 32 px).
+  - The climb is still not continuous: it rises 3.33 px per frame for about 10 frames, then
+    holds flat for about 9 frames, because the table is still the per-column step function and
+    the interpolation only spans a column where the next column's row differs.
+  - Feet Y vs the drawn 4:7 ramp at column centres: **+9.14, +27.43, +13.71, +32.00, +18.29,
+    +36.57, +22.86 px** for local columns 0-6. The collision surface still does not match the
+    drawn polygon.
+- **Regression guard:** `test_walker_step.gd` `slope_feet_y_matches_drawn_surface` asserts the
+  max single-frame rise stays under 16 px and the walker reaches the top; it does **not** assert
+  feet Y equals the drawn surface at every column. That literal acceptance line is still unmet.
+- **Decision pending:** close #124 as "improved but still hoppy", or implement the full Path A
+  (a continuous `ground_y(pos_x)` across the whole slope run). Full Path A is a representation
+  change; do not start it without a plan and @me's approval.
+- **All other gates:** `test_walker_step.gd`, `test_image_to_map.gd`, `test_terrain_brush.gd`,
+  `test_override_merge.gd` exit 0; `cargo test -p sstd-core` 142 passed. `test_screen_store.gd`
+  is known red on Godot 4.7.2 (#85, unrelated).
+
+### Superseded: #122 state, 2026-11-09
+
 _Last updated: 2026-11-09. **Nothing in flight. #122 is fully implemented on `trunk`; the slope set is
 documented and guarded, and every acceptance line including "blocked by non-walkable" now holds. The
 issue itself is still OPEN by choice, not by a gap.**
