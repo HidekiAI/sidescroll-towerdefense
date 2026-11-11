@@ -1,21 +1,65 @@
+//! Ground-walking physics for the avatar.
+//!
+//! The live per-frame walker in the editor is the GDScript `world_view.gd::step_walker`; this
+//! module is the Rust model behind the bridge's `walk_step` call, and the two are not identical
+//! yet. The GDScript walker interpolates the feet across a column when the next column's surface
+//! differs (the 30-degree slope); this one snaps to the column's own surface. A change here does
+//! not reach the running editor, and the two must not be "fixed" to match each other before
+//! deciding which one is authoritative.
+//!
+//! Coordinate spaces, because the body mixes all of them:
+//!
+//! - `world_tile_x` / `world_tile_y` are tile columns and rows, integers.
+//! - `pos_x` / `pos_y` are world pixels of the feet, `y` growing downward.
+//! - a surface is a row's top edge in pixels, `world_tile_y * tile_h`.
+//!
+//! Design: issue #125 (legibility only, no behaviour change).
+
 use serde::{Deserialize, Serialize};
 
+/// Downward acceleration, pixels per second squared.
 pub const GRAVITY_PPS2: f64 = 980.0;
+
+/// Default horizontal walk speed, pixels per second.
 pub const DEFAULT_AVATAR_SPEED_PPS: f64 = 200.0;
 
+/// Frame time used when the caller passes a non-positive `dt`.
+const DEFAULT_FRAME_SECONDS: f64 = 1.0 / 60.0;
+
+/// A landing costs hit points once the fall exceeds this many pixels.
+const FALL_DAMAGE_THRESHOLD_PX: f64 = 32.0;
+
+/// Hit points one damaging landing costs.
+const FALL_DAMAGE_POINTS: f64 = 1.0;
+
+/// Walker state carried from one frame to the next.
+///
+/// The field names are the wire contract: they are serialized into the bridge's `walk_step`
+/// JSON and mirrored by the `_walker_state` dictionary in `world_view.gd`, so renaming one needs
+/// both sides changed in the same commit.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalkerState {
+    /// Feet position, world pixels.
     pub pos_x: f64,
     pub pos_y: f64,
+    /// Velocity, pixels per second.
     pub vel_x: f64,
     pub vel_y: f64,
+    /// True when the feet rest on a surface at the end of the frame.
     pub grounded: bool,
     pub hp: f64,
+    /// Height the current fall started from, used for fall damage.
     pub fall_start_y: f64,
 }
 
+/// One frame of player intent, as the editor sends it.
+///
+/// Only [`WalkerInput::move_x`] is read by [`step_walker`]. The rest are carried for the editor's
+/// input contract and are not modelled here; they exist so the JSON shape stays stable when the
+/// remaining actions move to Rust.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalkerInput {
+    /// Horizontal intent as an axis fraction: -1 left, +1 right.
     pub move_x: f64,
     pub move_y: f64,
     pub move_to_world: Option<(f64, f64)>,
@@ -27,12 +71,17 @@ pub struct WalkerInput {
     pub zoom_out: bool,
 }
 
+/// Tile size in pixels.
+///
+/// Named the same as `terrain::GridConfig`, which is a different type; the bridge passes this one
+/// as `{"tile_w": .., "tile_h": ..}` under `walk_step`, so its field names are a wire contract.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GridConfig {
     pub tile_w: f64,
     pub tile_h: f64,
 }
 
+/// One tile of the ground, in tile-grid coordinates.
 #[derive(Clone, Debug)]
 pub struct Tile {
     pub world_tile_x: i32,
@@ -40,152 +89,231 @@ pub struct Tile {
     pub is_walkable: bool,
 }
 
-pub fn ground_profile_px(tiles: &[Tile], grid: &GridConfig) -> Vec<Option<f64>> {
-    let mut by_col: std::collections::BTreeMap<i32, i32> = std::collections::BTreeMap::new();
-    for t in tiles {
-        if t.is_walkable {
-            by_col
-                .entry(t.world_tile_x)
-                .and_modify(|e| {
-                    if t.world_tile_y < *e {
-                        *e = t.world_tile_y;
-                    }
-                })
-                .or_insert(t.world_tile_y);
-        }
-    }
-    // Return sparse representation not required; caller can query by column
-    // but we provide a helper via a function that can be used by building array
-    // For simplicity, return empty and rely on profile lookup by column
-    let _ = by_col;
-    Vec::new()
-}
-
-pub fn ground_y_for_column(tiles: &[Tile], grid: &GridConfig, col: i32) -> Option<f64> {
-    let mut best: Option<i32> = None;
-    for t in tiles {
-        if t.world_tile_x == col && t.is_walkable {
-            match best {
-                None => best = Some(t.world_tile_y),
-                Some(b) => {
-                    if t.world_tile_y < b {
-                        best = Some(t.world_tile_y);
-                    }
-                }
-            }
-        }
-    }
-    match best {
-        Some(row) => Some((row as f64) * grid.tile_h),
-        None => None,
+/// Leftmost and rightmost tile left edge, in world pixels.
+///
+/// An empty tile list falls back to one tile starting at 0. Note that the right bound is the
+/// last tile's LEFT edge, not its right edge, so the walker stops one tile short of the tile
+/// list's true extent; that is today's behaviour and this ticket does not change it.
+fn world_bounds_px(tiles: &[Tile], grid: &GridConfig) -> (f64, f64) {
+    let tile_left_edges_px = || {
+        tiles
+            .iter()
+            .map(|tile| tile.world_tile_x as f64 * grid.tile_w)
+    };
+    match (
+        tile_left_edges_px().reduce(f64::min),
+        tile_left_edges_px().reduce(f64::max),
+    ) {
+        (Some(leftmost_px), Some(rightmost_px)) => (leftmost_px, rightmost_px),
+        _ => (0.0, grid.tile_w),
     }
 }
 
+/// Tile column a world-pixel `pos_x` falls in, clamped to the columns the tile list covers.
+fn world_tile_col_at(pos_x: f64, grid: &GridConfig, last_world_tile_col: i32) -> i32 {
+    ((pos_x / grid.tile_w).floor() as i32).clamp(0, last_world_tile_col)
+}
+
+/// Hit points one landing costs, or `None` when the fall was safe.
+fn fall_damage_points(fall_start_y: f64, landing_y: f64) -> Option<f64> {
+    (landing_y - fall_start_y > FALL_DAMAGE_THRESHOLD_PX).then_some(FALL_DAMAGE_POINTS)
+}
+
+/// Top edge of the highest walkable tile in `world_tile_col`, in world pixels.
+///
+/// "Highest" is the SMALLEST `world_tile_y`, because `y` grows downward. A column whose tiles are
+/// all non-walkable has no surface at all, so `None` means a hole and the walker falls through it.
+pub fn ground_y_for_column(tiles: &[Tile], grid: &GridConfig, world_tile_col: i32) -> Option<f64> {
+    let surface_row = tiles
+        .iter()
+        .filter(|tile| tile.is_walkable && tile.world_tile_x == world_tile_col)
+        .map(|tile| tile.world_tile_y)
+        .min()?;
+    Some(surface_row as f64 * grid.tile_h)
+}
+
+/// What one frame's ground test found.
+///
+/// Declared here, above its first use, because it never leaves this file.
+struct GroundContact {
+    /// True when the feet end the frame resting on a surface.
+    landed: bool,
+    /// The surface the feet end on, or the free-fall position when the column is a hole.
+    ground_y: f64,
+    /// Height the current fall started from, used for fall damage.
+    fall_start_y: f64,
+}
+
+/// Advance the walker by one frame.
+///
+/// Modelled: gravity, landing from above, stepping up onto a higher surface while moving
+/// horizontally, one hit point of fall damage past [`FALL_DAMAGE_THRESHOLD_PX`], the world-edge
+/// clamp, and a grounded walker refusing to step into a column with no walkable surface.
+///
+/// Not modelled: a collider smaller than a whole tile, jumping, and anything above the feet.
 pub fn step_walker(
-    mut state: WalkerState,
+    state: WalkerState,
     input: &WalkerInput,
     dt: f64,
     grid: &GridConfig,
     tiles: &[Tile],
     speed_pps: f64,
 ) -> WalkerState {
-    let dt = if dt <= 0.0 { 1.0 / 60.0 } else { dt };
-    let mx = input.move_x.max(-1.0).min(1.0);
-    state.vel_x = mx * speed_pps;
+    let frame_seconds = if dt <= 0.0 { DEFAULT_FRAME_SECONDS } else { dt };
+    // A held key is an axis fraction; clamping keeps a caller from asking for more than full speed.
+    let move_axis = input.move_x.clamp(-1.0, 1.0);
+    let move_speed_pps = move_axis * speed_pps;
 
-    // vertical gravity
-    state.vel_y += GRAVITY_PPS2 * dt;
-
-    // propose new position
-    let mut min_x: f64 = 0.0;
-    let mut max_x: f64 = grid.tile_w;
-    let mut first = true;
-    for t in tiles {
-        let wx = t.world_tile_x as f64 * grid.tile_w;
-        if first {
-            min_x = wx;
-            max_x = wx;
-            first = false;
-        } else {
-            min_x = f64::min(min_x, wx);
-            max_x = f64::max(max_x, wx);
-        }
-    }
-    let mut next_x = (state.pos_x + state.vel_x * dt).clamp(min_x, max_x);
     let feet_was_y = state.pos_y;
-    let next_vel_y = state.vel_y;
-    let feet_now_y = feet_was_y + next_vel_y * dt;
+    let vel_y_after_gravity = state.vel_y + GRAVITY_PPS2 * frame_seconds;
+    let feet_now_y = feet_was_y + vel_y_after_gravity * frame_seconds;
 
-    // world bounds from tiles for column clamping
-    let last_world_col = tiles.iter().map(|t| t.world_tile_x).max().unwrap_or(0);
-    let mut world_col = ((next_x / grid.tile_w).floor() as i32).clamp(0, last_world_col);
-    // "Blocked by non-walkable": a column holding only non-walkable tiles has no walkable surface,
-    // so a grounded walker that steps into it would fall exactly as if it were a pit. Refuse the
-    // step instead, staying on the previous pixel. An ungrounded walker keeps moving (it is
-    // already falling), and a walker that does not move is unaffected.
-    if mx != 0.0 && state.grounded && ground_y_for_column(tiles, grid, world_col).is_none() {
-        next_x = state.pos_x;
-        world_col = ((next_x / grid.tile_w).floor() as i32).clamp(0, last_world_col);
-    }
+    let (world_left_px, world_right_px) = world_bounds_px(tiles, grid);
+    let last_world_tile_col = tiles
+        .iter()
+        .map(|tile| tile.world_tile_x)
+        .max()
+        .unwrap_or(0);
+    let proposed_pos_x =
+        (state.pos_x + move_speed_pps * frame_seconds).clamp(world_left_px, world_right_px);
+    let proposed_col = world_tile_col_at(proposed_pos_x, grid, last_world_tile_col);
 
-    let mut hp = state.hp;
-    let mut fall_start_y = state.fall_start_y;
-    let mut landed = false;
-    let mut ground_y = feet_now_y;
-
-    if let Some(surface_y) = ground_y_for_column(tiles, grid, world_col) {
-        ground_y = surface_y;
-        // Landing from above onto ground (moving down onto surface)
-        if next_vel_y >= 0.0 && feet_was_y <= ground_y && feet_now_y >= ground_y {
-            landed = true;
-        }
-        // Stepping UP onto higher ground (walking up a hill) — only when moving horizontally
-        else if ground_y < feet_was_y && mx != 0.0 {
-            landed = true;
-            fall_start_y = ground_y;
-        }
+    // A column holding only non-walkable tiles has no surface, so a grounded walker stepping into
+    // it would fall exactly as if it were a pit. Refuse the step by staying on the previous pixel.
+    // An ungrounded walker keeps moving (it is already falling), and a walker that does not move is
+    // unaffected. Refusing rather than clamping to the column edge keeps this direction-agnostic:
+    // the walker is at most one frame of travel from the boundary, so no visible gap opens.
+    let stepping_into_hole = move_axis != 0.0
+        && state.grounded
+        && ground_y_for_column(tiles, grid, proposed_col).is_none();
+    let (pos_x, world_tile_col) = if stepping_into_hole {
+        (
+            state.pos_x,
+            world_tile_col_at(state.pos_x, grid, last_world_tile_col),
+        )
     } else {
-        // No ground in this column: hole. Track where the fall began if we were standing.
-        if state.grounded {
-            fall_start_y = feet_was_y;
-        }
-    }
+        (proposed_pos_x, proposed_col)
+    };
 
-    if landed {
-        // Fall damage: if we fell from a height above this surface, take 1pt per landing > 32px drop
-        if !state.grounded && ground_y > fall_start_y {
-            let fall_dist = ground_y - fall_start_y;
-            if fall_dist > 32.0 {
-                hp = (hp - 1.0).max(0.0);
+    let contact = match ground_y_for_column(tiles, grid, world_tile_col) {
+        Some(surface_y) => {
+            let landed_from_above =
+                vel_y_after_gravity >= 0.0 && feet_was_y <= surface_y && feet_now_y >= surface_y;
+            let stepped_up = surface_y < feet_was_y && move_axis != 0.0;
+            GroundContact {
+                // The two cases are mutually exclusive: one needs the surface at or below the
+                // feet, the other needs it above them.
+                landed: landed_from_above || stepped_up,
+                ground_y: surface_y,
+                fall_start_y: if landed_from_above {
+                    state.fall_start_y
+                } else if stepped_up {
+                    surface_y // stepping up is not a fall, so the next fall starts here
+                } else {
+                    state.fall_start_y
+                },
             }
         }
-        state.pos_y = ground_y;
-        state.vel_y = 0.0;
-        state.grounded = true;
-        state.fall_start_y = ground_y;
-    } else {
-        state.pos_y = feet_now_y;
-        state.vel_y = next_vel_y;
-        state.grounded = false;
-        state.fall_start_y = fall_start_y;
-    }
+        // No ground in this column: a hole. Remember where the fall began if we were standing.
+        None => GroundContact {
+            landed: false,
+            ground_y: feet_now_y,
+            fall_start_y: if state.grounded {
+                feet_was_y
+            } else {
+                state.fall_start_y
+            },
+        },
+    };
 
-    state.pos_x = next_x;
-    state.vel_x = mx * speed_pps;
-    state.hp = hp;
-    state
+    if contact.landed {
+        // Fall damage applies only to a walker that was airborne; walking along a floor never hurts.
+        let hp = match (
+            state.grounded,
+            fall_damage_points(contact.fall_start_y, contact.ground_y),
+        ) {
+            (false, Some(damage)) => (state.hp - damage).max(0.0),
+            _ => state.hp,
+        };
+        WalkerState {
+            pos_x,
+            pos_y: contact.ground_y,
+            vel_x: move_speed_pps,
+            vel_y: 0.0,
+            grounded: true,
+            hp,
+            fall_start_y: contact.ground_y,
+        }
+    } else {
+        WalkerState {
+            pos_x,
+            pos_y: feet_now_y,
+            vel_x: move_speed_pps,
+            vel_y: vel_y_after_gravity,
+            grounded: false,
+            hp: state.hp,
+            fall_start_y: contact.fall_start_y,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const TEST_TILE_PX: f64 = 64.0;
+    const TEST_SPEED_PPS: f64 = 200.0;
+    const TEST_FRAME_SECONDS: f64 = 1.0 / 60.0;
+    const TEST_HP: f64 = 100.0;
+    const TEST_GROUND_ROW: i32 = 1;
+
+    fn test_grid() -> GridConfig {
+        GridConfig {
+            tile_w: TEST_TILE_PX,
+            tile_h: TEST_TILE_PX,
+        }
+    }
+
+    /// One walkable tile per given column, all on `world_tile_row`.
+    fn flat_ground(columns: &[i32], world_tile_row: i32) -> Vec<Tile> {
+        columns
+            .iter()
+            .map(|&world_tile_x| Tile {
+                world_tile_x,
+                world_tile_y: world_tile_row,
+                is_walkable: true,
+            })
+            .collect()
+    }
+
+    fn walker_input(move_x: f64) -> WalkerInput {
+        WalkerInput {
+            move_x,
+            move_y: 0.0,
+            move_to_world: None,
+            scroll_vec: None,
+            place: false,
+            alt_place: false,
+            interact: false,
+            zoom_in: false,
+            zoom_out: false,
+        }
+    }
+
+    fn standing_walker(pos_x: f64, surface_y: f64) -> WalkerState {
+        WalkerState {
+            pos_x,
+            pos_y: surface_y,
+            vel_x: 0.0,
+            vel_y: 0.0,
+            grounded: true,
+            hp: TEST_HP,
+            fall_start_y: surface_y,
+        }
+    }
+
     #[test]
-    fn ground_profile_finds_top_walkable() {
-        let grid = GridConfig {
-            tile_w: 64.0,
-            tile_h: 64.0,
-        };
+    fn surface_lookup_returns_highest_walkable_tile() {
         let tiles = vec![
             Tile {
                 world_tile_x: 1,
@@ -198,112 +326,164 @@ mod tests {
                 is_walkable: true,
             },
         ];
-        assert_eq!(ground_y_for_column(&tiles, &grid, 1), Some(64.0));
+        assert_eq!(
+            ground_y_for_column(&tiles, &test_grid(), 1),
+            Some(TEST_TILE_PX)
+        );
     }
 
     #[test]
-    fn ground_profile_none_for_void() {
-        let grid = GridConfig {
-            tile_w: 64.0,
-            tile_h: 64.0,
-        };
+    fn surface_lookup_is_none_when_column_has_no_walkable_tile() {
         let tiles = vec![Tile {
             world_tile_x: 1,
             world_tile_y: 1,
             is_walkable: false,
         }];
-        assert_eq!(ground_y_for_column(&tiles, &grid, 1), None);
+        assert_eq!(ground_y_for_column(&tiles, &test_grid(), 1), None);
     }
 
     #[test]
     fn walker_snaps_to_ground() {
-        let grid = GridConfig {
-            tile_w: 64.0,
-            tile_h: 64.0,
-        };
-        let tiles = vec![Tile {
-            world_tile_x: 0,
-            world_tile_y: 1,
-            is_walkable: true,
-        }];
-        let mut state = WalkerState {
+        let grid = test_grid();
+        let tiles = flat_ground(&[0], TEST_GROUND_ROW);
+        let falling_walker = WalkerState {
             pos_x: 10.0,
             pos_y: 10.0,
             vel_x: 0.0,
             vel_y: 500.0,
             grounded: false,
-            hp: 100.0,
+            hp: TEST_HP,
             fall_start_y: 10.0,
         };
-        let input = WalkerInput {
-            move_x: 0.0,
-            move_y: 0.0,
-            move_to_world: None,
-            scroll_vec: None,
-            place: false,
-            alt_place: false,
-            interact: false,
-            zoom_in: false,
-            zoom_out: false,
-        };
-        let mut out = step_walker(state, &input, 1.0 / 60.0, &grid, &tiles, 200.0);
-        for _ in 0..60 {
-            out = step_walker(out, &input, 1.0 / 60.0, &grid, &tiles, 200.0);
-        }
-        assert!(out.grounded);
-        assert!(out.pos_y >= 0.0);
+        let walker = (0..60).fold(falling_walker, |walker, _| {
+            step_walker(
+                walker,
+                &walker_input(0.0),
+                TEST_FRAME_SECONDS,
+                &grid,
+                &tiles,
+                TEST_SPEED_PPS,
+            )
+        });
+        assert!(walker.grounded);
+        assert!(walker.pos_y >= 0.0);
     }
 
     #[test]
-    fn walker_blocked_by_missing_surface() {
-        let grid = GridConfig {
-            tile_w: 64.0,
-            tile_h: 64.0,
-        };
+    fn walker_refuses_to_step_into_a_hole() {
+        let grid = test_grid();
         // Columns 0-2 and 4-5 stand on row 1. Column 3 holds no walkable tile, so a grounded walker
         // that stepped into it would drop exactly as if it were a pit.
-        let tiles: Vec<Tile> = [0, 1, 2, 4, 5]
-            .iter()
-            .map(|column| Tile {
-                world_tile_x: *column,
-                world_tile_y: 1,
-                is_walkable: true,
-            })
-            .collect();
-        let input = WalkerInput {
-            move_x: 1.0,
-            move_y: 0.0,
-            move_to_world: None,
-            scroll_vec: None,
-            place: false,
-            alt_place: false,
-            interact: false,
-            zoom_in: false,
-            zoom_out: false,
-        };
-        let mut out = WalkerState {
-            pos_x: 10.0,
-            pos_y: 64.0,
-            vel_x: 0.0,
-            vel_y: 0.0,
-            grounded: true,
-            hp: 100.0,
-            fall_start_y: 64.0,
-        };
+        let tiles = flat_ground(&[0, 1, 2, 4, 5], TEST_GROUND_ROW);
+        let mut walker = standing_walker(10.0, TEST_TILE_PX);
         for _ in 0..300 {
-            out = step_walker(out, &input, 1.0 / 60.0, &grid, &tiles, 200.0);
+            walker = step_walker(
+                walker,
+                &walker_input(1.0),
+                TEST_FRAME_SECONDS,
+                &grid,
+                &tiles,
+                TEST_SPEED_PPS,
+            );
         }
         assert!(
-            out.pos_x < 3.0 * grid.tile_w,
+            walker.pos_x < 3.0 * grid.tile_w,
             "walker entered the surface-less column: {}",
-            out.pos_x
+            walker.pos_x
         );
-        assert!(out.grounded, "walker lost the ground while blocked");
-        assert_eq!(out.pos_y, 64.0);
-        let blocked_x = out.pos_x;
+        assert!(walker.grounded, "walker lost the ground while blocked");
+        assert_eq!(walker.pos_y, TEST_TILE_PX);
+        let blocked_pos_x = walker.pos_x;
         for _ in 0..300 {
-            out = step_walker(out, &input, 1.0 / 60.0, &grid, &tiles, 200.0);
+            walker = step_walker(
+                walker,
+                &walker_input(1.0),
+                TEST_FRAME_SECONDS,
+                &grid,
+                &tiles,
+                TEST_SPEED_PPS,
+            );
         }
-        assert_eq!(out.pos_x, blocked_x, "walker crept through the block");
+        assert_eq!(
+            walker.pos_x, blocked_pos_x,
+            "walker crept through the block"
+        );
+    }
+
+    #[test]
+    fn walking_a_flat_floor_keeps_the_feet_and_hit_points() {
+        let grid = test_grid();
+        let tiles = flat_ground(&[0, 1, 2], TEST_GROUND_ROW);
+        let surface_y = TEST_GROUND_ROW as f64 * TEST_TILE_PX;
+        let walker = (0..120).fold(standing_walker(10.0, surface_y), |walker, _| {
+            step_walker(
+                walker,
+                &walker_input(1.0),
+                TEST_FRAME_SECONDS,
+                &grid,
+                &tiles,
+                TEST_SPEED_PPS,
+            )
+        });
+        assert!(walker.grounded);
+        assert_eq!(walker.pos_y, surface_y);
+        assert_eq!(walker.hp, TEST_HP);
+        // The right bound is the last tile's left edge, so the walker stops there; see #125.
+        assert_eq!(walker.pos_x, 2.0 * TEST_TILE_PX);
+    }
+
+    #[test]
+    fn landing_past_the_safe_drop_costs_one_hit_point() {
+        let grid = test_grid();
+        let tiles = flat_ground(&[0], 4);
+        let surface_y = 4.0 * TEST_TILE_PX;
+        let walker = step_walker(
+            WalkerState {
+                pos_x: 10.0,
+                pos_y: 250.0,
+                vel_x: 0.0,
+                vel_y: 600.0,
+                grounded: false,
+                hp: TEST_HP,
+                fall_start_y: 100.0,
+            },
+            &walker_input(0.0),
+            TEST_FRAME_SECONDS,
+            &grid,
+            &tiles,
+            TEST_SPEED_PPS,
+        );
+        assert!(walker.grounded);
+        assert_eq!(walker.pos_y, surface_y);
+        // The literal is deliberate: this is the test that pins a damaging landing at exactly one
+        // hit point. Comparing against FALL_DAMAGE_POINTS would move the expectation with the
+        // constant and pass whatever the constant became.
+        assert_eq!(walker.hp, TEST_HP - 1.0);
+    }
+
+    #[test]
+    fn landing_within_the_safe_drop_costs_nothing() {
+        let grid = test_grid();
+        let tiles = flat_ground(&[0], 4);
+        let surface_y = 4.0 * TEST_TILE_PX;
+        let walker = step_walker(
+            WalkerState {
+                pos_x: 10.0,
+                pos_y: 250.0,
+                vel_x: 0.0,
+                vel_y: 600.0,
+                grounded: false,
+                hp: TEST_HP,
+                fall_start_y: 250.0,
+            },
+            &walker_input(0.0),
+            TEST_FRAME_SECONDS,
+            &grid,
+            &tiles,
+            TEST_SPEED_PPS,
+        );
+        assert!(walker.grounded);
+        assert_eq!(walker.pos_y, surface_y);
+        assert_eq!(walker.hp, TEST_HP);
     }
 }
