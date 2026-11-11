@@ -838,6 +838,21 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
    by checking that `_ground_layer` draws green `hill_up`/`hill_down` rects.
 
 ---
+## Known debt: `crates/sstd-core/src/physics.rs` (flagged 2026-11-11)
+
+- **@me's complaint (2026-11-11):** `physics.rs` is illegible. It violates the naming rules
+  (`t`, `e`, `mx`, `wx`, `first`, `Some(b)`, test `out`) and reads like a first draft.
+- **History:** created 2026-10-25 in `9c4d897` (ground walk physics + bridge + world view
+  groundwork, #122), touched 2026-11-08 (`5093982`) and 2026-11-09 (`a4085da`).
+- **Also dead/duplicated:** `ground_profile_px` returns `Vec::new()` and is unused;
+  `ground_y_for_column` rescans every tile per call; `step_walker` duplicates the GDScript
+  walker but has no slope interpolation.
+- **Live path:** the editor walker uses the GDScript `step_walker`; the bridge `walk_step`
+  response is ignored. The Rust model is not the live movement path.
+- **Scope:** do not fold a full `physics.rs` cleanup into the slope fix. File a separate
+  cleanup issue, rename the short bindings, delete the no-op `ground_profile_px`, and either
+  sync the Rust walker to the new ground profile or record it as a non-live model.
+
 ## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 
 Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of which
