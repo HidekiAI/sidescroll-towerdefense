@@ -846,7 +846,7 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   groundwork, #122), touched 2026-11-08 (`5093982`) and 2026-11-09 (`a4085da`).
 - **Live path:** the editor walker uses the GDScript `step_walker`; the bridge `walk_step`
   response is ignored. The Rust model is not the live movement path.
-- **Legibility pass done (2026-11-11, #125, branch `chore/physics-rs-legibility`):** short
+- **Legibility pass done (2026-11-11, #125, merged to `trunk` and closed):** short
   bindings renamed, the dead `ground_profile_px` (returned `Vec::new()`) deleted, helpers
   `world_bounds_px` / `world_tile_col_at` / `fall_damage_points` extracted, magic numbers named
   (`DEFAULT_FRAME_SECONDS`, `FALL_DAMAGE_THRESHOLD_PX`, `FALL_DAMAGE_POINTS`), and the module
@@ -859,8 +859,8 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   `step_walker` still has no within-column slope interpolation, so it diverges from the live
   GDScript walker. Sync it to the ground profile before anyone treats the Rust model as
   authoritative.
-- **Scope:** do not fold a full `physics.rs` cleanup into the slope fix; the cleanup has its
-  own issue (#125).
+- **Scope:** the cleanup had its own issue (#125, now closed); do not reopen that scope. The two
+  remaining items above are the follow-ups, and each needs its own ticket.
 
 ## Feature Request: collision bounds, not the avatar's art (recorded 2026-11-12, no issue yet)
 
@@ -871,8 +871,9 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
 - **Phase 1 (what @me wants first):** separate the stickman avatar's render node from its collision
   shape, so physics is driven by the collision bounds and the art only draws. The art may then be
   moved, scaled, swapped or replaced without moving the physics.
-- **Why it matters today:** `physics.rs:13` defines `pos_y` as "the feet" and the locals are named
-  `feet_was_y` / `feet_now_y`, but the live path writes `pos_y` to `_avatar.position`, the `Node2D`
+- **Why it matters today:** the module header said `pos_y` is "the feet" (it now says the
+  ground-contact line, since #125) and the locals are still named `feet_was_y` / `feet_now_y`, but
+  the live path writes `pos_y` to `_avatar.position`, the `Node2D`
   origin, which sits **mid-torso**: in `editor/scripts/avatar_stickman.gd` the head top is 9 px above
   the origin, the art's centre 2 px above it, and the drawn feet 5 px below it. Three different
   points, and only one of them has a name.

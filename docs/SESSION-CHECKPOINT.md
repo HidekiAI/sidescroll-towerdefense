@@ -7,7 +7,7 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the slope still hops, but the single-frame rise dropped from 32 px to 3.33 px. Full Path A (interpolate across the whole slope run) is not implemented. `crates/sstd-core/src/physics.rs` was made legible on branch `chore/physics-rs-legibility` (#125) so @me can read the Rust model before deciding.**_
+_Last updated: 2026-11-12. **Nothing in flight. #125 (legibility of `crates/sstd-core/src/physics.rs`) is merged to `trunk` as `8809c55`..`5798908` and CLOSED, so the Rust model is readable and the #124 decision can be taken. #124 is partially fixed on `trunk` (`47716b9`); the slope still hops, but the single-frame rise dropped from 32 px to 3.33 px, and full Path A is not implemented.**_
 
 - **Issue #124 (avatar hops one tile per column on the 30° slope):** fix merged to `trunk` as
   `47716b9` (`feat: smooth slope climbing via pixel-based interpolation`). The working branch
@@ -28,10 +28,9 @@ _Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the
   feet Y equals the drawn surface at every column. That literal acceptance line is still unmet.
 - **Decision pending:** close #124 as "improved but still hoppy", or implement the full Path A
   (a continuous `ground_y(pos_x)` across the whole slope run). Full Path A is a representation
-  change; do not start it without a plan and @me's approval. **Read `physics.rs` first (#125):** the
-  decision waits on @me being able to read the Rust model, and that legibility pass is now on the
-  branch named below.
-- **`physics.rs` legibility (#125, branch `chore/physics-rs-legibility`, not merged yet):** the
+  change; do not start it without a plan and @me's approval. The legibility pass that gated this
+  decision is done and merged (#125 below), so nothing blocks the choice now.
+- **`physics.rs` legibility (#125, MERGED to `trunk` as `8809c55`..`5798908`, issue CLOSED):** the
   short bindings are gone (`tile`, `move_axis`, `tile_left_edges_px`, `world_tile_col`,
   `surface_row`), the dead `ground_profile_px` that returned `Vec::new()` is deleted, three helpers
   were extracted (`world_bounds_px`, `world_tile_col_at`, `fall_damage_points`), and the magic
@@ -46,6 +45,19 @@ _Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the
 - **All other gates:** `test_walker_step.gd`, `test_image_to_map.gd`, `test_terrain_brush.gd`,
   `test_override_merge.gd` exit 0; `cargo test -p sstd-core` **147 passed** (142 before #125).
   `test_screen_store.gd` is known red on Godot 4.7.2 (#85, unrelated).
+- **Two directives recorded in `AGENTS.md` on 2026-11-12, neither started and neither filed as an
+  issue:** collision must key off explicit bounds (`bounds_bottom_y` / `contact_y`, a hotpoint or a
+  contact line, never the avatar's art, and a body is struck from the sides too), and fall damage
+  must follow Newtonian physics and scale with the fall HEIGHT rather than paying a flat 1 HP past
+  32 px. The second one is a divergence from `TDD_Physics`, which already specifies
+  `fall_damage_per_tile` (10 HP per tile) and `fall_damage_min_tiles` (3 tiles).
+- **Branches:** `chore/physics-rs-legibility` and `docs/fall-damage-wiki-divergence` are merged and
+  deleted locally; `origin` still carries both, so the remote delete is @me's to run. `docs/m1-probe`
+  is unmerged and untouched.
+- **Next move:** take the #124 decision now that `physics.rs` is readable: close it as "improved but
+  still hoppy", or plan full Path A (a continuous `ground_y(pos_x)` across the whole slope run, a
+  representation change needing its own plan). The two recorded directives above then need their
+  own tickets before any code.
 
 ### Superseded: #122 state, 2026-11-09
 
