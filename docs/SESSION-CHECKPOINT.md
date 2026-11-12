@@ -38,12 +38,12 @@ _Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the
   numbers are named (`DEFAULT_FRAME_SECONDS`, `FALL_DAMAGE_THRESHOLD_PX`, `FALL_DAMAGE_POINTS`).
   The module header now states that the GDScript walker is the live path and that the Rust model
   has no slope interpolation. **Behaviour is unchanged**, and the public type and field names stay
-  because they are the `walk_step` wire contract. Three tests were added (fall damage past the safe
-  drop, no damage within it, a flat-floor walk); a six-mutant battery turns exactly one physics
-  test red each. The right world bound is still the last tile's LEFT edge, pinned by test and
-  documented rather than changed.
+  because they are the `walk_step` wire contract. Four tests were added (fall damage past the safe
+  drop, no damage within it, a flat-floor walk, a step up onto higher ground); a six-mutant battery
+  turns exactly one physics test red each. The right world bound is still the last tile's LEFT edge,
+  pinned by test and documented rather than changed.
 - **All other gates:** `test_walker_step.gd`, `test_image_to_map.gd`, `test_terrain_brush.gd`,
-  `test_override_merge.gd` exit 0; `cargo test -p sstd-core` **145 passed** (142 before #125).
+  `test_override_merge.gd` exit 0; `cargo test -p sstd-core` **146 passed** (142 before #125).
   `test_screen_store.gd` is known red on Godot 4.7.2 (#85, unrelated).
 
 ### Superseded: #122 state, 2026-11-09

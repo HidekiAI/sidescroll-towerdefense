@@ -10,7 +10,9 @@
 //! Coordinate spaces, because the body mixes all of them:
 //!
 //! - `world_tile_x` / `world_tile_y` are tile columns and rows, integers.
-//! - `pos_x` / `pos_y` are world pixels of the feet, `y` growing downward.
+//! - `pos_x` / `pos_y` are world pixels of the model's ground-contact line, `y` growing downward.
+//!   The field names are the wire contract; the live editor writes `pos_y` to the avatar's `Node2D`
+//!   origin, which sits mid-torso, not at the drawn feet (see the note in [`step_walker`]).
 //! - a surface is a row's top edge in pixels, `world_tile_y * tile_h`.
 //!
 //! Design: issue #125 (legibility only, no behaviour change).
@@ -95,13 +97,13 @@ pub struct Tile {
 /// last tile's LEFT edge, not its right edge, so the walker stops one tile short of the tile
 /// list's true extent; that is today's behaviour and this ticket does not change it.
 fn world_bounds_px(tiles: &[Tile], grid: &GridConfig) -> (f64, f64) {
-    let tile_left_edges_px = || {
+    let fn_tile_left_edges_px = || {
         tiles
             .iter()
             .map(|tile| tile.world_tile_x as f64 * grid.tile_w)
     };
-    let leftmost_px = tile_left_edges_px().reduce(f64::min);
-    let rightmost_px = tile_left_edges_px().reduce(f64::max);
+    let leftmost_px = fn_tile_left_edges_px().reduce(f64::min);
+    let rightmost_px = fn_tile_left_edges_px().reduce(f64::max);
     // Both bounds come from the same list, so `zip` is `None` exactly when the list is empty.
     leftmost_px.zip(rightmost_px).unwrap_or((0.0, grid.tile_w))
 }
@@ -158,7 +160,7 @@ pub fn step_walker(
 ) -> WalkerState {
     let frame_seconds = if dt <= 0.0 { DEFAULT_FRAME_SECONDS } else { dt };
     // A held key is an axis fraction; clamping keeps a caller from asking for more than full speed.
-    let move_axis = input.move_x.clamp(-1.0, 1.0);
+    let move_axis = input.move_x.clamp(-1.0, 1.0); // NaN stays NaN here; the old max/min form returned -1.0 (unreachable via JSON)
     let move_speed_pps = move_axis * speed_pps;
 
     // NOTE: the avatar has no collision bounding rect/capsule/sphere yet, so this model treats
@@ -206,10 +208,9 @@ pub fn step_walker(
                 // feet, the other needs it above them.
                 landed: landed_from_above || stepped_up,
                 ground_y: surface_y,
-                fall_start_y: match (landed_from_above, stepped_up) {
-                    (false, true) => surface_y, // stepping up is not a fall: the next fall starts here
-                    (true, true) | (true, false) | (false, false) => state.fall_start_y,
-                },
+                // Only read by a frame that does NOT land, and a landing rewrites it to `ground_y`
+                // anyway, so a step up needs no special case here.
+                fall_start_y: state.fall_start_y,
             }
         }
         // No ground in this column: a hole. Remember where the fall began if we were standing.
@@ -226,6 +227,8 @@ pub fn step_walker(
 
     if contact.landed {
         // Fall damage applies only to a walker that was airborne; walking along a floor never hurts.
+        // A grounded walker's fall start is its own surface, so the drop test would refuse anyway;
+        // this guard states the intent instead of leaning on that invariant.
         let hp = if state.grounded {
             state.hp
         } else {
@@ -365,7 +368,7 @@ mod tests {
             )
         });
         assert!(walker.grounded);
-        assert!(walker.pos_y >= 0.0);
+        assert_eq!(walker.pos_y, TEST_TILE_PX);
     }
 
     #[test]
@@ -374,17 +377,16 @@ mod tests {
         // Columns 0-2 and 4-5 stand on row 1. Column 3 holds no walkable tile, so a grounded walker
         // that stepped into it would drop exactly as if it were a pit.
         let tiles = flat_ground(&[0, 1, 2, 4, 5], TEST_GROUND_ROW);
-        let mut walker = standing_walker(10.0, TEST_TILE_PX);
-        for _ in 0..300 {
-            walker = step_walker(
+        let walker = (0..300).fold(standing_walker(10.0, TEST_TILE_PX), |walker, _| {
+            step_walker(
                 walker,
                 &walker_input(1.0),
                 TEST_FRAME_SECONDS,
                 &grid,
                 &tiles,
                 TEST_SPEED_PPS,
-            );
-        }
+            )
+        });
         assert!(
             walker.pos_x < 3.0 * grid.tile_w,
             "walker entered the surface-less column: {}",
@@ -393,16 +395,16 @@ mod tests {
         assert!(walker.grounded, "walker lost the ground while blocked");
         assert_eq!(walker.pos_y, TEST_TILE_PX);
         let blocked_pos_x = walker.pos_x;
-        for _ in 0..300 {
-            walker = step_walker(
+        let walker = (0..300).fold(walker, |walker, _| {
+            step_walker(
                 walker,
                 &walker_input(1.0),
                 TEST_FRAME_SECONDS,
                 &grid,
                 &tiles,
                 TEST_SPEED_PPS,
-            );
-        }
+            )
+        });
         assert_eq!(
             walker.pos_x, blocked_pos_x,
             "walker crept through the block"
@@ -429,6 +431,40 @@ mod tests {
         assert_eq!(walker.hp, TEST_HP);
         // The right bound is the last tile's left edge, so the walker stops there; see #125.
         assert_eq!(walker.pos_x, 2.0 * TEST_TILE_PX);
+    }
+
+    /// Stepping up is not a fall: the walker must land on the higher surface, take no damage, and
+    /// carry the higher surface as the new fall start.
+    #[test]
+    fn stepping_up_onto_a_higher_surface_does_not_start_a_fall() {
+        let grid = test_grid();
+        // Column 0 stands on row 1; column 1 is one tile higher, on row 0.
+        let tiles = vec![
+            Tile {
+                world_tile_x: 0,
+                world_tile_y: TEST_GROUND_ROW,
+                is_walkable: true,
+            },
+            Tile {
+                world_tile_x: 1,
+                world_tile_y: TEST_GROUND_ROW - 1,
+                is_walkable: true,
+            },
+        ];
+        let walker = (0..30).fold(standing_walker(10.0, TEST_TILE_PX), |walker, _| {
+            step_walker(
+                walker,
+                &walker_input(1.0),
+                TEST_FRAME_SECONDS,
+                &grid,
+                &tiles,
+                TEST_SPEED_PPS,
+            )
+        });
+        assert!(walker.grounded);
+        assert_eq!(walker.pos_y, 0.0);
+        assert_eq!(walker.hp, TEST_HP);
+        assert_eq!(walker.fall_start_y, 0.0);
     }
 
     #[test]
