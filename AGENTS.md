@@ -862,6 +862,22 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
 - **Scope:** the cleanup had its own issue (#125, now closed); do not reopen that scope. The two
   remaining items above are the follow-ups, and each needs its own ticket.
 
+## Slope: #124 accepted "for now", #126 is the real fix (recorded 2026-11-12)
+
+- **@me's decision (2026-11-12): "accept (for now)".** #124 stays CLOSED. The merged fix is an
+  interpolation between two per-column plateau Y values, which cut the largest single-frame rise
+  from 32 px to 3.33 px, but the climb still stalls and the collision surface still misses the
+  drawn 4:7 ramp by 9 to 37 px at column centres. Accepting it means the hop is tolerated, NOT
+  that the slope is fixed; do not cite #124 as proof the slope works.
+- **The next piece of work is #126** (`feat(sim): continuous ground_y(pos_x) so the collision
+  surface matches the drawn slope`): a run-based ground profile, so a contiguous slope run is one
+  line instead of seven plateaus, read by BOTH steppers (`editor/scripts/world_view.gd::step_walker`
+  is the live path; `crates/sstd-core/src/physics.rs` has no within-column interpolation at all).
+  Its acceptance line is #124's unmet criterion 3: feet Y equals the drawn surface at every column,
+  to within 1 px. That is a representation change, so plan it before coding.
+- **Do not fold in** the collision-bounds directive or the graduated fall-damage directive below;
+  each needs its own ticket.
+
 ## Feature Request: collision bounds, not the avatar's art (recorded 2026-11-12, no issue yet)
 
 - **@me's directive (2026-11-12):** the collision check must be based on a variable that names the

@@ -7,7 +7,7 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-12. **Nothing in flight. #125 (legibility of `crates/sstd-core/src/physics.rs`) is merged to `trunk` as `8809c55`..`5798908` and CLOSED, so the Rust model is readable and the #124 decision can be taken. #124 is partially fixed on `trunk` (`47716b9`); the slope still hops, but the single-frame rise dropped from 32 px to 3.33 px, and full Path A is not implemented.**_
+_Last updated: 2026-11-12. **Nothing in flight. #125 (legibility of `crates/sstd-core/src/physics.rs`) is merged to `trunk` and CLOSED, and #124 is DECIDED: @me accepted the partial slope fix "for now", so #124 stays closed and the real slope is the next piece of work, tracked as #126. #124's partial fix cut the largest single-frame rise from 32 px to 3.33 px; the collision surface still does not match the drawn 4:7 ramp.**_
 
 - **Issue #124 (avatar hops one tile per column on the 30° slope):** fix merged to `trunk` as
   `47716b9` (`feat: smooth slope climbing via pixel-based interpolation`). The working branch
@@ -26,10 +26,21 @@ _Last updated: 2026-11-12. **Nothing in flight. #125 (legibility of `crates/sstd
 - **Regression guard:** `test_walker_step.gd` `slope_feet_y_matches_drawn_surface` asserts the
   max single-frame rise stays under 16 px and the walker reaches the top; it does **not** assert
   feet Y equals the drawn surface at every column. That literal acceptance line is still unmet.
-- **Decision pending:** close #124 as "improved but still hoppy", or implement the full Path A
-  (a continuous `ground_y(pos_x)` across the whole slope run). Full Path A is a representation
-  change; do not start it without a plan and @me's approval. The legibility pass that gated this
-  decision is done and merged (#125 below), so nothing blocks the choice now.
+- **DECIDED 2026-11-12: accept the partial fix for now.** #124 stays CLOSED with no reopening;
+  @me's words were "accept (for now)", so the hop is tolerated, not called fixed. Nothing more is
+  done under #124.
+- **NEXT MOVE, and the reason this section exists: make the slope a REAL slope.** The accepted fix
+  is an interpolation between two plateau Y values, so it stalls and still misses the drawn line
+  by 9 to 37 px. The work is tracked as **#126** (`feat(sim): continuous ground_y(pos_x) so the
+  collision surface matches the drawn slope`): replace the per-column table with a run-based
+  profile so a contiguous slope run is one line, and have BOTH steppers read it
+  (`editor/scripts/world_view.gd::step_walker` is the live path; `crates/sstd-core/src/physics.rs`
+  has no within-column interpolation at all). Its acceptance line is #124's unmet criterion 3:
+  feet Y equals the drawn surface at every column, to within 1 px. That is a representation
+  change, so plan it before coding.
+- **Two directives must not be folded into #126:** collision bounds instead of the avatar's art
+  (`bounds_bottom_y` / `contact_y`), and graduated fall damage from fall height. Each needs its
+  own ticket.
 - **`physics.rs` legibility (#125, MERGED to `trunk` as `8809c55`..`5798908`, issue CLOSED):** the
   short bindings are gone (`tile`, `move_axis`, `tile_left_edges_px`, `world_tile_col`,
   `surface_row`), the dead `ground_profile_px` that returned `Vec::new()` is deleted, three helpers
@@ -51,13 +62,10 @@ _Last updated: 2026-11-12. **Nothing in flight. #125 (legibility of `crates/sstd
   must follow Newtonian physics and scale with the fall HEIGHT rather than paying a flat 1 HP past
   32 px. The second one is a divergence from `TDD_Physics`, which already specifies
   `fall_damage_per_tile` (10 HP per tile) and `fall_damage_min_tiles` (3 tiles).
-- **Branches:** `chore/physics-rs-legibility` and `docs/fall-damage-wiki-divergence` are merged and
-  deleted locally; `origin` still carries both, so the remote delete is @me's to run. `docs/m1-probe`
-  is unmerged and untouched.
-- **Next move:** take the #124 decision now that `physics.rs` is readable: close it as "improved but
-  still hoppy", or plan full Path A (a continuous `ground_y(pos_x)` across the whole slope run, a
-  representation change needing its own plan). The two recorded directives above then need their
-  own tickets before any code.
+- **Branches:** `chore/physics-rs-legibility`, `docs/fall-damage-wiki-divergence`,
+  `docs/checkpoint-125-merged` and `docs/postmortem-125-legibility` (wiki) are merged and deleted
+  locally; `origin` may still carry them, so the remote delete is @me's to run. `docs/m1-probe`
+  (code) and `docs/parallax-step4-corrections` (wiki) are unmerged and untouched.
 
 ### Superseded: #122 state, 2026-11-09
 
