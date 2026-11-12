@@ -863,8 +863,8 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
 ## Feature Request: collision bounds, not the avatar's art (recorded 2026-11-12, no issue yet)
 
 - **@me's directive (2026-11-12):** the collision check must be based on a variable that names the
-  BOTTOM of a bounding box (or sphere, or capsule) — as a single contact point (hotpoint) or a contact
-  line — and never on the avatar's pixel art. Reason: vehicles have no "feet", so a `feet_*` name
+  BOTTOM of a bounding box (or sphere, or capsule), as a single contact point (hotpoint) or a contact
+  line, and never on the avatar's pixel art. Reason: vehicles have no "feet", so a `feet_*` name
   cannot describe every walker.
 - **Phase 1 (what @me wants first):** separate the stickman avatar's render node from its collision
   shape, so physics is driven by the collision bounds and the art only draws. The art may then be
