@@ -851,9 +851,10 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   `world_bounds_px` / `world_tile_col_at` / `fall_damage_points` extracted, magic numbers named
   (`DEFAULT_FRAME_SECONDS`, `FALL_DAMAGE_THRESHOLD_PX`, `FALL_DAMAGE_POINTS`), and the module
   header now states the GDScript walker is the live path. Behaviour unchanged; public type and
-  field names kept because they are the `walk_step` wire contract. Four tests added (fall damage
-  past the safe drop, no damage within it, a flat-floor walk, a step up onto higher ground), plus a
-  six-mutant battery that turns exactly one physics test red per mutant.
+  field names kept because they are the `walk_step` wire contract. Five tests added (fall damage
+  past the safe drop, no damage within it, a flat-floor walk, a step up onto higher ground, and an
+  airborne step up onto a ledge), plus a seven-mutant battery that turns exactly one physics test
+  red per mutant.
 - **Still open (not in #125):** `ground_y_for_column` rescans every tile per call, and
   `step_walker` still has no within-column slope interpolation, so it diverges from the live
   GDScript walker. Sync it to the ground profile before anyone treats the Rust model as

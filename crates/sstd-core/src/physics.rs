@@ -208,9 +208,13 @@ pub fn step_walker(
                 // feet, the other needs it above them.
                 landed: landed_from_above || stepped_up,
                 ground_y: surface_y,
-                // Only read by a frame that does NOT land, and a landing rewrites it to `ground_y`
-                // anyway, so a step up needs no special case here.
-                fall_start_y: state.fall_start_y,
+                // A step up is not a fall: the damage test reads this BEFORE the landing rewrites
+                // `fall_start_y` to `ground_y`, so it must not see the fall still in progress.
+                fall_start_y: if stepped_up {
+                    surface_y
+                } else {
+                    state.fall_start_y
+                },
             }
         }
         // No ground in this column: a hole. Remember where the fall began if we were standing.
@@ -465,6 +469,46 @@ mod tests {
         assert_eq!(walker.pos_y, 0.0);
         assert_eq!(walker.hp, TEST_HP);
         assert_eq!(walker.fall_start_y, 0.0);
+    }
+
+    /// Falling beside a taller column and drifting into its face is a step up, not a landing from a
+    /// height: the fall in progress must not be charged to it.
+    #[test]
+    fn an_airborne_walker_stepping_onto_a_ledge_takes_no_fall_damage() {
+        let grid = test_grid();
+        // Column 0 stands four tiles lower than column 1, so a walker falling down that cliff face
+        // reaches column 1's surface from BELOW it while still airborne.
+        let tiles = vec![
+            Tile {
+                world_tile_x: 0,
+                world_tile_y: 4,
+                is_walkable: true,
+            },
+            Tile {
+                world_tile_x: 1,
+                world_tile_y: TEST_GROUND_ROW,
+                is_walkable: true,
+            },
+        ];
+        let walker = step_walker(
+            WalkerState {
+                pos_x: 61.0,
+                pos_y: 200.0,
+                vel_x: 0.0,
+                vel_y: 0.0,
+                grounded: false,
+                hp: TEST_HP,
+                fall_start_y: 10.0,
+            },
+            &walker_input(1.0),
+            TEST_FRAME_SECONDS,
+            &grid,
+            &tiles,
+            TEST_SPEED_PPS,
+        );
+        assert!(walker.grounded);
+        assert_eq!(walker.pos_y, TEST_TILE_PX);
+        assert_eq!(walker.hp, TEST_HP);
     }
 
     #[test]
