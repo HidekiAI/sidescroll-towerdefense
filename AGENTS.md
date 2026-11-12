@@ -900,6 +900,10 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   a band table or a curve: sprain at the low end, fracture at the high end, and a lethal band above it.
 - **Not started.** The current behaviour is a flat 1 hit point past 32 px and is pinned by
   `landing_past_the_safe_drop_costs_one_hit_point`; changing it needs its own ticket and its own plan.
+- **The wiki already specifies the graduated model:** `TDD_Physics` lists `fall_damage_per_tile`
+  (10 HP per tile of free fall) and `fall_damage_min_tiles` (3 tiles before any damage). So the
+  code's flat 1 HP past 1 tile (32 px) is a divergence from the documented design, not an idea that
+  has only just appeared; the code is what needs to move.
 
 ## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 
