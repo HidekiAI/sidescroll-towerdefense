@@ -853,8 +853,8 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   header now states the GDScript walker is the live path. Behaviour unchanged; public type and
   field names kept because they are the `walk_step` wire contract. Five tests added (fall damage
   past the safe drop, no damage within it, a flat-floor walk, a step up onto higher ground, and an
-  airborne step up onto a ledge), plus a seven-mutant battery that turns exactly one physics test
-  red per mutant.
+  airborne step up onto a ledge), plus a seven-mutant battery: M1-M5 and M7 each turn exactly one
+  physics test red, and M6 (step up disabled) turns both step-up tests red.
 - **Still open (not in #125):** `ground_y_for_column` rescans every tile per call, and
   `step_walker` still has no within-column slope interpolation, so it diverges from the live
   GDScript walker. Sync it to the ground profile before anyone treats the Rust model as
@@ -885,6 +885,21 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
 - **Contract risk:** `pos_y` is the `walk_step` wire field mirrored by `_walker_state` in
   `world_view.gd`, so renaming it is a two-sided change in one commit, like any other field rename.
 - **Not started.** Do not fold it into #125 (legibility) or the slope decision (#124).
+
+## Feature Request: fall damage from impact energy, not a flat hit point (recorded 2026-11-12)
+
+- **@me's directive (2026-11-12):** fall damage must come from Newtonian physics and be determined by
+  the fall HEIGHT, on a graduated scale. A drop of about 30 cm is a minor ankle sprain; a bone-breaking
+  fall is a much longer drop. One flat hit point past one threshold is not the model.
+- **The physics, which the module already carries:** `GRAVITY_PPS2 = 980.0` is 9.8 m/s^2 expressed in
+  pixels, so the world is 100 px per metre. Impact speed is `v = sqrt(2 * g * h)` and impact energy is
+  `1/2 * m * v^2`, which is linear in `h`, so damage can be derived from the drop height alone once a
+  mass is chosen.
+- **What that implies for the constants:** `FALL_DAMAGE_THRESHOLD_PX` (32 px = 0.32 m, impact 2.5 m/s)
+  is already near @me's "30 cm, minor sprain" line, but `FALL_DAMAGE_POINTS` (a flat 1.0) has to become
+  a band table or a curve: sprain at the low end, fracture at the high end, and a lethal band above it.
+- **Not started.** The current behaviour is a flat 1 hit point past 32 px and is pinned by
+  `landing_past_the_safe_drop_costs_one_hit_point`; changing it needs its own ticket and its own plan.
 
 ## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 

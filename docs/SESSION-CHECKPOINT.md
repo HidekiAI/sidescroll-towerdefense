@@ -40,7 +40,8 @@ _Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the
   has no slope interpolation. **Behaviour is unchanged**, and the public type and field names stay
   because they are the `walk_step` wire contract. Five tests were added (fall damage past the safe
   drop, no damage within it, a flat-floor walk, a step up onto higher ground, an airborne step up
-  onto a ledge); a seven-mutant battery turns exactly one physics test red each. The right world
+  onto a ledge); a seven-mutant battery: M1-M5 and M7 each turn exactly one physics test red, M6
+  (step up disabled) turns both step-up tests red. The right world
   bound is still the last tile's LEFT edge, pinned by test and documented rather than changed.
 - **All other gates:** `test_walker_step.gd`, `test_image_to_map.gd`, `test_terrain_brush.gd`,
   `test_override_merge.gd` exit 0; `cargo test -p sstd-core` **147 passed** (142 before #125).
