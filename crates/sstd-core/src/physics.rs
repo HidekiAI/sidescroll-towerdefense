@@ -161,6 +161,10 @@ pub fn step_walker(
     let move_axis = input.move_x.clamp(-1.0, 1.0);
     let move_speed_pps = move_axis * speed_pps;
 
+    // NOTE: the avatar has no collision bounding rect/capsule/sphere yet, so this model treats
+    // `pos_y` as a precomputed "feet" line. A sprite hotspot and a collision boundary bottom are
+    // not the same point, and a collision body is struck from the sides too, not only from the
+    // bottom.
     let feet_was_y = state.pos_y;
     let vel_y_after_gravity = state.vel_y + GRAVITY_PPS2 * frame_seconds;
     let feet_now_y = feet_was_y + vel_y_after_gravity * frame_seconds;

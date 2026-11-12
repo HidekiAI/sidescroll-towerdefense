@@ -876,6 +876,10 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   points, and only one of them has a name.
 - **Naming to adopt:** `bounds_bottom_y` (or `contact_y`) for the collision coordinate, never `feet`,
   which is art-specific. A vehicle gets a contact LINE (two or more points) or a capsule, not a point.
+- **A collision body is struck from the sides too, not only from the bottom** (@me, 2026-11-12, noted
+  beside `feet_was_y` in `physics.rs`): the bottom point or line answers ground-walking; a
+  rect/capsule/sphere also answers walls and ceilings. So the bottom hotpoint is the GROUND contact,
+  not the whole collision model.
 - **Contract risk:** `pos_y` is the `walk_step` wire field mirrored by `_walker_state` in
   `world_view.gd`, so renaming it is a two-sided change in one commit, like any other field rename.
 - **Not started.** Do not fold it into #125 (legibility) or the slope decision (#124).
