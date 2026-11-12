@@ -844,14 +844,21 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   (`t`, `e`, `mx`, `wx`, `first`, `Some(b)`, test `out`) and reads like a first draft.
 - **History:** created 2026-10-25 in `9c4d897` (ground walk physics + bridge + world view
   groundwork, #122), touched 2026-11-08 (`5093982`) and 2026-11-09 (`a4085da`).
-- **Also dead/duplicated:** `ground_profile_px` returns `Vec::new()` and is unused;
-  `ground_y_for_column` rescans every tile per call; `step_walker` duplicates the GDScript
-  walker but has no slope interpolation.
 - **Live path:** the editor walker uses the GDScript `step_walker`; the bridge `walk_step`
   response is ignored. The Rust model is not the live movement path.
-- **Scope:** do not fold a full `physics.rs` cleanup into the slope fix. File a separate
-  cleanup issue, rename the short bindings, delete the no-op `ground_profile_px`, and either
-  sync the Rust walker to the new ground profile or record it as a non-live model.
+- **Legibility pass done (2026-11-11, #125, branch `chore/physics-rs-legibility`):** short
+  bindings renamed, the dead `ground_profile_px` (returned `Vec::new()`) deleted, helpers
+  `world_bounds_px` / `world_tile_col_at` / `fall_damage_points` extracted, magic numbers named
+  (`DEFAULT_FRAME_SECONDS`, `FALL_DAMAGE_THRESHOLD_PX`, `FALL_DAMAGE_POINTS`), and the module
+  header now states the GDScript walker is the live path. Behaviour unchanged; public type and
+  field names kept because they are the `walk_step` wire contract. Three tests added, plus a
+  six-mutant battery that turns exactly one physics test red per mutant.
+- **Still open (not in #125):** `ground_y_for_column` rescans every tile per call, and
+  `step_walker` still has no within-column slope interpolation, so it diverges from the live
+  GDScript walker. Sync it to the ground profile before anyone treats the Rust model as
+  authoritative.
+- **Scope:** do not fold a full `physics.rs` cleanup into the slope fix; the cleanup has its
+  own issue (#125).
 
 ## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 

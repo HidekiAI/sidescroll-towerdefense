@@ -7,7 +7,7 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the slope still hops, but the single-frame rise dropped from 32 px to 3.33 px. Full Path A (interpolate across the whole slope run) is not implemented.**_
+_Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the slope still hops, but the single-frame rise dropped from 32 px to 3.33 px. Full Path A (interpolate across the whole slope run) is not implemented. `crates/sstd-core/src/physics.rs` was made legible on branch `chore/physics-rs-legibility` (#125) so @me can read the Rust model before deciding.**_
 
 - **Issue #124 (avatar hops one tile per column on the 30° slope):** fix merged to `trunk` as
   `47716b9` (`feat: smooth slope climbing via pixel-based interpolation`). The working branch
@@ -28,10 +28,23 @@ _Last updated: 2026-11-11. **#124 is partially fixed on `trunk` (`47716b9`); the
   feet Y equals the drawn surface at every column. That literal acceptance line is still unmet.
 - **Decision pending:** close #124 as "improved but still hoppy", or implement the full Path A
   (a continuous `ground_y(pos_x)` across the whole slope run). Full Path A is a representation
-  change; do not start it without a plan and @me's approval.
+  change; do not start it without a plan and @me's approval. **Read `physics.rs` first (#125):** the
+  decision waits on @me being able to read the Rust model, and that legibility pass is now on the
+  branch named below.
+- **`physics.rs` legibility (#125, branch `chore/physics-rs-legibility`, not merged yet):** the
+  short bindings are gone (`tile`, `move_axis`, `tile_left_edges_px`, `world_tile_col`,
+  `surface_row`), the dead `ground_profile_px` that returned `Vec::new()` is deleted, three helpers
+  were extracted (`world_bounds_px`, `world_tile_col_at`, `fall_damage_points`), and the magic
+  numbers are named (`DEFAULT_FRAME_SECONDS`, `FALL_DAMAGE_THRESHOLD_PX`, `FALL_DAMAGE_POINTS`).
+  The module header now states that the GDScript walker is the live path and that the Rust model
+  has no slope interpolation. **Behaviour is unchanged**, and the public type and field names stay
+  because they are the `walk_step` wire contract. Three tests were added (fall damage past the safe
+  drop, no damage within it, a flat-floor walk); a six-mutant battery turns exactly one physics
+  test red each. The right world bound is still the last tile's LEFT edge, pinned by test and
+  documented rather than changed.
 - **All other gates:** `test_walker_step.gd`, `test_image_to_map.gd`, `test_terrain_brush.gd`,
-  `test_override_merge.gd` exit 0; `cargo test -p sstd-core` 142 passed. `test_screen_store.gd`
-  is known red on Godot 4.7.2 (#85, unrelated).
+  `test_override_merge.gd` exit 0; `cargo test -p sstd-core` **145 passed** (142 before #125).
+  `test_screen_store.gd` is known red on Godot 4.7.2 (#85, unrelated).
 
 ### Superseded: #122 state, 2026-11-09
 
