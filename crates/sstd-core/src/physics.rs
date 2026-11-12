@@ -100,13 +100,10 @@ fn world_bounds_px(tiles: &[Tile], grid: &GridConfig) -> (f64, f64) {
             .iter()
             .map(|tile| tile.world_tile_x as f64 * grid.tile_w)
     };
-    match (
-        tile_left_edges_px().reduce(f64::min),
-        tile_left_edges_px().reduce(f64::max),
-    ) {
-        (Some(leftmost_px), Some(rightmost_px)) => (leftmost_px, rightmost_px),
-        _ => (0.0, grid.tile_w),
-    }
+    let leftmost_px = tile_left_edges_px().reduce(f64::min);
+    let rightmost_px = tile_left_edges_px().reduce(f64::max);
+    // Both bounds come from the same list, so `zip` is `None` exactly when the list is empty.
+    leftmost_px.zip(rightmost_px).unwrap_or((0.0, grid.tile_w))
 }
 
 /// Tile column a world-pixel `pos_x` falls in, clamped to the columns the tile list covers.
@@ -205,12 +202,9 @@ pub fn step_walker(
                 // feet, the other needs it above them.
                 landed: landed_from_above || stepped_up,
                 ground_y: surface_y,
-                fall_start_y: if landed_from_above {
-                    state.fall_start_y
-                } else if stepped_up {
-                    surface_y // stepping up is not a fall, so the next fall starts here
-                } else {
-                    state.fall_start_y
+                fall_start_y: match (landed_from_above, stepped_up) {
+                    (false, true) => surface_y, // stepping up is not a fall: the next fall starts here
+                    (true, true) | (true, false) | (false, false) => state.fall_start_y,
                 },
             }
         }
@@ -228,12 +222,13 @@ pub fn step_walker(
 
     if contact.landed {
         // Fall damage applies only to a walker that was airborne; walking along a floor never hurts.
-        let hp = match (
-            state.grounded,
-            fall_damage_points(contact.fall_start_y, contact.ground_y),
-        ) {
-            (false, Some(damage)) => (state.hp - damage).max(0.0),
-            _ => state.hp,
+        let hp = if state.grounded {
+            state.hp
+        } else {
+            fall_damage_points(contact.fall_start_y, contact.ground_y)
+                .map_or(state.hp, |damage_points| {
+                    (state.hp - damage_points).max(0.0)
+                })
         };
         WalkerState {
             pos_x,
