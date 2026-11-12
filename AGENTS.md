@@ -860,6 +860,26 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
 - **Scope:** do not fold a full `physics.rs` cleanup into the slope fix; the cleanup has its
   own issue (#125).
 
+## Feature Request: collision bounds, not the avatar's art (recorded 2026-11-12, no issue yet)
+
+- **@me's directive (2026-11-12):** the collision check must be based on a variable that names the
+  BOTTOM of a bounding box (or sphere, or capsule) — as a single contact point (hotpoint) or a contact
+  line — and never on the avatar's pixel art. Reason: vehicles have no "feet", so a `feet_*` name
+  cannot describe every walker.
+- **Phase 1 (what @me wants first):** separate the stickman avatar's render node from its collision
+  shape, so physics is driven by the collision bounds and the art only draws. The art may then be
+  moved, scaled, swapped or replaced without moving the physics.
+- **Why it matters today:** `physics.rs:13` defines `pos_y` as "the feet" and the locals are named
+  `feet_was_y` / `feet_now_y`, but the live path writes `pos_y` to `_avatar.position`, the `Node2D`
+  origin, which sits **mid-torso**: in `editor/scripts/avatar_stickman.gd` the head top is 9 px above
+  the origin, the art's centre 2 px above it, and the drawn feet 5 px below it. Three different
+  points, and only one of them has a name.
+- **Naming to adopt:** `bounds_bottom_y` (or `contact_y`) for the collision coordinate, never `feet`,
+  which is art-specific. A vehicle gets a contact LINE (two or more points) or a capsule, not a point.
+- **Contract risk:** `pos_y` is the `walk_step` wire field mirrored by `_walker_state` in
+  `world_view.gd`, so renaming it is a two-sided change in one commit, like any other field rename.
+- **Not started.** Do not fold it into #125 (legibility) or the slope decision (#124).
+
 ## Repo hygiene: `editor/addons/` is 516 MB of vendored addon — gitignored in `trunk`
 
 Verified 2026-10-01 by measurement, not assumption: **795 files / 516 MB**, of which
