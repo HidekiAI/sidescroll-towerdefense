@@ -7,7 +7,60 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-12. **Nothing in flight. #125 (legibility of `crates/sstd-core/src/physics.rs`) is merged to `trunk` and CLOSED, and #124 is DECIDED: @me accepted the partial slope fix "for now", so #124 stays closed and the real slope is the next piece of work, tracked as #126. #124's partial fix cut the largest single-frame rise from 32 px to 3.33 px; the collision surface still does not match the drawn 4:7 ramp.**_
+_Last updated: 2026-11-15. **#126 plan gate: independently re-scored 55/100 TWICE by two different judges -- NOT a pass.** A third judge returned 100/100; it is REJECTED as a false positive (it contradicts the plan's own text and came from a lenient free model), and it is not evidence. The earlier 55/72/73/100 "Sonnet" scores in this file are UNVERIFIED; the plan's `## Plan gate` section is still a placeholder, so none of them were persisted. Nothing in the code is in flight. #125 merged and CLOSED; #124 DECIDED "for now" and closed; the real slope is #126._
+
+_**@me's decision (2026-11-15): the datum is the per-pixel tile ALPHA, not the hand-drawn 4:7 polygon.** The 4:7 line is to be baked INTO the slope tiles' alpha, so the drawn surface and the collision surface are one datum; the X-by-Y slope tile set ("art defines data, which data defines tech") is the critical piece. Non-alpha collision decisions are to be rejected/redacted (decision 4). Anti-jitter is part of the per-pixel collision implementation; a jitter that survives becomes its own bug ticket. Pass bar stays 90._
+
+_**Calls answered (2026-11-15):** both go live in #126 itself (no separate predecessor ticket). (1) art+data work lives in #126; (2) Option 1a — colour-key the grey `#D1D1D1` background to transparent (fuzz-tolerant, anti-aliased fringe accepted), then `solid_mask = alpha != 0`. Art→data→tech is documented as primary data formatting for maps, scenes, and collisions in the wiki TDD(s)._**
+
+_**Amendment POSTED to #126 on 2026-11-15** (comment https://github.com/HidekiAI/sidescroll-towerdefense/issues/126#issuecomment-6900011032, body saved at `/tmp/user/1000/opencode/issue-126-amendment.md`). It carries: alpha datum; Option 1a colour-key; art→data→tech as primary data formatting for maps/scenes/collisions; on-screen feel = alpha surface; anti-jitter in scope; **AC2 DROPPED** (@me: "AC1 will trump AC2, with AC1 in place we DO NOT NEED AC2") so acceptance is AC1 (feet Y = drawn alpha surface within 1 px at every column) + AC3 (`slope_feet_y_matches_drawn_surface` passes against the alpha surface). Gate bar stays 90._
+
+- **#126 plan gate state (2026-11-15):** branch `feat/ground-profile-126` off `trunk` (`0a75e2d`),
+  plan at `docs/PLAN-2026-11-12-ground-profile.md` (uncommitted). **Independently re-scored 55/100
+  TWICE by two different judges; the CRITICAL is the `world_view_ground.gd` drawer change redefining
+  the AC1 datum** (the plan redraws the ramp from tile alpha while AC1 measures feet against the
+  drawn surface). Verified by the judges, re-check before acting: `walking_up_the_ramp_rises_every_frame`
+  asserts a constant 1.9048 px/frame rise while the placement's seam steps are 19/5/0/10/1/14 px;
+  line 197's "every test is covered by at least one mutant" is false for six named tests; the plan
+  calls the issue threads "the review record" while #124 and #126 have no comments; and the AC3 test
+  compares against `GROUND_ROW - int(4 * col / 7)`, which is the STEPPED placement, not the drawn
+  continuous line (982.86, 964.57, ... 873.14). Three provenance rows are missing (blame author +
+  hash + date). Mutant M5 has no red test as written (its target asserts keys 0..6, where the dropped
+  term is zero, so a keys 3..6 case is needed). `GROUND_SNAP_PX` needs a stated reason for staying a
+  const. The wiki build rule 2 and `TDD_Simulator-Ground-Walk` §2.1/§6 need editing to match the
+  terrain-key anchoring rule. **A separate wiki errata:** `TDD_Physics` claims "a ramp is simply
+  adjacent values that differ by less than one pixel" -- the shipped art falsifies that (seam jumps
+  reach 19 px).
+
+- **Art-pipeline findings (measured 2026-11-15, all from the repo, not assumed):** the datum @me
+  chose (tile alpha) needs art that carries alpha, and the repo's slope art does not.
+  - `editor/assets/samples/tileset_2-2.png` is `srgb`, **3 channels -- NO alpha channel**. Its "air"
+    is **opaque grey `#D1D1D1`** (~30% of the sheet); the slope is a colour boundary, not transparency.
+    It is anti-aliased against that grey (blends like `#BCBCBC`, `#B0B0B0`), so a colour-key needs a
+    tolerance and leaves a fringe.
+  - All 8 sliced `editor/assets/tiles/slope_30deg_{col}_{row}_32x32.png` are **fully opaque** (topmost
+    solid row = 0 in every column); their alpha channel is **solid white**. `slope_grass_30deg_4x2.tres`
+    (grid 4x2, cell 126x126, margins (104,65), sep (1,1)) is the authoring record; nothing in the
+    simulator loads it.
+  - The 4x2 set is an **8-cell diagonal across the block**, not a 4-column line: grey-background share
+    per cell in reading order = 86, 85, 52, 35, 18, 5, 0, 3 %.
+  - It is a **different set** from what the simulator injects: the simulator uses 7 individual
+    `slope_up_0..6` tiles (one per column). `slope_up_0` is a fully opaque square; `slope_up_1..6` are
+    diagonals at inconsistent phases (first columns at rows 13, 27, 9, 22, 4, 18).
+  - **Tooling that already exists (reuse, do not rebuild):** `tools/import-tiles` (808 lines) slices a
+    grid (`grid_cols`/`grid_rows`/`offset`/`margin`), auto-detects content bounds, nearest-resizes to
+    32x32, writes per-tile PNGs `{key}_32x32.png`, and emits terrain types + tile sets
+    (`TileSetDef`: `col_start`/`row_start`/`width`/`height`/`tags`). It is the "collision-mapper"
+    @me described. `TileSetGrouping` already stores `source_image` + `src_margins`/`src_cell_size`/
+    `src_separation` + per-tile `source_col`/`source_row`, i.e. the single-PNG-sliced-by-region model,
+    and `_source_rect()` computes each region. **The one gap:** import-tiles emits the coarse 4-bit
+    `sub_tile_mask` (default 15), NOT the per-pixel `solid_mask` the wiki `TDD_Collision-Map-Tooling`
+    (#63) specifies. `grep -rn solid_mask --include=*.rs --include=*.gd --include=*.tres --include=*.proto`
+    returns nothing -- it is not implemented anywhere yet.
+  - **One honest correction for the plan:** the walker is a custom kinematic stepper (GDScript
+    `step_walker`, mirrored in `crates/sstd-core/src/physics.rs`), NOT a Godot `PhysicsBody`. Godot's
+    cookie-cut gives the slicing and the per-tile region bookkeeping; the collider the physics reads
+    is the mask, not Godot's collision polygon.
 
 - **Issue #124 (avatar hops one tile per column on the 30° slope):** fix merged to `trunk` as
   `47716b9` (`feat: smooth slope climbing via pixel-based interpolation`). The working branch
