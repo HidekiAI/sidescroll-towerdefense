@@ -48,6 +48,7 @@ var _status_label: Label = null
 
 var _screen_store: ScreenStore = null
 var _grid_config: Dictionary = {}
+var _terrain_masks: Dictionary = {}   # terrain key -> PackedByteArray solid_mask (from main.gd via set_terrain_masks)
 
 var _dragging_middle: bool = false
 
@@ -111,9 +112,11 @@ func _ready() -> void:
         _avatar.set_script(load("res://scripts/avatar_stickman.gd"))
         _avatar.z_index = 10
         world_node.add_child(_avatar)
-        # Placeholder: `_rebuild_ground_tiles` puts the walker on the first ground column as soon
-        # as the ScreenStore arrives (#122). Without ground there is nothing to stand on, so this
-        # start point is the one that falls.
+        # TODO(human): @me's decision: the GDScript walker is the authoritative "engine",
+        # shadowing the Rust model, not matching it, and both are not identical yet (issue #126.
+        # The step_walker here should read a profile derived from tile masks, not a column table.
+        # This script is the target for the profile surface (build_ground_profile, ground_y_at)
+        # that the Rust model now also consumes.
         _walker_state = {"pos_x":100.0,"pos_y":-200.0,"vel_x":0.0,"vel_y":0.0,"grounded":false,
             "hp":100.0,"fall_start_y":-200.0}
     # Force one query on the first poll, whatever the camera happens to start at.
@@ -192,6 +195,17 @@ func set_screen_store(store: ScreenStore) -> void:
 # just has to be derived from it again.
 func refresh_ground() -> void:
     _rebuild_ground_tiles()
+
+
+# Public seam for main.gd: wire the terrain masks so ground profile can resolve
+# each tile's solid_mask by terrain key. The masks map is keyed by terrain key,
+# value is PackedByteArray of (w*h+7)/8 bytes (bit = row*w+col), produced by the
+# import-tiles tool from the tile PNG art (ART -> DATA -> TECH). The profile builder
+# below (build_ground_profile) uses this to derive per-pixel surface Y.
+# TODO(human): implement set_terrain_masks and call it from main.gd on terrain editor load.
+func set_terrain_masks(masks: Dictionary) -> void:
+    _terrain_masks = masks
+    refresh_ground()
 
 
 func set_grid_config(config: Dictionary) -> void:
