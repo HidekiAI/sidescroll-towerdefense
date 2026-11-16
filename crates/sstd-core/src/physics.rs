@@ -719,4 +719,69 @@ mod tests {
         assert_eq!(walker.pos_y, surface_y);
         assert_eq!(walker.hp, TEST_HP);
     }
+
+    const TEST_MASK_TILE_PX: f64 = 32.0;
+
+    fn test_mask_grid() -> GridConfig {
+        GridConfig {
+            tile_w: TEST_MASK_TILE_PX,
+            tile_h: TEST_MASK_TILE_PX,
+        }
+    }
+
+    /// Build a linear ramp tile: topmost solid row rises from `start_row` (leftmost column)
+    /// to `end_row` (rightmost column), linearly. All other rows are air.
+    fn ramp_tile(world_tile_x: i32, world_tile_y: i32, start_row: u32, end_row: u32) -> Tile {
+        let mut mask = vec![0u8; (32 * 32 + 7) / 8];
+        for col in 0..32u32 {
+            let row = start_row + (end_row.saturating_sub(start_row) * col) / 31;
+            let bit_idx = row * 32 + col;
+            mask[(bit_idx / 8) as usize] |= 1 << (bit_idx % 8);
+        }
+        Tile {
+            world_tile_x,
+            world_tile_y,
+            is_walkable: true,
+            solid_mask: mask,
+        }
+    }
+
+    /// Flat ground tile: every column solid at `surface_row`.
+    fn flat_mask_tile(world_tile_x: i32, world_tile_y: i32, surface_row: u32) -> Tile {
+        let mut mask = vec![0u8; (32 * 32 + 7) / 8];
+        for col in 0..32u32 {
+            let bit_idx = surface_row * 32 + col;
+            mask[(bit_idx / 8) as usize] |= 1 << (bit_idx % 8);
+        }
+        Tile {
+            world_tile_x,
+            world_tile_y,
+            is_walkable: true,
+            solid_mask: mask,
+        }
+    }
+
+    #[test]
+    fn solid_mask_surface_rule() {
+        let grid = test_mask_grid();
+        // A tile at (1, row 2) with surface at row 10: topmost solid row = 10 for every column.
+        let tiles = vec![flat_mask_tile(1, 2, 10)];
+        let (profile, _left, _right) = build_ground_profile(&tiles, &grid);
+        // Column under the tile's left edge (global pixel 32): local index = 0 because
+        // world_left_px == tile_left_px == 32.
+        // surface_y = world_tile_y * tile_h + top_row(PIXEL row) = 2 * 32 + 10 = 74.
+        assert_eq!(profile[0].unwrap(), 2.0 * 32.0 + 10.0);
+    }
+
+    #[test]
+    fn interior_air_below_surface_is_solid() {
+        // Legacy tile (empty mask) is all-solid; masked topmost bit rule tested elsewhere.
+        let tiles = flat_ground(&[0, 1], TEST_GROUND_ROW);
+        let grid = test_grid();
+        let (profile, _left, _right) = build_ground_profile(&tiles, &grid);
+        // Column 0 is solid at row TEST_GROUND_ROW.
+        assert_eq!(profile[0], Some(TEST_GROUND_ROW as f64 * TEST_TILE_PX));
+        // Column 100 (inside second tile) also solid at same row.
+        assert_eq!(profile[100], Some(TEST_GROUND_ROW as f64 * TEST_TILE_PX));
+    }
 }

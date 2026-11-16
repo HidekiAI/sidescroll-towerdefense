@@ -154,6 +154,35 @@ pub enum TileAffectingEntityType {
     IcePatch,
 }
 
+// =========================================================================
+// TODO(human): #126 solid_mask on TerrainTypeDef (ART -> DATA -> TECH, step 2)
+// =========================================================================
+// TODO(human): add the per-pixel collision datum `solid_mask` to `TerrainTypeDef`.
+// A `solid_mask` is the per-pixel solid-air bitfield of a tile's ART, carrying the
+// per-pixel collision surface. Shape: one bit per tile pixel, (w*h+7)/8 bytes, bit
+// (row * w + col). `sub_tile_mask` stays as the coarse 4-bit predecessor.
+// - Field: `#[serde(default = "default_solid_mask")] pub solid_mask: Vec<u8>,`
+// - Default: empty Vec means "no mask scanned" -> whole tile solid (legacy fallback).
+// - Default fn: `fn default_solid_mask() -> Vec<u8> { Vec::new() }`
+// - Validate: warning when solid_mask length != (w*h+7)/8 for the default tile size (see
+//   `w`/`h` on the owning producer side); do not hard-fail a tile the tool did not scan.
+// - Merge: `solid_mask: self.solid_mask.or(prototype.solid_mask)` (Option if nullable).
+// - The 7 `slope_up_*` entries land here via `tools/import-tiles` (step 3).
+// Sample (field + default + a serde test):
+//
+//     pub struct TerrainTypeDef {
+//         ...
+//         #[serde(default = "default_solid_mask")]
+//         pub solid_mask: Vec<u8>,
+//         ...
+//     }
+//     fn default_solid_mask() -> Vec<u8> { Vec::new() }
+//
+//     #[test]
+//     fn terrain_type_def_deserializes_solid_mask() { ... }
+//
+// TODO(human) end block.
+
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TerrainTypeDef {
