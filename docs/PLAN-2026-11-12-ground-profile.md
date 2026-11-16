@@ -93,17 +93,21 @@ agree, because there are no interior pockets.
 --state all` (only merged #95/#97/#98; no PR for #122/#124/#125/#126, so the issue threads are
 the review record), and the three design pages.
 
-| Block being changed | Introduced by | Decision it carries |
+| Block being changed | Introduced by (commit, date, issue) | Decision it carries |
 |---|---|---|
-| `build_ground_column_table` (world_view.gd:518) | #122 | one surface per column, absence = hole; **retired here** |
-| `step_walker` (world_view.gd:553) + the interpolation hack (:586) | #122, reshaped #124 | landing tested against the column's plateau; **replaced here** |
-| `world_view_ground.gd::_draw` (:37-77) | #122 | the 4:7 polygon's top edge was the "drawn surface" AC1 measured; **replaced by a `solid_mask` surface draw** |
-| `ground_y_for_column` / `step_walker` (physics.rs:125 / :134-264) | #122, legibility #125 | Rust model has no within-column interpolation; **ported to the mask sampler** |
-| `slope_feet_y_matches_drawn_surface` (test_walker_step.gd:271) | #124 | caps a single-frame rise at 16 px, never compares to the drawn line; **rewritten to compare to the mask surface** |
-| `_check_ground_profile` (test_slope_set.gd:112) | #122 | pins the injected slope set; **re-pointed at the mask surface** |
-| `inject_simulator_hills` (main.gd:227) | #122 | injects the 7 `slope_up_*` tiles; **unchanged** (placement is not this ticket) |
-| `auto_detect_sub_tile_mask` (tools/import-tiles/src/main.rs:354) | #63 lineage | coarse 4-bit mask; **`solid_mask` added alongside it** |
-| `default_package/terrain_types.json` (7 framework types) | #54 lineage | framework terrain set; **gains the 7 `slope_up_*` entries with `solid_mask`** |
+| `build_ground_column_table` (world_view.gd:518) | `09f3db5`, 2026-11-08, #122 | one surface per column, absence = hole; **retired here** |
+| `step_walker` (world_view.gd:553) | `09f3db5`, 2026-11-08, #122 | landing tested against the column's plateau; **replaced here** |
+| the interpolation hack (world_view.gd:586) | `47716b9`, 2026-11-10, #124 | spreads current->next across the column; **deleted here** |
+| `world_view_ground.gd::_draw` (:37-77) | `075b88e`, 2026-11-09, #122 | the 4:7 polygon's top edge was the "drawn surface" AC1 measured; **replaced by a `solid_mask` surface draw** |
+| `ground_y_for_column` / `step_walker` (physics.rs:125 / :134-264) | `8809c55`, 2026-11-11, #125 | Rust model has no within-column interpolation; **ported to the mask sampler** |
+| `slope_feet_y_matches_drawn_surface` (test_walker_step.gd:271) | `47716b9`, 2026-11-10, #124 | caps a single-frame rise at 16 px, never compares to the drawn line; **rewritten to compare to the mask surface** |
+| `_check_ground_profile` (test_slope_set.gd:112) | `28f0439`, 2026-11-09, #122 | pins the injected slope set; **re-pointed at the mask surface** |
+| `inject_simulator_hills` (main.gd:227) | `45085fa`, 2026-11-09, #122 | injects the 7 `slope_up_*` tiles; **unchanged** (placement is not this ticket) |
+| `auto_detect_sub_tile_mask` (tools/import-tiles/src/main.rs:354) | `904467f`, 2026-08-03, #33 | coarse 4-bit mask; **`solid_mask` added alongside it** |
+| `default_package/terrain_types.json` (7 framework types) | `9d78881`, 2026-08-27, #67 | framework terrain set; **gains the 7 `slope_up_*` entries with `solid_mask`** |
+
+Every hash above is the introducing commit from `git log -1 -L <line>,<line>:<file>`; the author on
+every row is @me (the repo's only author), so the author is not repeated per row.
 
 ## What exists today (the structures this builds on)
 
@@ -117,14 +121,14 @@ the review record), and the three design pages.
 | `world_view_ground.gd::_draw` | `:37-77` | flat tiles as rects + a 4:7 ramp polygon; no texture source. Replaced by a `solid_mask` surface draw |
 | `ground_y_for_column` / `step_walker` | `physics.rs:125` / `:134-264` | per-column rule, no interpolation. Ported to the sampler |
 | `auto_detect_sub_tile_mask` | `tools/import-tiles/src/main.rs:354` | coarse 4-bit mask. `solid_mask` added beside it |
-| `TerrainType` | `crates/sstd-core/src/terrain.rs:162` | framework terrain type; gains `solid_mask` |
+| `TerrainTypeDef` | `crates/sstd-core/src/terrain.rs:159` | the terrain-type struct (it carries `sub_tile_mask` at `:172`); gains `solid_mask`. `TerrainType` at `:7` is the Ground/Wall/Air enum, a different item |
 | `WalkTile` -> `phys::Tile` | `sstd-editor-bridge/src/lib.rs:2300` | carries `world_tile_x/y`, `is_walkable`; gains `solid_mask` |
 | `slope_up_*` placement | `main.gd:236,250` | terrain-key strings; walkable via the default heuristic at `world_view.gd:656`. No terrain entry today |
 
 ## Data model and build rule (identical on both sides)
 
 - **`solid_mask` is a property of the tile ART, so it lives on the terrain type.**
-  `TerrainType` (`crates/sstd-core/src/terrain.rs:162`) gains `solid_mask`; the framework
+  `TerrainTypeDef` (`crates/sstd-core/src/terrain.rs:159`) gains `solid_mask`; the framework
   `editor/default_package/terrain_types.json` carries it for the 7 `slope_up_*` entries the tool
   writes (@me, 2026-11-16). `ScreenTileEntry` does NOT gain it: a placement references a terrain
   key, and duplicating the same art's mask per placement would be redundant. This corrects the
@@ -174,10 +178,10 @@ a bounds-based name is the separate collision-bounds ticket, not this one.
 |---|---|---|
 | `tools/import-tiles/src/main.rs` | add `derive_solid_mask(pixels, w, h) -> (mask, resolved)` (greyscale pipeline: uniform-patch colour read, bottom-row ground anchor, speck removal, ambiguity flag); emit per-pixel `solid_mask` beside `sub_tile_mask`; bake a red 1px border into the emitted PNG and set `resolved = false` when UNRESOLVED; add a tile-scan mode that runs the derivation over a directory of committed `{key}_32x32.png` and writes/updates the 7 `slope_up_*` entries in `default_package/terrain_types.json` | AC1, art->data |
 | `editor/default_package/terrain_types.json` | add `slope_up_0..6` with `is_walkable: true` and `solid_mask` (base64 128 bytes) | AC1, data home |
-| `crates/sstd-core/src/terrain.rs` | `TerrainType` gains `solid_mask` (serde default keeps old files parsing) | AC1 |
-| `crates/sstd-core/src/physics.rs` | `build_ground_profile`, `ground_y_at`, `GROUND_SNAP_PX`, `EMBED_TOLERANCE_PX`, the anti-jitter snap; `step_walker` samples the profile | AC1, AC4 |
+| `crates/sstd-core/src/terrain.rs` | `TerrainTypeDef` gains `solid_mask` (serde default keeps old files parsing) | AC1 |
+| `crates/sstd-core/src/physics.rs` | `build_ground_profile`, `ground_y_at`, `GROUND_SNAP_PX`, `EMBED_TOLERANCE_PX`, the anti-jitter snap; `step_walker` samples the profile | AC1, AC4, amendment §4 |
 | `crates/sstd-editor-bridge/src/lib.rs` | `WalkTile` gains `solid_mask` | AC1 |
-| `editor/scripts/world_view.gd` | add `set_terrain_masks(masks_by_key)`, `build_ground_profile`, `ground_y_at`; `_rebuild_ground_tiles` resolves each tile's mask by terrain key; `step_walker` takes the profile and the anti-jitter snap; delete `build_ground_column_table`, the hack, `tile_w_px` | AC1, AC3, AC4 |
+| `editor/scripts/world_view.gd` | add `set_terrain_masks(masks_by_key)`, `build_ground_profile`, `ground_y_at`; `_rebuild_ground_tiles` resolves each tile's mask by terrain key; `step_walker` takes the profile and the anti-jitter snap; delete `build_ground_column_table`, the hack, `tile_w_px` | AC1, AC3, AC4, amendment §4 |
 | `editor/scripts/main.gd` | wire `set_terrain_masks` from `terrain_editor.get_terrain_types()` to the simulator's world view | AC1 |
 | `editor/scripts/world_view_ground.gd` | `_draw` draws the surface from `solid_mask` (per-column rects) instead of the 4:7 polygon; flat tiles stay full rects. No texture source is needed or added | AC1 |
 | `editor/tests/test_walker_step.gd` | ground table -> profile; `slope_feet_y_matches_drawn_surface` compares feet Y to the mask surface derived INDEPENDENTLY from the tile PNG in the test, within 1 px | AC1, AC3 |
@@ -193,15 +197,25 @@ wording, `PostMortem/Slope-Hopping-2026-11-10` (dated supersession), `Home.md` (
 
 ## Tests (falsifiable, each pinned to a number, each with its mutant)
 
+**Layer.** Every case below is a UNIT test: in-source `#[cfg(test)]` for `physics.rs` and
+`tools/import-tiles`, and headless GDScript script assertions for the two editor suites
+(`test_walker_step.gd` drives `_test_walker_step()` headlessly; `test_slope_set.gd` asserts the
+injected set). No E2E/UI test is added by this ticket -- the walker is driven headlessly, not
+through a rendered scene.
+
+**Race / repeat.** Race does not apply: both steppers are pure synchronous functions on one
+thread and the tool is a one-shot CLI. The back-to-back repeat is pinned by
+`same_input_twice_gives_the_same_state`.
+
 ### GDScript `test_walker_step.gd`
 
 | Test | Assertion | AC | Mutant |
 |---|---|---|---|
 | `solid_mask_surface_rule` | given a tile mask, `build_ground_profile` returns `row*tile_h + top_row` per column; a fully air column is absent | AC4 | M1 |
 | `interior_air_below_surface_is_solid` | a column with solid at rows 31 and 35 answers 31, never 35 | AC4 | M1 |
-| `slope_feet_y_matches_drawn_surface` | walker seeded at the run's first column centre; every ramp frame, feet Y equals the surface derived INDEPENDENTLY from the tile PNG's alpha in the test, within 1 px. Expected values are the measured jagged table in the decisions section (992/1005/987/969/950/932/914), never the 4:7 ladder | AC1, AC3 | M2, M5 |
+| `slope_feet_y_matches_drawn_surface` | walker seeded at the run's first column centre; **sweeps all seven column centres (world cols 60-66)** and asserts feet Y equals the surface derived INDEPENDENTLY from the tile PNG in the test, at each centre, within 1 px. The same test cross-checks that independently-derived surface against the measured table (992/1005/987/969/950/932/914), so the runtime oracle is the PNG and the table is a second pin -- never the 4:7 ladder | AC1, AC3 | M2, M5 |
 | `slope_descent_matches_drawn_surface` | walked LEFT, grounded every ramp frame, feet Y equals the mask surface within 1 px, hp unchanged | AC1 | M2 |
-| `penetration_snaps_out_and_zeroes_velocity` | walker forced 5 px into a surface has feet snapped to the surface and `vel_y == 0` next frame; no oscillation over 10 frames | AC1 | M5 |
+| `penetration_snaps_out_and_zeroes_velocity` | walker forced 5 px into a surface has feet snapped to the surface and `vel_y == 0` next frame; no oscillation over 10 frames | amendment §4 | M5 |
 | `ground_snap_threshold_is_under_one_tile` | surface 16 px below glues; 32 px below becomes airborne | AC1, AC4 | M4 |
 | `blocked_by_wall_retries` | a grounded walker refused at an air segment for 120 frames does not creep | AC4 | M7 |
 
@@ -219,9 +233,13 @@ green; fixtures move from a column dictionary to tile arrays with mask-derived s
 | `walking_up_a_monotonic_ramp_tracks_the_surface` | a SYNTHETIC monotonic ramp, `move_x = 1.0` at 200 pps: `pos_y` equals the surface sample every ramp frame (within 1e-6), strictly decreasing | AC1 | M2 |
 | `shipped_run_surface_is_reproduced_including_the_notch` | the shipped 7-tile run: feet Y equals the surface at every column, and the 992 -> 1005 px notch at world col 61 is reproduced. NO monotonicity claim | AC1, AC3 | M2 |
 | `walking_down_the_ramp_grounded_without_damage` | mirrored walk leftward: grounded every frame, hp unchanged | AC1 | M2 |
-| `penetration_snaps_out_and_zeroes_velocity` | 5 px penetration snaps to surface, `vel_y == 0`, stable over 10 ticks | AC1 | M5 |
+| `penetration_snaps_out_and_zeroes_velocity` | 5 px penetration snaps to surface, `vel_y == 0`, stable over 10 ticks | amendment §4 | M5 |
 | `snap_threshold_is_under_one_tile` | 16 px glues, 32 px does not | AC1, AC4 | M4 |
 | `same_input_twice_gives_the_same_state` | back-to-back repeat pin | AC4 | M6 |
+
+Existing `stepping_up_onto_a_higher_surface_does_not_start_a_fall` (physics.rs:443) pins AC4's
+single-tile step-up; the GDScript equivalent is the `hill_up` step inside `_test_walker_step()`
+(test_walker_step.gd:246). Both stay green.
 
 ### Tool `tools/import-tiles` (in-source `#[cfg(test)]`, synthetic RGBA images)
 
@@ -259,8 +277,8 @@ experiment is void).
 `cargo test -p sstd-core`, `cargo test -p import-tiles` (the tool's in-source mask tests), and
 `test_walker_step`, `test_slope_set`, `test_walker_visibility`, each gated on its EXIT CODE. The
 `slope_up_*` entries in `default_package/terrain_types.json` are verified by the tool's own
-tile-scan run, not by a `slope_30deg_*` colour-key (that family is not walked and has no source
-sheet).
+tile-scan run, not by a `slope_30deg_*` colour-key (that family is not walked; it DOES have a
+source sheet, `editor/assets/samples/tileset_2-2.png`, whereas `slope_up_*` has none).
 
 ## Risks
 
