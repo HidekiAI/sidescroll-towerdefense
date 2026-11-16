@@ -39,17 +39,59 @@ the review record), and the three design pages.
 
 ## Art -> data -> tech (the pipeline this ticket consumes)
 
-Art defines data, data defines tech.
+**The pattern IS the requirement (directive 2026-11-16): ART -> DATA -> TECH.** The slope's
+angle is irrelevant and is never an input. The artist authored the climb for how it FEELS, not
+to a scientific angle -- the tiles' measured rise is 7 to 30 degrees across one family and is
+deliberately uneven. So the tool must NOT infer geometry from a nominal angle, a formula, or a
+hand-authored ladder. It scans the ART for what is air versus what is collidable, turns that
+into DATA (a collision bit-mask), and TECH consumes the mask. Nothing downstream may know or
+care how many degrees the art is; if the artist redraws the tile, the mask follows and the
+walker follows, with no code change.
 
-1. **Art:** the slope is one X-by-Y tile set authored as a single PNG (`tileset_2-2.png`, 4x2
-   grid, cell 126x126, margins (104,65), separation (1,1)). Its "air" is opaque grey
-   `#D1D1D1`; the sheet has no alpha channel.
-2. **Data:** `tools/import-tiles` colour-keys that grey to transparent (fuzz-tolerant) and
-   emits a per-pixel `solid_mask` per tile (`alpha != 0`), alongside the existing sliced
-   `{key}_32x32.png` and the coarse `sub_tile_mask`. `solid_mask` is the primary collision
-   data form for maps, scenes and collisions.
-3. **Tech:** both steppers build the world surface from `solid_mask` (topmost solid row per
+1. **Art:** two families exist, and only one is walked.
+   - `tileset_2-2.png` (707x388, RGB, colour type 2, **no alpha**) is the source of the
+     `slope_30deg_{col}_{row}` family, which is **already RGBA** on disk (`identify`:
+     PaletteAlpha / TrueColorAlpha). Its "air" is **drawn as opaque grey `#D2D2D2`**, so every
+     pixel's alpha is `1` and **alpha alone cannot key it** (measured 2026-11-16). The runtime
+     does not walk this family.
+   - The tiles the runtime actually places are `slope_up_{0..6}_32x32.png`, **palette-alpha
+     PNGs whose air is `srgba(0,0,0,0)`** (verified 2026-11-16 with `identify`), so the alpha
+     datum already exists for them. `inject_simulator_hills` (main.gd:236,250) places them at
+     rows `31 - int(4*i/7)`.
+   - **`slope_up_0` has NO alpha channel at all** (type `Palette`, alpha `Undefined`; solid
+     green `#66B34C` corner to corner). It is a flat solid cap, not a hole. The tool's rule
+     must therefore be: **a tile with no alpha channel is ALL solid** (every bit set), which is
+     the opposite of reading its missing alpha as air.
+   - **No tool in the repo regenerates `slope_up_*`:** `tools/import-tiles` emits
+     `{terrain}_{row}_{col}_32x32.png`, and `tools/extract-tiles` was deleted after use
+     (AGENTS.md). The pipeline consumes the committed alpha, or re-cutting these tiles is a
+     prerequisite; it is not a product of the step below.
+2. **Data:** `tools/import-tiles` emits the per-pixel `solid_mask` per tile, alongside the
+   existing sliced `{key}_32x32.png` and the coarse `sub_tile_mask`. `solid_mask`'s shape is
+   the wiki's -- **one bit per tile pixel** (see the data-model section) -- not a per-column
+   top row.
+3. **Tech:** both steppers build the world surface from `solid_mask` (topmost set bit per
    pixel column) and sample it at `pos_x`.
+
+### The air-vs-collidable rule (what the tool implements)
+
+A tile needs one answer to "which pixels are air?". Two forms exist, and the family decides
+which one is used:
+
+- **Alpha (exact, primary):** `air = (alpha == 0x00)`. This is what `slope_up_{1..6}` need, and
+  it is unambiguous -- a transparent pixel IS air, an opaque pixel IS collidable, with no
+  threshold to tune and no colour to mistake.
+- **Colour-key / greyscale (heuristic, only for opaque-air art):** `air = (pixel is the key
+  colour)`, or equivalently `grey(pixel) > threshold` once the tile is reduced to greyscale.
+  This is what `slope_30deg_*` would need, because its air is opaque grey `#D2D2D2` (grey 210)
+  against a green ground (grey ~145), so a threshold near 180 separates them.
+
+The greyscale route is NOT the default and is NOT needed for the family this ticket walks: for
+art authored with transparency, alpha already IS the silhouette, and greyscale only adds a
+failure mode -- a dark but solid pixel (an outline, a shadow) collapses toward air and gets
+keyed out. `slope_30deg_*`'s dark outline pixels are exactly that case (its green edge reads
+noisy under a colour test). So: **alpha-first; colour-key is a per-family rule adopted only if
+an opaque-air family is ever walked**, and it needs its own test before it is trusted.
 
 **Rule:** a tile's alpha IS its collider. Fog/atmosphere goes on its own render LAYER, never
 by lowering a tile's alpha. The game has no fog-of-war concept.
@@ -70,14 +112,21 @@ by lowering a tile's alpha. The game has no fog-of-war concept.
 
 ## Data model and build rule (identical on both sides)
 
-- **Per-tile `solid_mask`:** for each tile key, the topmost solid row per pixel column
-  (`-1` = fully air). One bit-row per column, derived from the PNG alpha.
+- **Per-tile `solid_mask`:** the wiki's form (`TDD_Collision-Map-Tooling` line 20): **one bit
+  per tile pixel**, a `PackedByteArray` of `(w*h + 7) / 8` = 128 bytes for a 32x32 tile, bit
+  `(row * w + col)` set iff that pixel's alpha is not `0x00`. This supersedes the plan's earlier
+  "topmost solid row per pixel column" wording, which contradicted the cited design of record
+  and is withdrawn (decision 2026-11-16). The editor paint tooling
+  (`auto_detect_mask_from_image`) and the import tool must emit this exact shape;
+  `sub_tile_mask` stays as the coarse 4-bit predecessor.
 - **World surface:** a mapping from world pixel column -> `surface_y = tile_row * tile_h_px +
-  top_row`. An absent column is air.
-- **Stitch:** the surface of a column is the smallest (topmost) row among the tiles in it.
-- **Sample:** `surface_y(pos_x) = surface[floor(pos_x)]`, interpolated between the column and
-  the next (this is a genuine alpha-derived ramp, not the old hack). Past the last column the
-  last value answers, preserving the right-edge behaviour pinned by `clamps_right`.
+  top_row`, where `top_row` is the topmost set bit of `solid_mask` in that pixel column
+  (`-1` = fully air, so the column is absent).
+- **Stitch:** the surface of a world pixel column is the smallest (topmost) `surface_y` among
+  the tiles overlapping it.
+- **Sample:** `surface_y(pos_x) = surface[floor(pos_x)]`, interpolated between the pixel column
+  and the next (a genuine alpha-derived ramp, not the old hack). Past the last column the last
+  value answers, preserving the right-edge behaviour pinned by `clamps_right`.
 
 ```
 ground_y_at(surface_by_col, pos_x) -> Option<f64>   // GDScript: NAN for air
@@ -109,11 +158,14 @@ a bounds-based name is the separate collision-bounds ticket, not this one.
 
 | File | Change | Serves |
 |---|---|---|
-| `tools/import-tiles/src/main.rs` | colour-key grey `#D1D1D1` to transparent; emit per-pixel `solid_mask` beside `sub_tile_mask`; keep sliced `{key}_32x32.png` | AC1 (alpha datum), art->data |
+| `tools/import-tiles/src/main.rs` | emit per-pixel `solid_mask` beside `sub_tile_mask` (air = alpha `0x00`; a tile with no alpha channel is all-solid); keep sliced `{key}_32x32.png` | AC1 (alpha datum), art->data |
 | `editor/scripts/world_view.gd` | add `build_ground_profile`, `ground_y_at`; `step_walker` takes the profile and the anti-jitter snap; delete `build_ground_column_table`, the hack, `tile_w_px`; `_rebuild_ground_tiles` builds the profile; spawn Y from the profile | AC1, AC3, AC4 |
 | `editor/scripts/world_view_ground.gd` | `_draw` draws the tiles (their alpha) instead of the 4:7 polygon; flat tiles stay full rects | AC1 |
 | `crates/sstd-core/src/physics.rs` | `build_ground_profile`, `ground_y_at`, `GROUND_SNAP_PX`, `EMBED_TOLERANCE_PX`, the anti-jitter snap; `step_walker` samples the profile | AC1, AC4 |
 | `crates/sstd-editor-bridge/src/lib.rs` | `WalkTile` gains `solid_mask` | AC1 |
+| `crates/sstd-core/src/storage.rs` | `ScreenTileEntry` (and the merged `Tile`) gain `solid_mask`; a serde default keeps old saves parsing | AC1 |
+| `editor/scripts/screen_store.gd` | carry `solid_mask` through the cache/screen round-trip | AC1 |
+| `crates/sstd-core/src/terrain.rs` | `TerrainType` gains `solid_mask` beside `sub_tile_mask` | AC1 |
 | `editor/tests/test_walker_step.gd` | ground table -> profile; `slope_feet_y_matches_drawn_surface` compares feet Y to the ALPHA surface (independently derived) within 1 px | AC1, AC3 |
 | `editor/tests/test_slope_set.gd` | `_check_ground_profile` asserts the alpha-derived surface of the shipped run | AC4 |
 | `crates/sstd-core/src/physics.rs` tests | profile + anti-jitter + back-to-back tests (below) | AC1, AC4 |
@@ -132,7 +184,7 @@ description).
 |---|---|---|---|
 | `profile_from_alpha_surface_rule` | given per-column top rows (e.g. slope_up_1 {13,13,12,...0}), `build_ground_profile` returns `row*tile_h + top_row` per column; a fully air column is absent | AC4 | M1 |
 | `interior_air_below_surface_is_solid` | a column with tiles at row 31 and row 35 answers 31, never 35 | AC4 | M1 |
-| `slope_feet_y_matches_drawn_surface` | walker seeded at the run's first column centre; every ramp frame, feet Y equals the alpha surface within 1 px. The alpha surface is **computed from the tile alpha in the test**, not from the drawer | AC1, AC3 | M2, M5 |
+| `slope_feet_y_matches_drawn_surface` | walker seeded at the run's first column centre; every ramp frame, feet Y equals the alpha surface within 1 px. The alpha surface is **computed from the tile alpha in the test**, not from the drawer, and its expected values are the measured jagged table in the decisions section (992/1005/987/969/950/932/914), never the 4:7 ladder | AC1, AC3 | M2, M5 |
 | `slope_descent_matches_drawn_surface` | walked LEFT, grounded every ramp frame, feet Y equals alpha surface within 1 px, hp unchanged | AC1 | M2 |
 | `penetration_snaps_out_and_zeroes_velocity` | walker forced 5 px into a surface has feet snapped to the surface and `vel_y == 0` next frame; no oscillation over 10 frames | AC1 | M5 |
 | `ground_snap_threshold_is_under_one_tile` | surface 16 px below glues; 32 px below becomes airborne | AC1, AC4 | M4 |
@@ -195,9 +247,43 @@ the 4x2 sheet (grey keyed out, art opaque).
 - Relocating the injected slope run for whichever profile reads best on screen (art/placement
   choice, not required by this ticket's acceptance criteria).
 
+## Decisions recorded 2026-11-16 (skeptical review against the repo)
+
+A skeptical pass against the repo (not the rubric) found the plan's premises partly wrong and
+recorded two decisions:
+
+1. **The shipped run's alpha surface is jagged and non-monotonic -- ACCEPTED.** Measured
+   topmost solid row per tile (`alpha != 0`), placed at rows `31 - int(4*i/7)`:
+
+   | world col | 60 | 61 | 62 | 63 | 64 | 65 | 66 |
+   |---|---|---|---|---|---|---|---|
+   | tile | `slope_up_0` | `_1` | `_2` | `_3` | `_4` | `_5` | `_6` |
+   | surface px | 992 | 1005 | 987 | 969 | 950 | 932 | 914 |
+
+   A 13 px DOWNWARD notch at col 61, then boundary jumps of 0-14 px: the tiles are overlapping
+   ramp *segments* on a 4:7 *step* grid, so their edges do not line up. **AC1 is the bar and is
+   accepted as written** -- the walker reproduces the drawn surface including the notch.
+   Fixing the art/placement is a separate ticket. Test expectations are the measured numbers
+   above, never the `4:7` ladder.
+2. **`solid_mask` is the wiki bitfield, wired through the schema** -- the 1024-bit per-pixel
+   `PackedByteArray` above, carried by `ScreenStore` and `storage.rs` so the profile reads it
+   without decoding a PNG at runtime (the wiki's rule).
+3. **The angle is not an input; the pattern is ART -> DATA -> TECH (directive 2026-11-16).**
+   The artist draws the climb for feel, so the tool scans the art for air versus collidable and
+   emits the mask; no formula, ladder or nominal angle survives into the data or the tech. The
+   air rule is **alpha-first** (`air = alpha == 0x00`, exact for `slope_up_*`) with a
+   **no-alpha-channel tile treated as all-solid** (`slope_up_0`), and colour-key/greyscale
+   demoted to a per-family rule needed only for opaque-air art (`slope_30deg_*`, whose air is
+   opaque `#D2D2D2`), which this ticket does not walk. Consequence: the "art" section above was
+   rewritten, and the Files row for `tools/import-tiles` no longer colour-keys anything.
+
+The "100/100" below was scored against the plan text, not the repo, and does not survive the
+findings that drove these decisions (the alpha premise, the two `solid_mask` definitions, the
+missing schema path, and the missing `slope_up_*` producer). Re-score after this revision.
+
 ## Plan gate
 
-**SCORE: 100/100** — passed independent evaluation on 2026-11-15, iteration 1, by free model evaluator.
+**SCORE: 100/100** — passed independent evaluation on 2026-11-15, iteration 1, by free model evaluator. **SUPERSEDED 2026-11-16** by the skeptical review above; re-score pending.
 
 CRITICAL (unsupported by ticket): none.
 
