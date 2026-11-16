@@ -7,7 +7,7 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-_Last updated: 2026-11-16 (branch `feat/ground-profile-impl`). **#126 is mid-plan; nothing in code is in flight.** The plan `docs/PLAN-2026-11-12-ground-profile.md` was revised 2026-11-16 and committed as `c1ba91a`; a SECOND skeptical pass (same day) added five findings plus a measurement, so its `## Plan gate` score stays **SUPERSEDED and a re-score is pending**; the 55/100 judge notes below are kept as history only._
+_Last updated: [REDACTED]16:36 (branch feat/ground-profile-impl, tip 9134d71). **#126 is mid-implementation; the RUST physics layer is done and green; the GDScript tool/import side is scaffolded.** The branch is on origin and pushed (tip 9134d71); the working tree is CLEAN.
 
 _**@me's directive (2026-11-16): remain skeptical -- as is @me, and so must this session's agents and judges be.** Every premise is checked against the repo, never asserted; a judge blind to the repo can score a plan 100/100 while its premises are wrong (that is what happened here on 2026-11-15). The five findings and the alpha-vs-greyscale measurement live in the plan's `## Second skeptical pass (2026-11-16)` section._
 

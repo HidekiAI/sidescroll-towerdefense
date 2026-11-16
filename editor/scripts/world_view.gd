@@ -552,6 +552,33 @@ static func build_ground_column_table(tiles: Array, tile_h_px: float) -> Diction
      return ground_y_by_col
 
 
+# TODO(human): #126 profile functions (ART -> DATA -> TECH, step 3): port `build_ground_profile`
+# and `ground_y_at` from `crates/sstd-core/src/physics.rs` to this GDScript file. The Rust logic
+# is already tested and green; use it as the reference. Sample shape:
+#
+# static func build_ground_profile(tiles: Array, masks_by_key: Dictionary, tile_w_px: float, tile_h_px: float) -> Array:
+#     # one pass over tiles: find min/max tile left, allocate a per-pixel column array of NAN
+#     # for each tile and each local column, derive topmost solid row from the mask (or 0 when
+#     # the mask is empty, meaning legacy whole-tile solid), and keep the smallest surface_y.
+#     # return [profile, min_left_px, max_right_px] where profile[i] is the surface at
+#     # min_left_px + i (NAN = air).
+#
+# static func ground_y_at(profile: Array, world_left_px: float, pos_x: float) -> float:
+#     var idx: int = int(floor(pos_x)) - int(floor(world_left_px))
+#     if idx < 0 or idx >= profile.size():
+#         return NAN
+#     var col: float = profile[idx]
+#     if is_nan(col):
+#         return NAN
+#     if idx + 1 >= profile.size():
+#         return col
+#     var next_y: float = profile[idx + 1]
+#     if is_nan(next_y):
+#         return next_y
+#     var frac: float = pos_x - floor(pos_x)
+#     return col + frac * (next_y - col)
+
+
 # Issue #122 -- one frame of walker physics. Pure and static for the same reason: the test drives
 # it 600 steps with no scene, no input device and no Godot frame loop.
 #
