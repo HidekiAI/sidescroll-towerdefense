@@ -22,10 +22,21 @@ tile's silhouette):
 Anti-jitter is in scope: on penetration, snap the entity out and zero the offending velocity
 component (`dX = dV/dT`, `dV = 0` -> `dX = 0`), never zero gravity.
 
+## Ticket acceptance criteria (as amended, amendment §5)
+
+- **AC1:** feet Y equals the drawn surface at every column, within 1 px (the [REDACTED]amendment
+  amended this from "drawn alpha surface" to the drawn surface as defined by the [REDACTED]
+  supersession datum — i.e. the mask).
+- **AC2:** **DROPPED** (2026-11-15 amendment §5) -- per-frame rise need not be constant; the
+  surface is art-derived and uneven.
+- **AC3:** `slope_feet_y_matches_drawn_surface` passes against the mask surface.
+- **AC4:** flat ground and a single-tile step up are unchanged; `cargo test -p sstd-core` stays
+  green.
+
 ## The pattern: ART -> DATA -> TECH (directive 2026-11-16)
 
 **The slope ANGLE is irrelevant and is never an input.** The artist authored the climb for how
-it FEELS; the family's measured rises are 7 to 30 degrees and deliberately uneven. So the tool
+it FEELS; the family's measured rises are 7 to 30 degrees (MEASURED, `magick <tile> -colorspace Gray -depth 8 hex:-` row positions at pixel columns x=0 and x=31, `atan2(rise,31)*180/pi`: 22.8 / 30.1 / 14.5 / 30.1 / 7.4 / 30.1; `slope_up_0` is flat). So the tool
 must NOT infer geometry from a nominal angle, a formula, or a hand-authored ladder. It scans
 the ART for air versus collidable, turns that into DATA (a per-pixel collision bit-mask), and
 TECH consumes the mask. Redrawing the tile re-derives the mask with no code change.
@@ -81,14 +92,19 @@ for a slope but not a cave ceiling. The uniform-patch sampling makes the colour 
 flag catches the tiles where the anchors disagree.
 
 **Flag criteria (@me, 2026-11-16).** BOTH greyscale clusters touch the tile's bottom row, OR the
-greyscale does not split into exactly two clusters. `slope_up_*` all resolve;
-`slope_30deg_0_0` would flag.
+greyscale does not split into exactly two clusters. `slope_up_*` all resolve; `slope_30deg_0_0`
+would flag (MEASURED: the 7 tiles have exactly two greys with one cluster on the bottom row;
+`slope_30deg_0_0` has 53 greys, `magick ... -alpha off -colorspace Gray`).
 
-**Divergence from the wiki, stated (not claimed as "the wiki's form").**
-`TDD_Collision-Map-Tooling` section 1 also says "every pixel below the first solid pixel in a
-column is solid". This ticket does NOT adopt that fill-below clause (@me chose specks-only), so
-the plan no longer claims the mask rule is the wiki's rule verbatim. For the slope art the two
-agree, because there are no interior pockets.
+**Divergence from the wiki, stated (not claimed as "the wiki's form").** `TDD_Collision-Map-Tooling`
+section 1 carries two clauses this ticket diverges from:
+
+- "every pixel below the first solid pixel in a column is solid" (the fill-below clause) -- NOT
+  adopted (@me chose specks-only). For the slope art the two agree, because there are no interior
+  pockets.
+- "a tile pixel is solid iff its alpha is not `0x00`" (the alpha datum) -- NOT adopted. The
+  detector is the tile's GREYSCALE; alpha is the emitted PRODUCT, not the detector (the
+  [REDACTED] supersession, above).
 
 **Ticket traceability.** The greyscale detector, the bottom-row ground anchor, the specks-only
 clean and the flag criteria supersede the 2026-11-15 amendment posted to #126
@@ -98,11 +114,12 @@ supersession is posted as
 https://github.com/HidekiAI/sidescroll-towerdefense/issues/126#issuecomment-6924849581, so the
 decision is ticket-traceable, not only session-traceable.
 
-The same 2026-11-16 comment also supersedes the ticket BODY's profile clause: "`build_ground_column_table`
+The ticket BODY's profile clause -- "`build_ground_column_table`
 becomes a run-based profile: a slope run is one line from its start to its end, not seven
-plateaus". Under the mask datum a slope run is 32 samples per tile, not one line, so that
-sentence is not implemented as written; the body's second clause ("flat ground and single-tile
-steps stay step functions") still holds, because the mask surface is constant across a flat tile.
+plateaus" -- was displaced by the 2026-11-15 amendment's per-pixel mask datum (a mask surface
+yields 32 samples per tile, not one line); the 2026-11-16 comment then replaced the alpha
+detector with GREYSCALE. The body's second clause ("flat ground and single-tile steps stay
+step functions") still holds, because the mask surface is constant across a flat tile.
 
 ## Provenance (gathered, not assumed)
 
@@ -115,7 +132,7 @@ the review record), and the three design pages.
 | `build_ground_column_table` (world_view.gd:518) | `09f3db5`, 2026-11-08, #122 | one surface per column, absence = hole; **retired here** |
 | `step_walker` (world_view.gd:553) | `09f3db5`, 2026-11-08, #122 | landing tested against the column's plateau; **replaced here** |
 | the interpolation hack (world_view.gd:586) | `47716b9`, 2026-11-10, #124 | spreads current->next across the column; **deleted here** |
-| `world_view_ground.gd::_draw` (:37-77) | `075b88e`, 2026-11-09, #122 | the 4:7 polygon's top edge was the "drawn surface" AC1 measured; **replaced by a `solid_mask` surface draw** |
+| `world_view_ground.gd::_draw` | `:12` (function entry) / `:37-77` (polygon block) | `075b88e`, 2026-11-09, #122 | the 4:7 polygon's top edge was the "drawn surface" AC1 measured; **replaced by a `solid_mask` surface draw** |
 | `ground_y_for_column` / `step_walker` (physics.rs:125 / :153) | `8809c55`, 2026-11-11, #125 (`step_walker` created `9c4d897`, 2026-10-25, #122; last fixed `bd84440`, 2026-11-12, #125) | Rust model has no within-column interpolation; **ported to the mask sampler** |
 | `slope_feet_y_matches_drawn_surface` (test_walker_step.gd:271) | `47716b9`, 2026-11-10, #124 | caps a single-frame rise at 16 px, never compares to the drawn line; **rewritten to compare to the mask surface** |
 | `_check_ground_profile` (test_slope_set.gd:112) | `28f0439`, 2026-11-09, #122 | pins the injected slope set; **re-pointed at the mask surface** |
@@ -137,7 +154,7 @@ every row is @me (the repo's only author), so the author is not repeated per row
 | the per-column interpolation hack | `world_view.gd:586` | spreads current->next across the column; the #124 sawtooth. Deleted |
 | `_rebuild_ground_tiles()` | `world_view.gd:634` | builds `_tiles_cache`, hands it to the ground layer, rebuilds the table, spawns. Now builds the mask profile |
 | spawn paths | `world_view.gd:667-728` | read the column table; read the profile now |
-| `world_view_ground.gd::_draw` | `:37-77` | flat tiles as rects + a 4:7 ramp polygon; no texture source. Replaced by a `solid_mask` surface draw |
+| `world_view_ground.gd::_draw` | `:12` (function entry) / `:37-77` (polygon block) | flat tiles as rects + a 4:7 ramp polygon; no texture source. Replaced by a `solid_mask` surface draw |
 | `ground_y_for_column` / `step_walker` | `physics.rs:125` / `:153` | per-column rule, no interpolation. Ported to the sampler |
 | `auto_detect_sub_tile_mask` | `tools/import-tiles/src/main.rs:354` | coarse 4-bit mask. `solid_mask` added beside it |
 | `TerrainTypeDef` | `crates/sstd-core/src/terrain.rs:159` | the terrain-type struct (it carries `sub_tile_mask` at `:172`); gains `solid_mask`. `TerrainType` at `:7` is the Ground/Wall/Air enum, a different item |
@@ -225,7 +242,8 @@ injected set). No E2E/UI test is added by this ticket -- the walker is driven he
 through a rendered scene.
 
 **Race / repeat.** Race does not apply: both steppers are pure synchronous functions on one
-thread and the tool is a one-shot CLI. The back-to-back repeat is pinned by
+thread and the tool is a one-shot CLI. Non-determinism does not apply either: deterministic pure
+functions, no seed or clock input, so no pin is needed. The back-to-back repeat is pinned by
 `same_input_twice_gives_the_same_state`.
 
 ### GDScript `test_walker_step.gd`
