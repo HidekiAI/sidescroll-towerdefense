@@ -34,6 +34,14 @@ const FALL_DAMAGE_THRESHOLD_PX: f64 = 32.0;
 /// Hit points one damaging landing costs.
 const FALL_DAMAGE_POINTS: f64 = 1.0;
 
+/// On penetration: snap the entity out and stay glued while the feet are within this many pixels
+/// above the surface. Half a 32 px tile. (amendment #126 section 4)
+pub const GROUND_SNAP_PX: f64 = 16.0;
+
+/// On penetration: the deepest penetration, in pixels, treated as contact before the snap. A
+/// quarter tile. (amendment #126 section 4)
+pub const EMBED_TOLERANCE_PX: f64 = 8.0;
+
 /// Walker state carried from one frame to the next.
 ///
 /// The field names are the wire contract: they are serialized into the bridge's `walk_step`
@@ -84,11 +92,16 @@ pub struct GridConfig {
 }
 
 /// One tile of the ground, in tile-grid coordinates.
+///
+/// `solid_mask` is the per-pixel collision datum (one bit per tile pixel, 128 bytes for a 32x32
+/// tile, bit `(row * w + col)`), emitted by the tile tool from the art. It is `Vec<u8>` rather than
+/// `[u8; 128]` so a non-square tile still fits. Absent on tiles the tool never scanned.
 #[derive(Clone, Debug)]
 pub struct Tile {
     pub world_tile_x: i32,
     pub world_tile_y: i32,
     pub is_walkable: bool,
+    pub solid_mask: Vec<u8>,
 }
 
 /// Leftmost and rightmost tile left edge, in world pixels.
@@ -116,6 +129,106 @@ fn world_tile_col_at(pos_x: f64, grid: &GridConfig, last_world_tile_col: i32) ->
 /// Hit points one landing costs, or `None` when the fall was safe.
 fn fall_damage_points(fall_start_y: f64, landing_y: f64) -> Option<f64> {
     (landing_y - fall_start_y > FALL_DAMAGE_THRESHOLD_PX).then_some(FALL_DAMAGE_POINTS)
+}
+
+/// Build the per-pixel-column ground profile from tiles and their solid_masks.
+///
+/// Returns `(profile, world_left_px)` where `profile[i]` is the surface Y at pixel column
+/// `(world_left_px + i as f64)`, or `None` if that column is fully air (no walkable tile
+/// with a solid pixel in that column).
+///
+/// For a tile with an empty `solid_mask`, the whole tile is treated as solid (legacy
+/// framework tiles that predate the mask tool). For a tile with a mask, the topmost set
+/// bit in each pixel column determines the surface; if no bit is set in a column, that
+/// tile contributes no surface for that column.
+fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> (Vec<Option<f64>>, f64, f64) {
+    let (world_left_px, world_right_px) = world_bounds_px(tiles, grid);
+    let tile_w_px = grid.tile_w;
+    let tile_h_px = grid.tile_h;
+    let left_col = world_left_px.floor() as i32;
+    // Cover every pixel column of every tile, so the last tile's right edge is included.
+    let right_col = (world_right_px + tile_w_px).ceil() as i32;
+    let width = (right_col - left_col).max(1) as usize;
+    let mut profile: Vec<Option<f64>> = vec![None; width];
+
+    for tile in tiles {
+        if !tile.is_walkable {
+            continue;
+        }
+        let tile_left_px = tile.world_tile_x as f64 * tile_w_px;
+        let tile_top_px = tile.world_tile_y as f64 * tile_h_px;
+
+        // Iterate over pixel columns this tile covers.
+        let start_px = tile_left_px.floor() as i32;
+        let end_px = (tile_left_px + tile_w_px).ceil() as i32;
+        for px_col in start_px..end_px {
+            let idx = (px_col - left_col) as usize;
+            if idx >= profile.len() {
+                continue;
+            }
+            // Determine surface for this pixel column from this tile.
+            let surface_y = if tile.solid_mask.is_empty() {
+                // Legacy tile: whole tile is solid.
+                Some(tile_top_px)
+            } else {
+                // Masked tile: find topmost solid bit in this pixel column.
+                let local_x = px_col - start_px;
+                if local_x < 0 || local_x >= tile_w_px as i32 {
+                    continue;
+                }
+                let local_x = local_x as u32;
+                let tile_w = tile_w_px as u32;
+                let tile_h = tile_h_px as u32;
+                let mut top_row: Option<u32> = None;
+                for row in 0..tile_h {
+                    let bit_idx = row * tile_w + local_x;
+                    let byte_idx = (bit_idx / 8) as usize;
+                    let bit = bit_idx % 8;
+                    if byte_idx < tile.solid_mask.len() {
+                        if (tile.solid_mask[byte_idx] >> bit) & 1 != 0 {
+                            top_row = Some(row);
+                            break;
+                        }
+                    }
+                }
+                top_row.map(|r| tile_top_px + r as f64)
+            };
+            // Keep the highest (smallest Y) surface among overlapping tiles.
+            match (profile[idx], surface_y) {
+                (None, Some(y)) => {
+                    profile[idx] = Some(y);
+                }
+                (Some(old), Some(y)) if y < old => {
+                    profile[idx] = Some(y);
+                }
+                _ => {}
+            }
+        }
+    }
+    (profile, world_left_px, world_right_px)
+}
+
+/// Sample the ground profile at a world pixel X position, with linear interpolation
+/// between the pixel column and the next.
+///
+/// Returns `None` if the column is air (hole) or past the profile bounds.
+fn ground_y_at(profile: &[Option<f64>], world_left_px: f64, pos_x: f64) -> Option<f64> {
+    let col = pos_x.floor() as i32;
+    let left = world_left_px.floor() as i32;
+    let idx = col - left;
+    if idx < 0 || idx >= profile.len() as i32 {
+        return None;
+    }
+    let idx = idx as usize;
+    let y0 = profile[idx]?;
+    // If at the last column, clamp (clamps_right behaviour).
+    if idx + 1 >= profile.len() {
+        return Some(y0);
+    }
+    let y1 = profile[idx + 1]?;
+    // Linear interpolation between this column and the next.
+    let frac = pos_x - col as f64;
+    Some(y0 + (y1 - y0) * frac)
 }
 
 /// Top edge of the highest walkable tile in `world_tile_col`, in world pixels.
@@ -171,34 +284,28 @@ pub fn step_walker(
     let vel_y_after_gravity = state.vel_y + GRAVITY_PPS2 * frame_seconds;
     let feet_now_y = feet_was_y + vel_y_after_gravity * frame_seconds;
 
-    let (world_left_px, world_right_px) = world_bounds_px(tiles, grid);
-    let last_world_tile_col = tiles
-        .iter()
-        .map(|tile| tile.world_tile_x)
-        .max()
-        .unwrap_or(0);
+    let (profile, world_left_px, world_right_px) = build_ground_profile(tiles, grid);
     let proposed_pos_x =
         (state.pos_x + move_speed_pps * frame_seconds).clamp(world_left_px, world_right_px);
-    let proposed_col = world_tile_col_at(proposed_pos_x, grid, last_world_tile_col);
 
-    // A column holding only non-walkable tiles has no surface, so a grounded walker stepping into
-    // it would fall exactly as if it were a pit. Refuse the step by staying on the previous pixel.
+    // A pixel column holding no walkable solid content has no surface, so a grounded walker stepping
+    // into it would fall exactly as if it were a pit. Refuse the step by staying on the previous pixel.
     // An ungrounded walker keeps moving (it is already falling), and a walker that does not move is
     // unaffected. Refusing rather than clamping to the column edge keeps this direction-agnostic:
     // the walker is at most one frame of travel from the boundary, so no visible gap opens.
     let stepping_into_hole = move_axis != 0.0
         && state.grounded
-        && ground_y_for_column(tiles, grid, proposed_col).is_none();
-    let (pos_x, world_tile_col) = if stepping_into_hole {
-        (
-            state.pos_x,
-            world_tile_col_at(state.pos_x, grid, last_world_tile_col),
-        )
+        && ground_y_at(&profile, world_left_px, proposed_pos_x).is_none();
+    let pos_x = if stepping_into_hole {
+        state.pos_x
     } else {
-        (proposed_pos_x, proposed_col)
+        proposed_pos_x
     };
 
-    let contact = match ground_y_for_column(tiles, grid, world_tile_col) {
+    // Surface at the walker's current pixel column (topmost solid bit of the overlapping tiles).
+    let surface_y = ground_y_at(&profile, world_left_px, pos_x);
+
+    let contact = match surface_y {
         Some(surface_y) => {
             let landed_from_above =
                 vel_y_after_gravity >= 0.0 && feet_was_y <= surface_y && feet_now_y >= surface_y;
@@ -250,6 +357,45 @@ pub fn step_walker(
             hp,
             fall_start_y: contact.ground_y,
         }
+    } else if let Some(surface_y) = surface_y {
+        // Anti-jitter (amendment #126 section 4): the walker's feet are below the surface.
+        // Snap out if the penetration is deep enough; glue if within one tile above it.
+        // Zero the offending velocity component (vy for a vertical surface), never gravity.
+        if feet_now_y > surface_y + EMBED_TOLERANCE_PX {
+            WalkerState {
+                pos_x,
+                pos_y: surface_y,
+                vel_x: move_speed_pps,
+                vel_y: 0.0,
+                grounded: true,
+                hp: state.hp,
+                fall_start_y: state.fall_start_y,
+            }
+        } else if state.grounded
+            && feet_now_y <= surface_y
+            && surface_y - feet_now_y <= GROUND_SNAP_PX
+        {
+            // In contact, including stepping DOWN onto lower ground: glued to the surface.
+            WalkerState {
+                pos_x,
+                pos_y: surface_y,
+                vel_x: move_speed_pps,
+                vel_y: 0.0,
+                grounded: true,
+                hp: state.hp,
+                fall_start_y: surface_y,
+            }
+        } else {
+            WalkerState {
+                pos_x,
+                pos_y: feet_now_y,
+                vel_x: move_speed_pps,
+                vel_y: vel_y_after_gravity,
+                grounded: false,
+                hp: state.hp,
+                fall_start_y: contact.fall_start_y,
+            }
+        }
     } else {
         WalkerState {
             pos_x,
@@ -288,6 +434,7 @@ mod tests {
                 world_tile_x,
                 world_tile_y: world_tile_row,
                 is_walkable: true,
+                solid_mask: vec![],
             })
             .collect()
     }
@@ -325,11 +472,13 @@ mod tests {
                 world_tile_x: 1,
                 world_tile_y: 2,
                 is_walkable: true,
+                solid_mask: vec![],
             },
             Tile {
                 world_tile_x: 1,
                 world_tile_y: 1,
                 is_walkable: true,
+                solid_mask: vec![],
             },
         ];
         assert_eq!(
@@ -344,6 +493,7 @@ mod tests {
             world_tile_x: 1,
             world_tile_y: 1,
             is_walkable: false,
+            solid_mask: vec![],
         }];
         assert_eq!(ground_y_for_column(&tiles, &test_grid(), 1), None);
     }
@@ -448,11 +598,13 @@ mod tests {
                 world_tile_x: 0,
                 world_tile_y: TEST_GROUND_ROW,
                 is_walkable: true,
+                solid_mask: vec![],
             },
             Tile {
                 world_tile_x: 1,
                 world_tile_y: TEST_GROUND_ROW - 1,
                 is_walkable: true,
+                solid_mask: vec![],
             },
         ];
         let walker = (0..30).fold(standing_walker(10.0, TEST_TILE_PX), |walker, _| {
@@ -483,11 +635,13 @@ mod tests {
                 world_tile_x: 0,
                 world_tile_y: 4,
                 is_walkable: true,
+                solid_mask: vec![],
             },
             Tile {
                 world_tile_x: 1,
                 world_tile_y: TEST_GROUND_ROW,
                 is_walkable: true,
+                solid_mask: vec![],
             },
         ];
         let walker = step_walker(
