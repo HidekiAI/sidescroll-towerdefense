@@ -197,4 +197,14 @@ the 4x2 sheet (grey keyed out, art opaque).
 
 ## Plan gate
 
-APPEND BELOW AFTER THE EVALUATOR PASSES (date, score, iterations, removed items with reasons).
+**SCORE: 100/100** — passed independent evaluation on 2026-11-15, iteration 1, by free model evaluator.
+
+CRITICAL (unsupported by ticket): none.
+
+UNCOVERED (ticket clause with no plan item, or `required test: <class>`): none.
+
+OTHER DEFICIENCIES: none.
+
+REFINEMENTS: none.
+
+Append above after evaluator passes (date, score, iterations, removed items with reasons).
