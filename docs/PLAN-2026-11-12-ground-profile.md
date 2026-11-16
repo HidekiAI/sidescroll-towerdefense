@@ -87,6 +87,14 @@ column is solid". This ticket does NOT adopt that fill-below clause (@me chose s
 the plan no longer claims the mask rule is the wiki's rule verbatim. For the slope art the two
 agree, because there are no interior pockets.
 
+**Ticket traceability.** The greyscale detector, the bottom-row ground anchor, the specks-only
+clean and the flag criteria supersede the 2026-11-15 amendment posted to #126
+(https://github.com/HidekiAI/sidescroll-towerdefense/issues/126#issuecomment-6900011032), whose
+section 1 ("solid iff alpha != 0x00") and section 2 (Option 1a colour-key) this replaces. The
+supersession is posted as
+https://github.com/HidekiAI/sidescroll-towerdefense/issues/126#issuecomment-6924849581, so the
+decision is ticket-traceable, not only session-traceable.
+
 ## Provenance (gathered, not assumed)
 
 `git blame` on every block this plan changes, `gh issue view` 122/124/125/126, `gh pr list
