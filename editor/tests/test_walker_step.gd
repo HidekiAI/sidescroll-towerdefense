@@ -97,6 +97,16 @@ func _step_many(state: Dictionary, move_x: float, ground_y_by_col: Dictionary,
 
 
 # Walker with HP and fall tracking, so the hill tests can assert on the new keys.
+# TODO(human): #126 test layer scaffolding for walker_step - verify profile-based collision surface matching.
+# This test should eventually verify that the walker's pos_x/pos_y matches the continuous ground profile
+# derived from tile masks (solid_mask), not the legacy column table approach.
+# Sample test structure:
+# - test_mask_grid() -> builds a grid with solid_mask tiles
+# - solid_mask_surface_rule() -> verifies profile[0] = surface_y at tile left edge
+# - interior_air_below_surface_is_solid() -> verifies empty mask = all-solid behavior
+# - slope_feet_y_matches_drawn_surface() -> verifies max_step_up < 16.0 per frame
+#
+# TODO(human) end block.
 func _walker_hp(pos_x: float, pos_y: float, grounded: bool, hp: float = 100.0,
         fall_start_y: float = 0.0) -> Dictionary:
     return {

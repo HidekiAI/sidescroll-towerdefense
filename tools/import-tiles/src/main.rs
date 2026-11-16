@@ -388,6 +388,46 @@ fn auto_detect_sub_tile_mask(img: &RgbaImage, threshold: f64) -> u8 {
     mask
 }
 
+// =========================================================================
+// TODO(human): #126 derive_solid_mask (ART -> DATA, step 2)
+// =========================================================================
+// Derive a per-pixel solid mask from a tile PNG. Shape: one bit per tile pixel,
+// (w*h+7)/8 bytes total, where bit (row * w + col) is set if the pixel at
+// (col, row) is considered solid (above the luminance threshold).
+// - This replaces the coarse 4-bit `sub_tile_mask` (which groups pixels into
+//   2x2 quadrants) with a full per-pixel mask for the ART -> DATA -> TECH pipeline.
+// - Default: 0xF (all 4 quadrants solid) for legacy compatibility when no mask
+//   scanning is performed; callers should treat an empty/sparse mask as "whole tile solid".
+// - The caller should use this mask when building the ground profile (physics.rs
+# `build_ground_profile`), so that per-pixel surface resolution is achieved from tile art.
+// Sample invocation:
+//     let mask = derive_solid_mask(&img, config.luminance_threshold);
+//     // mask is Vec<u8> of length ((32 * 32 + 7) / 8) = 128 for 32x32 tiles
+//
+// TODO(human) end block.
+fn derive_solid_mask(img: &RgbaImage, threshold: f64) -> Vec<u8> {
+    let w = img.width();
+    let h = img.height();
+    if w == 0 || h == 0 {
+        return vec![0xF]; // legacy: whole-tile solid
+    }
+    let mut mask: Vec<u8> = vec![0u8; (w * h + 7) / 8];
+    for row in 0..h {
+        for col in 0..w {
+            let px = img.get_pixel(col, row);
+            let alpha = px[3] as f64 / 255.0;
+            let lum = (0.299 * px[0] as f64 + 0.587 * px[1] as f64 + 0.114 * px[2] as f64) / 255.0;
+            if alpha > 0.5 && lum < threshold {
+                let bit_idx = row * w + col;
+                let byte_idx = bit_idx / 8;
+                let bit_offset = bit_idx % 8;
+                mask[byte_idx] |= 1 << bit_offset;
+            }
+        }
+    }
+    mask
+}
+
 fn auto_detect_terrain_key(img: &RgbaImage) -> &'static str {
     let w = img.width();
     let h = img.height();

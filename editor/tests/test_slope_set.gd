@@ -1,3 +1,13 @@
+# TODO(human): #126 test layer scaffolding for slope_set - verify profile-based collision surface matching.
+# This test should eventually verify that the walker's pos_x/pos_y matches the continuous ground profile
+# derived from tile masks (solid_mask), not the legacy column table approach.
+# Sample test structure:
+# - test_mask_grid() -> builds a grid with solid_mask tiles
+# - solid_mask_surface_rule() -> verifies profile[0] = surface_y at tile left edge
+# - interior_air_below_surface_is_solid() -> verifies empty mask = all-solid behavior
+# - slope_feet_y_matches_drawn_surface() -> verifies max_step_up < 16.0 per frame
+#
+# TODO(human) end block.
 extends SceneTree
 # Guard for issue #122's 4:7 slope set: what `inject_simulator_hills` emits, that a second call
 # does not clobber it, and the walkable surface `world_view` derives from it.
