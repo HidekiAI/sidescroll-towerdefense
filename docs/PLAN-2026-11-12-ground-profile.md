@@ -281,6 +281,40 @@ The "100/100" below was scored against the plan text, not the repo, and does not
 findings that drove these decisions (the alpha premise, the two `solid_mask` definitions, the
 missing schema path, and the missing `slope_up_*` producer). Re-score after this revision.
 
+## Second skeptical pass (2026-11-16): fix these before the re-score
+
+Every premise below was checked against the repo, not asserted. Five findings, then one
+measurement that settles the open air-rule question.
+
+1. **The Rust ramp test contradicts decision 1.** `walking_up_the_ramp_tracks_the_alpha_surface`
+   asserts `pos_y` is "strictly decreasing", but the accepted shipped surface is NOT monotonic:
+   the notch at world col 61 raises `pos_y` 13 px (992 -> 1005) before it falls. Say whether the
+   test walks a synthetic monotonic ramp (and add a shipped-run case), or drop "strictly
+   decreasing".
+2. **The Gate still tests the colour-key it demoted.** `## Gate` says `tools/import-tiles`'
+   `solid_mask` "is verified on the 4x2 sheet (grey keyed out, art opaque)" -- the
+   `slope_30deg_*` colour-key that decision 3 demoted and that this ticket does not walk. No
+   `slope_up_*` source sheet exists either, so the tool's `solid_mask` has no end-to-end input
+   in this ticket. Either give the tool change an in-source test on a synthetic RGBA image, or
+   defer the tool change to the ticket that re-cuts `slope_up_*`.
+3. **`world_view_ground.gd` has no texture source.** Its Files row says `_draw` "draws the tiles
+   (their alpha)", but the drawer holds only tile DICTS and draws `draw_rect`/`draw_polygon`; it
+   never loads a texture, and `get_tile_image` lives in the map/placement editors, not here. Say
+   where the slope textures come from, or draw the surface from `solid_mask` as per-pixel rects.
+4. **Two constants have no stated value.** `GROUND_SNAP_PX` and `EMBED_TOLERANCE_PX` are pinned
+   by tests (16 px glues, 32 px does not) but their values never appear in the plan.
+5. **The mask rule is stated narrower than the wiki's.** The data-model bullet sets the bit
+   "iff that pixel's alpha is not 0x00"; the wiki (`TDD_Collision-Map-Tooling` section 1) adds
+   "every pixel below the first solid pixel in a column is solid". Identical for this slope art
+   (no interior pockets), but the plan claims "the wiki's form" while stating a narrower rule.
+
+**MEASURED: alpha-first vs greyscale-threshold.** On `slope_up_1..6`, `air = (alpha == 0)` and
+`grey > 50%` differ in only 1-5 pixels per tile, all on the anti-aliased diagonal edge (for
+`slope_up_1`: (22,0), (15,4), (8,8), (1,12), i.e. the 7:4 line). Alpha calls the edge pixel solid,
+greyscale calls it air -- a **1 px** surface difference at those columns, inside AC1's 1 px band.
+So the two rules are near-equivalent for this art and both satisfy AC1; alpha needs no threshold,
+greyscale needs a per-family one. Neither is a correctness difference here.
+
 ## Plan gate
 
 **SCORE: 100/100** — passed independent evaluation on 2026-11-15, iteration 1, by free model evaluator. **SUPERSEDED 2026-11-16** by the skeptical review above; re-score pending.
