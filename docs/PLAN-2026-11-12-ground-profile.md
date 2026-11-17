@@ -289,6 +289,24 @@ specks-only divergence), `TDD_Physics` (the mask datum), `TDD_Simulator-Ground-W
 wording, `PostMortem/Slope-Hopping-2026-11-10` (dated supersession), `Home.md` (redact the
 4:7-polygon description).
 
+## Implementation sequence (runnable order, recorded 2026-11-17)
+
+The `## Files` table is the per-file detail; this is the order the steps are worked. It lived only
+in the session checkpoint until 2026-11-17, and is mirrored here so the plan is self-contained.
+
+1. **ART -> DATA, the tool:** `tools/import-tiles/src/main.rs` -- `derive_solid_mask()` = greyscale -> threshold -> no-donut clean -> fuzzy/best-guess -> flag; add a tile-scan mode over the committed `slope_up_{0..6}_32x32.png`; in-source mask tests.
+2. **DATA, the schema:** `crates/sstd-core/src/terrain.rs` -- `TerrainTypeDef` gains `solid_mask` (serde default, so old files still parse).
+3. **DATA, the committed masks:** `editor/default_package/terrain_types.json` -- the tool writes the 7 `slope_up_*` entries with `is_walkable: true` + `solid_mask`.
+4. **DATA, the bridge:** `crates/sstd-editor-bridge/src/lib.rs` -- `WalkTile` gains `solid_mask`.
+5. **TECH, Rust stepper:** `crates/sstd-core/src/physics.rs` -- `build_ground_profile` + `ground_y_at` + `GROUND_SNAP_PX` / `EMBED_TOLERANCE_PX` + the anti-jitter snap; `step_walker` samples the profile. **DONE (`ffdbe8d`); the tests are the remaining work.**
+6. **TECH, GDScript stepper (the LIVE path):** `editor/scripts/world_view.gd` -- `set_terrain_masks` / `build_ground_profile` / `ground_y_at`; `_rebuild_ground_tiles` resolves each tile's mask; `step_walker` takes the profile + snap; delete `build_ground_column_table`, the per-column interpolation hack and `tile_w_px`.
+7. **Wiring:** `editor/scripts/main.gd` -- push `terrain_editor.get_terrain_types()` into the world view via `set_terrain_masks`.
+8. **DRAW:** `editor/scripts/world_view_ground.gd` -- draw the tile sprites (`res://assets/tiles/{key}_32x32.png`), remove the 4:7 `draw_polygon` and the flat-tile rects; fog/atmosphere goes on its own layer, never by lowering a tile's alpha.
+9. **Tests:** GDScript `test_walker_step.gd` (every-pixel-column sweep against the PNG-derived oracle, plus the polygon-removal assertion) and `test_slope_set.gd`; Rust `physics.rs`; the tool's in-source tests.
+10. **Gate:** full `cargo test` + the three GDScript suites (exit codes) + the WHOLE mutation battery (M1-M8, T1-T6); a mutant that does not fire is a void experiment, not a pass.
+11. **Docs:** wiki `TDD_Collision-Map-Tooling`, `TDD_Physics`, `TDD_Simulator-Ground-Walk`, the post-mortem, `Home.md`.
+12. **Ship:** commit on `feat/ground-profile-impl`, clean independent review, push, merge `--ff-only` to `trunk`.
+
 ## Tests (falsifiable, each pinned to a number, each with its mutant)
 
 **Layer.** Every case below is a UNIT test: in-source `#[cfg(test)]` for `physics.rs` and
@@ -528,14 +546,16 @@ Run-by-run scores are in the Plan gate section below; each finding, and its reso
 
 ## Plan gate
 
-**STATUS: NOT READY — bar 90 (awaiting the next evaluator run).** Evaluations so far: iter-1
-(2026-11-15) 100/100 (plan-only, false positive); iter-2 (2026-11-16) 52/100 (alpha-datum
-contradiction); iter-3 (2026-11-16) 55/100 (draw contradiction, stale refs, unasserted polygon
-removal); iter-4 (2026-11-17) 82/100 (stale "what exists today" tables, an unreconciled
-`derive_solid_mask`, a false constant citation, an untraceable resolution order, an internal
-alpha/detector contradiction, AC mistags). The 2026-11-17 revision clears the iter-3 AND iter-4
-findings (lists below) and folds in the 2026-11-17 fuzzy/best-guess directive. The next evaluator
-run scores this revision.
+**STATUS: ACCEPTED at 86/100 (2026-11-17).** @me lowered the bar "for now" to "above 80", so the
+loop stopped here instead of at the skill's default 90. Evaluations: iter-1 (2026-11-15) 100/100
+(plan-only, false positive); iter-2 (2026-11-16) 52/100 (alpha-datum contradiction); iter-3
+(2026-11-16) 55/100 (draw contradiction, stale refs, unasserted polygon removal); iter-4
+(2026-11-17) 82/100 (stale "what exists today" tables, an unreconciled `derive_solid_mask`, a
+false constant citation, an untraceable resolution order, an internal alpha/detector
+contradiction, AC mistags); iter-5 (2026-11-17) 86/100 -- no CRITICAL and no UNCOVERED, with eight
+remaining deficiencies. The iter-3 and iter-4 findings are cleared by the 2026-11-17 revision
+(lists below); the iter-5 findings are NOT fixed here and are filed as issues #138-#145 instead
+(closing note below).
 
 **Amendments cited:**
 - 2026-11-15T19:29:17Z (alpha datum, Option 1a colour-key, AC1/AC3/anti-jitter/bar-90)
@@ -582,4 +602,15 @@ run scores this revision.
 - Stale provenance tip `b05704a` -> RESOLVED: re-measured, stated as the measurement-time tip
   `a5fbb45` with a note that this plan's own edits touch no source line.
 
-Append above after evaluator passes (date, score, iterations, removed items with reasons).
+**Findings from iteration 5 (2026-11-17, 86/100): NOT fixed in this revision, by @me's decision.**
+Each is filed as its own issue so the discovery stays durable and a later planning pass reads it:
+#138 (the alpha-vs-greyscale attribution is reversed in the measured note), #139 (`solid_mask`'s
+on-disk encoding names no dependency), #140 (the terrain-type home is attributed to a ticket line
+that does not name it), #141 (polygon removal proven only by a source-text grep), #142 (no test for
+the tool's tile-scan write, and the `solid_mask` key is unpinned), #143 (`blocked_by_wall_retries`
+tagged AC4, which it does not assert), #144 (the `GROUND_SNAP_PX` threshold test carries an AC tag
+for a plan-chosen value), #145 (the angle command cited does not reproduce its number).
+
+Standing rule from 2026-11-17: a finding from a gate, review, judge or test run is filed as its own
+issue even when it is already fixed, so a later planning pass reads what was discovered, considered
+and how it was resolved.
