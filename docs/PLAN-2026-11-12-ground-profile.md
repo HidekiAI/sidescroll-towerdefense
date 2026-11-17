@@ -129,8 +129,9 @@ decision is ticket-traceable, not only session-traceable.
 **Later refinement (@me, 2026-11-17).** The flag is the LAST resort, not the rule: resolution is
 fuzzy/best-guess first (pipeline step 6). This supersedes the 2026-11-16 amendment's "FLAGGED,
 never guessed" wording for the resolution ORDER only; the flag itself stays, and the flagged tile
-is still never machine-guessed. Recorded here; to be posted as a third comment on #126 so the
-order is ticket-traceable too.
+is still never machine-guessed. POSTED as a third comment on #126 on 2026-11-17, so the order is
+ticket-traceable too:
+https://github.com/HidekiAI/sidescroll-towerdefense/issues/126#issuecomment-6950495262 .
 
 The ticket BODY's profile clause -- "`build_ground_column_table`
 becomes a run-based profile: a slope run is one line from its start to its end, not seven
@@ -157,14 +158,41 @@ the review record), and the three design pages.
 | `inject_simulator_hills` (main.gd:217) | `45085fa`, 2026-11-09, #122 | injects the 7 `slope_up_*` tiles; **unchanged** (placement is not this ticket) |
 | `_rebuild_ground_tiles` (world_view.gd:675) | `5685a2d`, 2026-10-25, #122 | builds `_tiles_cache`, hands it to the ground layer, rebuilds the table, spawns; **builds the mask profile here** |
 | `_spawn_walker_on_ground` / `_place_walker_on_col` (world_view.gd:714 / :759) | `09f3db5`, 2026-11-08, #122 | read the column table to seat the walker; **read the profile now** |
-| `auto_detect_sub_tile_mask` (tools/import-tiles/src/main.rs:354) | `904467f`, 2026-08-03, #33 | coarse 4-bit mask; **`solid_mask` added alongside it** |
+| `auto_detect_sub_tile_mask` (tools/import-tiles/src/main.rs:354) | `904467f`, 2026-08-03, #33 | coarse 4-bit mask; MEASURED: still the only emission path. `derive_solid_mask` (`:408`, `9134d71`) exists beside it with an alpha body that **this plan replaces** with the greyscale pipeline |
 | `default_package/terrain_types.json` (7 framework types) | `9d78881`, 2026-08-27, #67 | framework terrain set; **gains the 7 `slope_up_*` entries with `solid_mask`** |
 
-Every hash above is the introducing commit from `git log -1 -L <line>,<line>:<file>`; the author on
-every row is @me (the repo's only author), so the author is not repeated per row. Every line
-number in this plan was re-MEASURED on 2026-11-17 with `grep -n` against the working tree at
-`feat/ground-profile-impl` tip `b05704a` (e.g. `grep -n "func step_walker" editor/scripts/world_view.gd`
--> `594`); a line number not so measured is marked UNVERIFIED at the point of use.
+Every hash above is the commit `git blame -L <line>,<line> -- <file>` reports for that line (the
+introducer, or the later rewrite that last landed it); the author on every row is @me (the repo's
+only author), so the author is not repeated per row. Every line number in this plan was
+re-MEASURED on 2026-11-17 with `grep -n` and `git blame` against the working tree at
+`feat/ground-profile-impl` (the branch tip at measurement time was `a5fbb45`; this plan's own
+edits are committed on top of it and touch no Rust or GDScript line, so the source line numbers
+below still hold; e.g. `grep -n "func step_walker" editor/scripts/world_view.gd` -> `594`). A line
+number not so measured is marked UNVERIFIED at the point of use.
+
+**Already implemented on this branch (MEASURED 2026-11-17; `git blame -L` hash per line).** Half of
+#126 already landed on `feat/ground-profile-impl`, so it is NOT "to add" in the Files table below.
+This table exists because the previous gate run read those items as proposed work and docked the
+plan for it.
+
+| Already on the branch | Where (MEASURED) | Introduced by | State |
+|---|---|---|---|
+| `GROUND_SNAP_PX = 16.0` | `physics.rs:39` | `ffdbe8d`, 2026-11-16, #126 | done, and USED at `physics.rs:376` |
+| `EMBED_TOLERANCE_PX = 8.0` | `physics.rs:43` | `ffdbe8d`, 2026-11-16, #126 | done, and USED at `physics.rs:364` (the penetration arm) |
+| `phys::Tile.solid_mask: Vec<u8>` | `physics.rs:104` | `ffdbe8d`, 2026-11-16, #126 | done |
+| `build_ground_profile(tiles, grid) -> (Vec<Option<f64>>, f64, f64)` | `physics.rs:144` | `ffdbe8d`, 2026-11-16, #126 | done |
+| `ground_y_at(profile, world_left_px, pos_x) -> Option<f64>` | `physics.rs:215` | `ffdbe8d`, 2026-11-16, #126 | done |
+| `step_walker` SAMPLES the profile | `physics.rs:292` (`build_ground_profile` call), `:305` (`ground_y_at` call) | `ffdbe8d`, 2026-11-16, #126 | done -- the Rust stepper is wired, not pending |
+| tests `solid_mask_surface_rule`, `interior_air_below_surface_is_solid` | `physics.rs:765`, `:777` | `b709026`, 2026-11-16, #126 | EXIST (see the Tests section: AC re-tag, and the second one's body does not yet exercise its own name) |
+| `_terrain_masks` / `set_terrain_masks(masks)` | `world_view.gd:51`, `:206` | `534e741`, 2026-11-16, #126 | stores the dict; NO caller yet (`main.gd` does not call it) |
+| `derive_solid_mask(img, threshold) -> Vec<u8>` | `tools/import-tiles/src/main.rs:408` | `9134d71`, 2026-11-16, #126 | EXISTS with an alpha+luminance body (the superseded detector); no call site -- `grep -rn "derive_solid_mask" tools/` returns `:392` (the TODO), `:404` (a commented sample) and `:408` (the definition) only |
+| `TODO(human)` scaffolds for the GDScript profile | `world_view.gd:555-579` | `534e741`, 2026-11-16, #126 | commented samples only |
+| `TODO(human)` scaffold for `TerrainTypeDef.solid_mask` | `terrain.rs:158-184` | `b709026`, 2026-11-16, #126 | commented samples only; the FIELD is NOT added (`TerrainTypeDef` at `:188` carries `sub_tile_mask` at `:201`, no `solid_mask`) |
+| `TODO(human)` scaffolds in the suites and the tool | `test_walker_step.gd:100-109`, `test_slope_set.gd:1-10`, `main.rs:392-407` | `9134d71`, 2026-11-16, #126 | commented samples only |
+
+So what actually remains is: the TOOL's greyscale derivation + tile-scan mode, the terrain JSON
+entries, the bridge field, the GDScript port of the profile, the `main.gd` wiring, the sprite
+draw, and the test layer.
 
 ## What exists today (the structures this builds on)
 
@@ -176,11 +204,13 @@ number in this plan was re-MEASURED on 2026-11-17 with `grep -n` against the wor
 | `_rebuild_ground_tiles()` | `world_view.gd:675` | builds `_tiles_cache`, hands it to the ground layer, rebuilds the table, spawns. Now builds the mask profile |
 | spawn paths | `world_view.gd:714-771` | read the column table; read the profile now |
 | `world_view_ground.gd::_draw` | `:12` (function entry) / `:37-77` (polygon block) | flat tiles as rects + a 4:7 ramp polygon; no texture source. Replaced by drawing the tile sprites (their alpha); the polygon is removed |
-| `ground_y_for_column` / `step_walker` | `physics.rs:238` / `:266` | per-column rule, no interpolation. Ported to the sampler |
-| `auto_detect_sub_tile_mask` | `tools/import-tiles/src/main.rs:354` | coarse 4-bit mask. `solid_mask` added beside it |
-| `TerrainTypeDef` | `crates/sstd-core/src/terrain.rs:188` | the terrain-type struct (it carries `sub_tile_mask` at `:201`); gains `solid_mask`. `TerrainType` at `:7` is the Ground/Wall/Air enum, a different item |
-| `WalkTile` -> `phys::Tile` | `sstd-editor-bridge/src/lib.rs:2300` | carries `world_tile_x/y`, `is_walkable`; gains `solid_mask` |
-| `slope_up_*` placement | `main.gd:236,250` | terrain-key strings; walkable via the default heuristic at `world_view.gd:699`. No terrain entry today |
+| `ground_y_for_column` / `step_walker` | `physics.rs:238` / `:266` | per-column rule (public, still present); the mask sampler `ground_y_at` (`:215`) already sits beside it and `step_walker` already calls it |
+| `auto_detect_sub_tile_mask` | `tools/import-tiles/src/main.rs:354` | coarse 4-bit mask. MEASURED: the only emission path today |
+| `derive_solid_mask` | `tools/import-tiles/src/main.rs:408` | EXISTS on this branch (`9134d71`) with an alpha+luminance body and NO call site; the greyscale pipeline REPLACES that body |
+| `TerrainTypeDef` | `crates/sstd-core/src/terrain.rs:188` | the terrain-type struct (it carries `sub_tile_mask` at `:201`). MEASURED: it does NOT yet carry `solid_mask`; only a `TODO(human)` scaffold at `:158-184`. `TerrainType` at `:7` is the Ground/Wall/Air enum, a different item |
+| `WalkTile` -> `phys::Tile` | `sstd-editor-bridge/src/lib.rs:2300` | carries `world_tile_x/y`, `is_walkable`; MEASURED: no `solid_mask` field yet, while `phys::Tile` already has one (`physics.rs:104`) |
+| `_terrain_masks` / `set_terrain_masks` | `world_view.gd:51` / `:206` | EXISTS (`534e741`): terrain key -> `PackedByteArray`. MEASURED: no caller yet |
+| `slope_up_*` placement | `main.gd:236,250` | terrain-key strings; walkable via the default heuristic at `world_view.gd:698-701` (MEASURED: anything not `air`/`wall`/`lava` is walkable). No terrain entry today |
 
 ## Data model and build rule (identical on both sides)
 
@@ -209,11 +239,16 @@ ground_y_at(surface_by_col, pos_x) -> Option<f64>   // GDScript: NAN for air
 
 ## Per-tick change in `step_walker`
 
-Amendment section 4 (anti-jitter) fixes the penetration arm and names the two constants:
+Amendment section 4 (anti-jitter) fixes the penetration ARM -- snap the entity out, then zero the
+offending velocity component -- but names NO constant and NO value (MEASURED: the 2026-11-15
+comment's section 4 contains no number). The two thresholds below are therefore THIS PLAN's chosen
+values, not the ticket's. Both ALREADY exist on the branch (`physics.rs:39`, `:43`, `ffdbe8d`) and
+are already used by the Rust stepper (`:376` the glue arm, `:364` the penetration arm, MEASURED);
+the GDScript port inherits them.
 
 ```
-GROUND_SNAP_PX = 16.0       // amendment §4: half a 32 px tile -- a grounded walker within this above the surface stays glued
-EMBED_TOLERANCE_PX = 8.0    // amendment §4: a quarter tile -- the deepest penetration treated as contact before the snap
+GROUND_SNAP_PX = 16.0       // this plan's choice: half a 32 px tile -- a grounded walker within this above the surface stays glued
+EMBED_TOLERANCE_PX = 8.0    // this plan's choice: a quarter tile -- the deepest penetration treated as contact before the snap
 
 if surface is None:                                       -> hole; a grounded walker starts a fall
 elif vel_y >= 0 and feet_was_y <= surface <= feet_now_y:   -> landed from above (fall damage applies)
@@ -233,20 +268,20 @@ a bounds-based name is the separate collision-bounds ticket, not this one.
 
 ## Files
 
-| File | Change | Serves |
-|---|---|---|
-| `tools/import-tiles/src/main.rs` | add `derive_solid_mask(pixels, w, h) -> (mask, resolved)` (greyscale pipeline: uniform-patch colour read, bottom-row ground anchor, speck removal, then fuzzy/best-guess resolution before the flag); emit per-pixel `solid_mask` beside `sub_tile_mask`; bake a red 1px border into the emitted PNG and set `resolved = false` only when every heuristic is inconclusive; add a tile-scan mode that runs the derivation over a directory of committed `{key}_32x32.png` and writes/updates the 7 `slope_up_*` entries in `default_package/terrain_types.json` | AC1, art->data |
-| `editor/default_package/terrain_types.json` | add `slope_up_0..6` with `is_walkable: true` and `solid_mask` (base64 128 bytes) | AC1, data home |
-| `crates/sstd-core/src/terrain.rs` | `TerrainTypeDef` gains `solid_mask` (serde default keeps old files parsing) | AC1 |
-| `crates/sstd-core/src/physics.rs` | `build_ground_profile`, `ground_y_at`, `GROUND_SNAP_PX`, `EMBED_TOLERANCE_PX`, the anti-jitter snap; `step_walker` samples the profile | AC1, AC4, amendment §4 |
-| `crates/sstd-editor-bridge/src/lib.rs` | `WalkTile` gains `solid_mask` | AC1 |
-| `editor/scripts/world_view.gd` | add `set_terrain_masks(masks_by_key)`, `build_ground_profile`, `ground_y_at`; `_rebuild_ground_tiles` resolves each tile's mask by terrain key; `step_walker` takes the profile and the anti-jitter snap; delete `build_ground_column_table`, the hack, `tile_w_px` | AC1, AC3, AC4, amendment §4 |
-| `editor/scripts/main.gd` | wire `set_terrain_masks` from `terrain_editor.get_terrain_types()` to the simulator's world view | AC1 |
-| `editor/scripts/world_view_ground.gd` | `_draw` draws each walkable tile's SPRITE (`res://assets/tiles/{key}_32x32.png`, `load()`ed once per key and cached) at its cell, per amendment section 3; the flat-tile rects and the 4:7 `draw_polygon` block are removed. Fog/atmosphere NEVER lowers a tile's alpha (that alpha IS the collider datum): it goes on its own render layer, and the game has no fog-of-war | AC1 |
-| `editor/tests/test_walker_step.gd` | ground table -> profile; `slope_feet_y_matches_drawn_surface` compares feet Y to the mask surface derived INDEPENDENTLY from the tile PNG in the test, within 1 px | AC1, AC3 |
-| `editor/tests/test_slope_set.gd` | `_check_ground_profile` asserts the mask-derived surface of the shipped run (AC1's subject, not AC4's flat-ground clause) | AC1 |
-| `crates/sstd-core/src/physics.rs` tests | profile + anti-jitter + back-to-back tests (below) | AC1, AC4 |
-| `tools/import-tiles/src/main.rs` tests | in-source `#[cfg(test)]` mask tests on synthetic RGBA images (below) | AC1 |
+| File | Status on this branch (MEASURED 2026-11-17) | Change | Serves |
+|---|---|---|---|
+| `tools/import-tiles/src/main.rs` | PARTIAL: `derive_solid_mask(img, threshold) -> Vec<u8>` exists (`:408`, `9134d71`) with an alpha+luminance body and NO call site | REPLACE that body with the greyscale pipeline and widen the signature to `(pixels, w, h) -> (mask, resolved)`: uniform-patch colour read, bottom-row ground anchor, speck removal, then fuzzy/best-guess resolution before the flag; wire it into `main()` (nothing calls it today); bake a red 1px border into the emitted PNG and set `resolved = false` only when every heuristic is inconclusive; add a tile-scan mode over the committed `{key}_32x32.png` that writes the 7 `slope_up_*` entries in `default_package/terrain_types.json` | AC1, art->data |
+| `editor/default_package/terrain_types.json` | TODO (no `slope_up_*` entry today) | add `slope_up_0..6` with `is_walkable: true` and `solid_mask` (base64, 128 bytes for 32x32) | AC1, data home |
+| `crates/sstd-core/src/terrain.rs` | TODO (field absent; `TODO(human)` scaffold at `:158-184`) | `TerrainTypeDef` (`:188`) gains `solid_mask` with a serde default so old files still parse | AC1 |
+| `crates/sstd-core/src/physics.rs` | DONE (`ffdbe8d`): `build_ground_profile` `:144`, `ground_y_at` `:215`, `GROUND_SNAP_PX` `:39`, `EMBED_TOLERANCE_PX` `:43`, `Tile.solid_mask` `:104`; `step_walker` already samples the profile (`:292`, `:305`) | nothing to implement here; the TESTS are the work (see the Tests section) | AC1, AC4, amendment §4 |
+| `crates/sstd-editor-bridge/src/lib.rs` | TODO (`WalkTile` at `:2300` has no `solid_mask`) | `WalkTile` gains `solid_mask`, mapped onto `phys::Tile`, which already has the field | AC1 |
+| `editor/scripts/world_view.gd` | PARTIAL: `_terrain_masks` `:51` and `set_terrain_masks` `:206` exist (`534e741`) with no caller; `build_ground_profile`/`ground_y_at` are `TODO(human)` samples at `:555-579` | add the callers; `_rebuild_ground_tiles` (`:675`) resolves each tile's mask by terrain key; `step_walker` (`:594`) takes the profile and the anti-jitter snap; delete `build_ground_column_table` (`:532`), the per-column hack (`:628`) and `tile_w_px` | AC1, AC3, AC4, amendment §4 |
+| `editor/scripts/main.gd` | TODO | wire `set_terrain_masks` from `terrain_editor.get_terrain_types()` into the simulator's world view | AC1 |
+| `editor/scripts/world_view_ground.gd` | TODO (`_draw` at `:12` draws flat rects + the 4:7 `draw_polygon` at `:77`) | `_draw` draws each walkable tile's SPRITE (`res://assets/tiles/{key}_32x32.png`, `load()`ed once per key and cached) at its cell, per amendment section 3; the flat-tile rects and the `draw_polygon` block are removed. Fog/atmosphere NEVER lowers a tile's alpha, because that alpha is the DRAWN surface AC1 measures the feet against (the collider datum is the MASK): fog goes on its own render layer, and the game has no fog-of-war | AC1 |
+| `editor/tests/test_walker_step.gd` | PARTIAL: only `slope_feet_y_matches_drawn_surface` exists (`:43`, `:309-314`), and it caps the single-frame rise instead of comparing to the drawn surface | rewrite that test to compare feet Y to the mask surface derived INDEPENDENTLY from the tile PNG in the test, within 1 px, over every pixel column; add the other GDScript rows in the Tests section | AC1, AC3 |
+| `editor/tests/test_slope_set.gd` | PARTIAL (`TODO(human)` scaffold at `:1-10`) | `_check_ground_profile` asserts the mask-derived surface of the shipped run (AC1's subject, not AC4's flat-ground clause) | AC1 |
+| `crates/sstd-core/src/physics.rs` tests | PARTIAL: `solid_mask_surface_rule` (`:765`) and `interior_air_below_surface_is_solid` (`:777`) exist (`b709026`); the ramp/notch/anti-jitter/back-to-back tests do not | add the profile + anti-jitter + back-to-back tests (below); strengthen the second existing one to its own name's case | AC1, AC4 |
+| `tools/import-tiles/src/main.rs` tests | TODO (`TODO(human)` scaffold at `:392-407`) | in-source `#[cfg(test)]` mask tests on synthetic RGBA images (below) | AC1 |
 
 Wiki/docs (executed per the Always-Update-All-Documents rule, not scored):
 `TDD_Collision-Map-Tooling` (greyscale pipeline; the mask as the collision data form; note the
@@ -264,19 +299,21 @@ through a rendered scene.
 
 **Race / repeat.** Race does not apply: both steppers are pure synchronous functions on one
 thread and the tool is a one-shot CLI. Non-determinism does not apply either: deterministic pure
-functions, no seed or clock input, so no pin is needed. The back-to-back repeat is pinned by
-`same_input_twice_gives_the_same_state`.
+functions, no seed or clock input. The back-to-back repeat is still pinned on BOTH steppers by
+`same_input_twice_gives_the_same_state` (Rust and GDScript separately), because the GDScript
+walker is the LIVE path and a separate implementation -- the Rust pin cannot answer for it.
 
 ### GDScript `test_walker_step.gd`
 
 | Test | Assertion | AC | Mutant |
 |---|---|---|---|
-| `solid_mask_surface_rule` | given a tile mask, `build_ground_profile` returns `row*tile_h + top_row` per column; a fully air column is absent | AC4 | M1 |
-| `interior_air_below_surface_is_solid` | a column with solid at rows 31 and 35 answers 31, never 35 | AC4 | M1 |
+| `solid_mask_surface_rule` | given a tile mask, `build_ground_profile` returns `row*tile_h + top_row` per column; a fully air column is absent | AC1 | M1 |
+| `interior_air_below_surface_is_solid` | a column with solid at rows 31 and 35 answers 31, never 35 | AC1 | M1 |
 | `slope_feet_y_matches_drawn_surface` | walker seeded at the run's first column centre; **sweeps EVERY pixel column of the injected run** (7 tiles x 32 px) and asserts feet Y equals the surface the test derives INDEPENDENTLY from the tile PNG, within 1 px at each column. The PNG-derived sweep is the AC1 oracle; the 7 hand-measured centres (992/996/978/960/941/928/904) and 7 seams (992/1005/987/968/950/932/914) are a SECOND, hand-derived pin, so a bug shared by the tool and the test's derivation cannot pass unseen. The 13 px notch at col 61 is asserted, not tolerated. Never the 4:7 ladder | AC1, AC3 | M2, M5 |
 | `slope_descent_matches_drawn_surface` | walked LEFT, grounded every ramp frame, feet Y equals the mask surface within 1 px, hp unchanged | AC1 | M2 |
 | `penetration_snaps_out_and_zeroes_velocity` | walker forced 5 px into a surface has feet snapped to the surface and `vel_y == 0` next frame; no oscillation over 10 frames | amendment §4 | M5 |
 | `ground_snap_threshold_is_under_one_tile` | surface 16 px below glues; 32 px below becomes airborne | AC1, AC4 | M4 |
+| `same_input_twice_gives_the_same_state` | back-to-back repeat pin (GDScript stepper, the LIVE path) | all ACs (determinism) | M6 |
 | `blocked_by_wall_retries` | a grounded walker refused at an air segment for 120 frames does not creep | AC4 | M7 |
 | `ground_layer_draws_sprites_not_a_polygon` | the `world_view_ground.gd` source contains no `draw_polygon` and does load a `_32x32.png` sprite, so the 4:7 ladder cannot silently return | amendment §3 | M8 |
 
@@ -300,15 +337,15 @@ why those keys must not be deleted here.
 
 | Test | Assertion | AC | Mutant |
 |---|---|---|---|
-| `solid_mask_surface_rule` | topmost solid row per column; fully air column => `None` | AC4 | M1 |
-| `interior_air_below_surface_is_solid` | rows 31 and 35 => 31, never 35 | AC4 | M1 |
-| `profile_coalesces_adjacent_holes` | three adjacent air columns => one Air run | AC4 | M3 |
+| `solid_mask_surface_rule` | topmost solid row per column; fully air column => `None` | AC1 | M1 |
+| `interior_air_below_surface_is_solid` | rows 31 and 35 => 31, never 35 | AC1 | M1 |
+| `profile_coalesces_adjacent_holes` | three adjacent air columns => one Air run | AC1 | M3 |
 | `walking_up_a_monotonic_ramp_tracks_the_surface` | a SYNTHETIC monotonic ramp, `move_x = 1.0` at 200 pps: `pos_y` equals the surface sample every ramp frame (within 1e-6), strictly decreasing | AC1 | M2 |
 | `shipped_run_surface_is_reproduced_including_the_notch` | the shipped 7-tile run: feet Y equals the surface at every column, and the 992 -> 1005 px notch at world col 61 is reproduced. NO monotonicity claim | AC1, AC3 | M2 |
 | `walking_down_the_ramp_grounded_without_damage` | mirrored walk leftward: grounded every frame, hp unchanged | AC1 | M2 |
 | `penetration_snaps_out_and_zeroes_velocity` | 5 px penetration snaps to surface, `vel_y == 0`, stable over 10 ticks | amendment §4 | M5 |
 | `snap_threshold_is_under_one_tile` | 16 px glues, 32 px does not | AC1, AC4 | M4 |
-| `same_input_twice_gives_the_same_state` | back-to-back repeat pin | AC4 | M6 |
+| `same_input_twice_gives_the_same_state` | back-to-back repeat pin (Rust stepper) | all ACs (determinism) | M6 |
 
 Existing `stepping_up_onto_a_higher_surface_does_not_start_a_fall` (physics.rs:593) pins AC4's
 single-tile step-up; the GDScript equivalent is the `hill_up` step inside `_test_walker_step()`
@@ -334,7 +371,7 @@ single-tile step-up; the GDScript equivalent is the `hill_up` step inside `_test
 | M3 air column returns 0.0 instead of None | `falls_through_void`, `profile_coalesces_adjacent_holes` |
 | M4 GROUND_SNAP_PX raised to 32 | `ground_snap_threshold_is_under_one_tile`, `snap_threshold_is_under_one_tile` |
 | M5 anti-jitter arm deleted | `penetration_snaps_out_and_zeroes_velocity` (both sides) |
-| M6 profile rebuilt non-deterministically (iteration order) | `same_input_twice_gives_the_same_state` |
+| M6 profile rebuilt non-deterministically (iteration order) | `same_input_twice_gives_the_same_state` (both steppers: Rust and GDScript) |
 | M7 refusal sets grounded = false | `blocked_by_wall_retries` |
 | M8 the 4:7 `draw_polygon` restored in `world_view_ground.gd` | `ground_layer_draws_sprites_not_a_polygon` |
 | T1 bottom anchor replaced by the top row | `mask_two_cluster_bottom_anchor` |
@@ -494,14 +531,17 @@ Run-by-run scores are in the Plan gate section below; each finding, and its reso
 **STATUS: NOT READY — bar 90 (awaiting the next evaluator run).** Evaluations so far: iter-1
 (2026-11-15) 100/100 (plan-only, false positive); iter-2 (2026-11-16) 52/100 (alpha-datum
 contradiction); iter-3 (2026-11-16) 55/100 (draw contradiction, stale refs, unasserted polygon
-removal). The 2026-11-17 revision clears the iter-3 findings (list below) and folds in the
-2026-11-17 fuzzy/best-guess directive. The next evaluator run scores this revision.
+removal); iter-4 (2026-11-17) 82/100 (stale "what exists today" tables, an unreconciled
+`derive_solid_mask`, a false constant citation, an untraceable resolution order, an internal
+alpha/detector contradiction, AC mistags). The 2026-11-17 revision clears the iter-3 AND iter-4
+findings (lists below) and folds in the 2026-11-17 fuzzy/best-guess directive. The next evaluator
+run scores this revision.
 
 **Amendments cited:**
 - 2026-11-15T19:29:17Z (alpha datum, Option 1a colour-key, AC1/AC3/anti-jitter/bar-90)
 - 2026-11-16T18:08:38Z (greyscale detector supersedes alpha for walked family; Option 1a
   NOT used; AC1/AC3/anti-jitter/bar-90/4:7-polygon-removed unchanged)
-- 2026-11-17 (session directive, to be posted as a third #126 comment): resolution is
+- 2026-11-17 (POSTED as a third #126 comment, `#issuecomment-6950495262`): resolution is
   fuzzy/best-guess FIRST and the red-border flag is the LAST resort; the flag stays in this
   ticket. Supersedes the "never guessed" ORDER only, not the flag itself.
 
@@ -511,10 +551,35 @@ removal). The 2026-11-17 revision clears the iter-3 findings (list below) and fo
 - Amendment section 3 polygon removal unasserted -> RESOLVED:
   `ground_layer_draws_sprites_not_a_polygon` (mutant M8), and the draw source is named.
 - Provenance line numbers unlabelled -> RESOLVED: every number re-MEASURED 2026-11-17 (`grep -n`),
-  stated in the provenance note; stale refs corrected (world_view.gd 532/594/628/675/714-771/699,
+  stated in the provenance note; stale refs corrected (world_view.gd 532/594/628/675/714-771/698-701,
   physics.rs 238/266/593, terrain.rs 188/201, main.gd 217, test_walker_step.gd 251/309-314).
 - Decision 6 flag "belongs in a follow-up" -> REJECTED: the 2026-11-16 amendment §1 names the flag,
   so it is in-scope; the 2026-11-17 directive keeps it as the last resort. Cited, not deferred.
 - "`test_walker_step.gd` exits 1 on 4.7.2" -> STALE: MEASURED exit 0 on 4.7.2 (2026-11-17).
+
+**Findings from iteration 4 (2026-11-17, 82/100), each now resolved in this revision:**
+- "What exists today"/Files tables stale: `build_ground_profile`/`ground_y_at`/`GROUND_SNAP_PX`/
+  `EMBED_TOLERANCE_PX`/`Tile.solid_mask`/`set_terrain_masks` already exist on the branch -> RESOLVED:
+  a dedicated "Already implemented on this branch" subsection names each with its line and
+  introducing commit (`ffdbe8d`, `b709026`, `534e741`, `9134d71`), the Files table gained a
+  "Status on this branch (MEASURED)" column, and those items are dropped from the "to add" rows.
+- `derive_solid_mask` unreconciled (exists at `main.rs:408` with an alpha body) -> RESOLVED: the
+  Files table and the provenance table state the existing body is the SUPERSEDED detector and this
+  plan REPLACES it with the greyscale pipeline.
+- False citation: "amendment section 4 names the two constants" -> RESOLVED: the per-tick section
+  now states the 2026-11-15 §4 names NO constant or value, so `GROUND_SNAP_PX = 16.0` and
+  `EMBED_TOLERANCE_PX = 8.0` are THIS PLAN's chosen values (already on the branch, `ffdbe8d`).
+- The 2026-11-17 resolution order was not ticket-traceable -> RESOLVED: POSTED as a third #126
+  comment (`#issuecomment-6950495262`) and cited in the plan.
+- Internal contradiction: "that alpha IS the collider datum" -> RESOLVED: the draw row now says
+  the collider datum is the MASK and the sprite alpha is the DRAWN surface AC1 measures.
+- AC mistags: `solid_mask_surface_rule`, `interior_air_below_surface_is_solid`,
+  `profile_coalesces_adjacent_holes` tagged AC4 but assert the mask surface rule -> RESOLVED:
+  re-tagged AC1 in both the GDScript and Rust test tables; AC4 now covers only flat ground and
+  single-tile step-up; the back-to-back pin is labelled "all ACs (determinism)".
+- GDScript back-to-back repeat -> RESOLVED: a GDScript `same_input_twice_gives_the_same_state` row
+  was added (the Rust pin cannot answer for the separate LIVE-path stepper).
+- Stale provenance tip `b05704a` -> RESOLVED: re-measured, stated as the measurement-time tip
+  `a5fbb45` with a note that this plan's own edits touch no source line.
 
 Append above after evaluator passes (date, score, iterations, removed items with reasons).
