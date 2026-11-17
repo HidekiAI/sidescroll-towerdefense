@@ -303,7 +303,7 @@ in the session checkpoint until 2026-11-17, and is mirrored here so the plan is 
 7. **Wiring:** `editor/scripts/main.gd` -- push `terrain_editor.get_terrain_types()` into the world view via `set_terrain_masks`.
 8. **DRAW:** `editor/scripts/world_view_ground.gd` -- draw the tile sprites (`res://assets/tiles/{key}_32x32.png`), remove the 4:7 `draw_polygon` and the flat-tile rects; fog/atmosphere goes on its own layer, never by lowering a tile's alpha.
 9. **Tests:** GDScript `test_walker_step.gd` (every-pixel-column sweep against the PNG-derived oracle, plus the polygon-removal assertion) and `test_slope_set.gd`; Rust `physics.rs`; the tool's in-source tests.
-10. **Gate:** full `cargo test` + the three GDScript suites (exit codes) + the WHOLE mutation battery (M1-M8, T1-T6); a mutant that does not fire is a void experiment, not a pass.
+10. **Gate:** full `cargo test` + the three GDScript suites (exit codes) + run the WHOLE mutation battery (M1-M8, T1-T6); a mutant that does not fire is a void experiment, not a pass.
 11. **Docs:** wiki `TDD_Collision-Map-Tooling`, `TDD_Physics`, `TDD_Simulator-Ground-Walk`, the post-mortem, `Home.md`.
 12. **Ship:** commit on `feat/ground-profile-impl`, clean independent review, push, merge `--ff-only` to `trunk`.
 
