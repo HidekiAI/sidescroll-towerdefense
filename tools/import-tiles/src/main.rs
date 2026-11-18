@@ -20,6 +20,13 @@ const PATCH_SIZE_PX: u32 = 4;
 /// hand-edit is visible in the emitted PNG.
 const UNRESOLVED_BORDER_RGBA: [u8; 4] = [255, 0, 0, 255];
 
+/// The Rec.601 luma weights (ITU-R BT.601) that collapse a pixel's R, G and B channels into
+/// one greyscale value. Named because the detector's thresholds are all derived from them,
+/// and the three sum to just under 1.0 in f64, so a rounded sum keeps a pure grey exact.
+const REC601_LUMA_RED_WEIGHT: f64 = 0.299;
+const REC601_LUMA_GREEN_WEIGHT: f64 = 0.587;
+const REC601_LUMA_BLUE_WEIGHT: f64 = 0.114;
+
 #[derive(Deserialize, Debug, Clone)]
 struct ImportConfig {
     #[serde(default)]
@@ -461,28 +468,27 @@ fn auto_detect_terrain_key(img: &RgbaImage) -> &'static str {
 }
 
 // =========================================================================
-// TODO(human): #126 solid-mask pipeline (ART -> DATA, step 1)
+// solid-mask pipeline (ART -> DATA, step 1)
 // =========================================================================
 // The tile's GREYSCALE is the detector; the emitted mask is the product. Stages, in order:
 // greyscale -> uniform-patch region read -> floating-speck clean -> two-cluster mask with a
 // best guess -> red-border flag -> per-tile entry -> directory scan. `auto_detect_sub_tile_mask`
 // above stays as the coarse 4-bit emission path; these functions are the per-pixel path.
 
-// TODO(human): begin block 1/8 - to_greyscale
 // The detector reads greyscale, so alpha is ignored: a transparent air pixel and an opaque
 // black pixel both read as 0 (air). Row-major order, so index (row * width + col) is the
-// pixel at (col, row). Rec.601 luma, ROUNDED: the weights sum to just under 1.0 in f64, so
-// truncating would turn a pure grey of 155 into 154 and lose the committed art's own greys.
+// pixel at (col, row). The Rec.601 weights sum to just under 1.0 in f64, so the sum is
+// ROUNDED: truncating would turn the committed art's pure grey 155 into 154.
 fn to_greyscale(img: &RgbaImage) -> Vec<u8> {
-    // img.pixels()
-    //     .map(|pixel| {
-    //         (0.299 * pixel[0] as f64 + 0.587 * pixel[1] as f64 + 0.114 * pixel[2] as f64).round()
-    //             as u8
-    //     })
-    //     .collect()
-    let hole: Vec<u8> = ();
+    img.pixels()
+        .map(|pixel| {
+            (REC601_LUMA_RED_WEIGHT * pixel[0] as f64
+                + REC601_LUMA_GREEN_WEIGHT * pixel[1] as f64
+                + REC601_LUMA_BLUE_WEIGHT * pixel[2] as f64)
+                .round() as u8
+        })
+        .collect()
 }
-// TODO(human): end block 1/8
 
 // TODO(human): begin block 2/8 - uniform_patch_grey
 // A region's colour is read through a patch, never a single pixel: an anti-aliased edge
