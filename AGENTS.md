@@ -877,6 +877,16 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   to within 1 px. That is a representation change, so plan it before coding.
 - **Do not fold in** the collision-bounds directive or the graduated fall-damage directive below;
   each needs its own ticket.
+- **MEASURED 2026-11-17 (do not re-measure; these are the mask detector's real inputs).** The 7
+  committed `editor/assets/tiles/slope_up_{0..6}_32x32.png` each carry EXACTLY TWO greys once
+  alpha is off: air `0` and ground `155`, with ground on the bottom row. Pixel counts
+  (air / ground, of 1024): `slope_up_0` 0 / 1024 (single grey, all solid), `slope_up_1` 154 / 870,
+  `slope_up_2` 572 / 452, `slope_up_3` 66 / 958, `slope_up_4` 425 / 599, `slope_up_5` 15 / 1009,
+  `slope_up_6` 279 / 745. Command:
+  `magick slope_up_N_32x32.png -alpha off -colorspace Gray -depth 8 -format "%c" histogram:info:-`.
+  So the bottom-row anchor alone resolves all 7 (`slope_up_0` is all-solid); no fuzzy guess is
+  needed for them, and the flag must NOT fire on this family. This is a workspace-specific
+  measurement, so it lives here and NOT in the lessons DB.
 
 ## Feature Request: collision bounds, not the avatar's art (recorded 2026-11-12, no issue yet)
 
