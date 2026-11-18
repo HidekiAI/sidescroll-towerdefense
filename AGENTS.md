@@ -887,6 +887,20 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   So the bottom-row anchor alone resolves all 7 (`slope_up_0` is all-solid); no fuzzy guess is
   needed for them, and the flag must NOT fire on this family. This is a workspace-specific
   measurement, so it lives here and NOT in the lessons DB.
+- **Step 1 scaffold + verification (2026-11-18, branch `feat/ground-profile-tool`).** The tool's
+  8 `TODO(human)` blocks (`to_greyscale`, `uniform_patch_grey`, `remove_floating_specks`,
+  `derive_solid_mask`, `flag_unresolved`, `terrain_entry_from_image`, `scan_tile_directory`, and
+  the tile-scan branch in `main()`), its 8 in-source tests and 4 test helpers are in
+  `tools/import-tiles/src/main.rs`. MEASURED: `cargo check -p import-tiles --tests` = **13 E0308**,
+  which is exactly the 8 block holes plus the 5 typed fns' "implicitly returns ()" -- **0 of any
+  other error kind**; `cargo test -p import-tiles` was RED first (14 x E0425 `cannot find
+  function`). The samples are PROVEN, not assumed: uncommenting all 8 blocks in a throwaway crate
+  copy gives **8/8 green**, and the plan's T1-T6 mutants then each FIRE, PARSE and redden their
+  named test (T1 reddens two). Two defects that proof caught and fixed: block 5's sample needed
+  `use image::Rgba` (only `RgbaImage` was imported), and the Rec.601 luma weights sum to just
+  under 1.0 in f64, so the sample ROUNDS -- without it a pure grey 155 reads as 154. The
+  throwaway copy is `/tmp/user/1000/opencode/import-tiles-sample` (scratch, not the
+  repo tree); do not re-derive either fix, the sample carries its reason on the line.
 
 ## Feature Request: collision bounds, not the avatar's art (recorded 2026-11-12, no issue yet)
 

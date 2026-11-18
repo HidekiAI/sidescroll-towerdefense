@@ -1,11 +1,24 @@
-use image::RgbaImage;
+use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // =========================================================================
 // Config
 // =========================================================================
+
+/// Minimum separation, in greyscale values, between the two clusters of a tile's
+/// greyscale for the art to count as air-versus-ground. Below it the tile has no
+/// split at all and every heuristic is inconclusive, so the tile is flagged.
+const DEFAULT_MIN_CLUSTER_GAP: u8 = 32;
+
+/// The window a region colour is read through: 4x4 is the ceiling the plan allows for the
+/// uniform-patch sample (2x2 is its floor), so a lone anti-aliased pixel cannot move it.
+const PATCH_SIZE_PX: u32 = 4;
+
+/// The 1px border baked into a tile image whose mask could not be resolved, so a
+/// hand-edit is visible in the emitted PNG.
+const UNRESOLVED_BORDER_RGBA: [u8; 4] = [255, 0, 0, 255];
 
 #[derive(Deserialize, Debug, Clone)]
 struct ImportConfig {
@@ -43,6 +56,18 @@ struct ImportConfig {
     #[serde(default = "default_luminance_threshold")]
     luminance_threshold: f64,
 
+    #[serde(default = "default_min_cluster_gap")]
+    min_cluster_gap: u8,
+
+    /// When set, `main()` runs the tile-scan mode instead of the spritesheet-slice mode:
+    /// it scans this directory for `{key}_32x32.png` and writes `terrain_types.json`.
+    #[serde(default)]
+    scan_tiles: Option<String>,
+
+    /// Only filenames starting with this prefix are scanned (e.g. `slope_up_`). Empty scans all.
+    #[serde(default)]
+    scan_prefix: Option<String>,
+
     #[serde(default)]
     terrain_map: HashMap<String, TerrainMapEntry>,
 
@@ -61,6 +86,9 @@ fn default_true() -> bool {
 }
 fn default_luminance_threshold() -> f64 {
     0.5
+}
+fn default_min_cluster_gap() -> u8 {
+    DEFAULT_MIN_CLUSTER_GAP
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -118,6 +146,11 @@ struct TerrainTypeDef {
     elevation_tiles: i32,
     color_hex: String,
     sub_tile_mask: u8,
+    /// Per-pixel solid-air bitfield of the tile art (one bit per pixel, row-major).
+    /// Serialized as a JSON array of bytes, matching the core `TerrainTypeDef.solid_mask`
+    /// (`Vec<u8>` with a serde default), so no base64 dependency is needed on either side.
+    /// Empty means "not scanned" -> whole tile solid (legacy fallback).
+    solid_mask: Vec<u8>,
     hazard_damage_per_tick: i32,
     is_destructible: bool,
     destructible_hp: i32,
@@ -388,46 +421,6 @@ fn auto_detect_sub_tile_mask(img: &RgbaImage, threshold: f64) -> u8 {
     mask
 }
 
-// =========================================================================
-// TODO(human): #126 derive_solid_mask (ART -> DATA, step 2)
-// =========================================================================
-// Derive a per-pixel solid mask from a tile PNG. Shape: one bit per tile pixel,
-// (w*h+7)/8 bytes total, where bit (row * w + col) is set if the pixel at
-// (col, row) is considered solid (above the luminance threshold).
-// - This replaces the coarse 4-bit `sub_tile_mask` (which groups pixels into
-//   2x2 quadrants) with a full per-pixel mask for the ART -> DATA -> TECH pipeline.
-// - Default: 0xF (all 4 quadrants solid) for legacy compatibility when no mask
-//   scanning is performed; callers should treat an empty/sparse mask as "whole tile solid".
-// - The caller should use this mask when building the ground profile (physics.rs
-# `build_ground_profile`), so that per-pixel surface resolution is achieved from tile art.
-// Sample invocation:
-//     let mask = derive_solid_mask(&img, config.luminance_threshold);
-//     // mask is Vec<u8> of length ((32 * 32 + 7) / 8) = 128 for 32x32 tiles
-//
-// TODO(human) end block.
-fn derive_solid_mask(img: &RgbaImage, threshold: f64) -> Vec<u8> {
-    let w = img.width();
-    let h = img.height();
-    if w == 0 || h == 0 {
-        return vec![0xF]; // legacy: whole-tile solid
-    }
-    let mut mask: Vec<u8> = vec![0u8; (w * h + 7) / 8];
-    for row in 0..h {
-        for col in 0..w {
-            let px = img.get_pixel(col, row);
-            let alpha = px[3] as f64 / 255.0;
-            let lum = (0.299 * px[0] as f64 + 0.587 * px[1] as f64 + 0.114 * px[2] as f64) / 255.0;
-            if alpha > 0.5 && lum < threshold {
-                let bit_idx = row * w + col;
-                let byte_idx = bit_idx / 8;
-                let bit_offset = bit_idx % 8;
-                mask[byte_idx] |= 1 << bit_offset;
-            }
-        }
-    }
-    mask
-}
-
 fn auto_detect_terrain_key(img: &RgbaImage) -> &'static str {
     let w = img.width();
     let h = img.height();
@@ -466,6 +459,261 @@ fn auto_detect_terrain_key(img: &RgbaImage) -> &'static str {
     }
     "stone"
 }
+
+// =========================================================================
+// TODO(human): #126 solid-mask pipeline (ART -> DATA, step 1)
+// =========================================================================
+// The tile's GREYSCALE is the detector; the emitted mask is the product. Stages, in order:
+// greyscale -> uniform-patch region read -> floating-speck clean -> two-cluster mask with a
+// best guess -> red-border flag -> per-tile entry -> directory scan. `auto_detect_sub_tile_mask`
+// above stays as the coarse 4-bit emission path; these functions are the per-pixel path.
+
+// TODO(human): begin block 1/8 - to_greyscale
+// The detector reads greyscale, so alpha is ignored: a transparent air pixel and an opaque
+// black pixel both read as 0 (air). Row-major order, so index (row * width + col) is the
+// pixel at (col, row). Rec.601 luma, ROUNDED: the weights sum to just under 1.0 in f64, so
+// truncating would turn a pure grey of 155 into 154 and lose the committed art's own greys.
+fn to_greyscale(img: &RgbaImage) -> Vec<u8> {
+    // img.pixels()
+    //     .map(|pixel| {
+    //         (0.299 * pixel[0] as f64 + 0.587 * pixel[1] as f64 + 0.114 * pixel[2] as f64).round()
+    //             as u8
+    //     })
+    //     .collect()
+    let hole: Vec<u8> = ();
+}
+// TODO(human): end block 1/8
+
+// TODO(human): begin block 2/8 - uniform_patch_grey
+// A region's colour is read through a patch, never a single pixel: an anti-aliased edge
+// pixel inside the patch is outvoted by its uniform neighbours. The window is
+// `patch_size_px` square, centred on (patch_x, patch_y) and clamped to the tile; the MODE
+// grey is the region's colour.
+fn uniform_patch_grey(
+    greyscale: &[u8],
+    width_px: u32,
+    height_px: u32,
+    patch_x: u32,
+    patch_y: u32,
+    patch_size_px: u32,
+) -> u8 {
+    // let half: u32 = patch_size_px / 2;
+    // let col_start: u32 = patch_x.saturating_sub(half);
+    // let row_start: u32 = patch_y.saturating_sub(half);
+    // let col_end: u32 = (col_start + patch_size_px).min(width_px);
+    // let row_end: u32 = (row_start + patch_size_px).min(height_px);
+    // let mut mut_histogram: [u32; 256] = [0; 256];
+    // for row in row_start..row_end {
+    //     for col in col_start..col_end {
+    //         mut_histogram[greyscale[(row * width_px + col) as usize] as usize] += 1;
+    //     }
+    // }
+    // mut_histogram
+    //     .iter()
+    //     .enumerate()
+    //     .max_by_key(|(_, count)| **count)
+    //     .map(|(grey, _)| grey as u8)
+    //     .unwrap_or(0)
+    let hole: u8 = ();
+}
+// TODO(human): end block 2/8
+
+// TODO(human): begin block 3/8 - remove_floating_specks
+// A solid run that does not reach the tile's bottom row is dust, not ground: the bottom-row
+// anchor says the ground is the mass the tile stands on. Flood from every solid pixel of the
+// bottom row and clear whatever the flood never reaches.
+fn remove_floating_specks(binary: &mut [u8], width_px: u32, height_px: u32) {
+    // let width: usize = width_px as usize;
+    // let bottom_row_start: usize = (height_px as usize - 1) * width;
+    // let mut mut_reached: Vec<bool> = vec![false; binary.len()];
+    // let mut mut_stack: Vec<usize> = (0..width)
+    //     .filter(|col| binary[bottom_row_start + col] != 0)
+    //     .map(|col| bottom_row_start + col)
+    //     .collect();
+    // while let Some(index) = mut_stack.pop() {
+    //     if mut_reached[index] {
+    //         continue;
+    //     }
+    //     mut_reached[index] = true;
+    //     let col: usize = index % width;
+    //     let row: usize = index / width;
+    //     let neighbours: [Option<usize>; 4] = [
+    //         (col > 0).then(|| index - 1),
+    //         (col + 1 < width).then(|| index + 1),
+    //         (row > 0).then(|| index - width),
+    //         (row + 1 < height_px as usize).then(|| index + width),
+    //     ];
+    //     for neighbour in neighbours.into_iter().flatten() {
+    //         if binary[neighbour] != 0 && !mut_reached[neighbour] {
+    //             mut_stack.push(neighbour);
+    //         }
+    //     }
+    // }
+    // for (index, solid) in binary.iter_mut().enumerate() {
+    //     if *solid != 0 && !mut_reached[index] {
+    //         *solid = 0;
+    //     }
+    // }
+    let hole: () = 0u8;
+}
+// TODO(human): end block 3/8
+
+// TODO(human): begin block 4/8 - derive_solid_mask
+// Resolve one tile's pixels into a packed solid mask plus a `resolved` verdict. The two
+// clusters are the tile's dominant grey and the grey furthest from it; a gap under
+// `min_cluster_gap` means the art does not split into air and ground at all, so no heuristic
+// can anchor and the tile is returned unresolved. GROUND is the cluster the tile's bottom
+// row stands on (the bottom-row anchor); a bottom row carrying both clusters is settled by
+// the patch read, which is the best guess. A single-grey tile is all solid.
+fn derive_solid_mask(
+    greyscale: &[u8],
+    width_px: u32,
+    height_px: u32,
+    min_cluster_gap: u8,
+) -> (Vec<u8>, bool) {
+    // let packed_len: usize = (greyscale.len() + 7) / 8;
+    // let mut mut_histogram: [u32; 256] = [0; 256];
+    // for grey in greyscale {
+    //     mut_histogram[*grey as usize] += 1;
+    // }
+    // let present: Vec<u8> = (0..=255u8)
+    //     .filter(|grey| mut_histogram[*grey as usize] > 0)
+    //     .collect();
+    // if present.len() <= 1 {
+    //     return (vec![0xFFu8; packed_len], true);
+    // }
+    // let dominant_grey: u8 = *present
+    //     .iter()
+    //     .max_by_key(|grey| mut_histogram[**grey as usize])
+    //     .unwrap();
+    // let opposite_grey: u8 = *present
+    //     .iter()
+    //     .max_by_key(|grey| (**grey as i32 - dominant_grey as i32).abs())
+    //     .unwrap();
+    // if (opposite_grey as i32 - dominant_grey as i32).abs() < min_cluster_gap as i32 {
+    //     return (vec![0xFFu8; packed_len], false);
+    // }
+    // let bottom_grey: u8 = uniform_patch_grey(
+    //     greyscale,
+    //     width_px,
+    //     height_px,
+    //     width_px / 2,
+    //     height_px - 1,
+    //     PATCH_SIZE_PX,
+    // );
+    // let (ground_grey, air_grey): (u8, u8) =
+    //     if (bottom_grey as i32 - dominant_grey as i32).abs()
+    //         <= (bottom_grey as i32 - opposite_grey as i32).abs()
+    //     {
+    //         (dominant_grey, opposite_grey)
+    //     } else {
+    //         (opposite_grey, dominant_grey)
+    //     };
+    // let mut mut_binary: Vec<u8> = greyscale
+    //     .iter()
+    //     .map(|grey| {
+    //         ((*grey as i32 - ground_grey as i32).abs() <= (*grey as i32 - air_grey as i32).abs()) as u8
+    //     })
+    //     .collect();
+    // remove_floating_specks(&mut mut_binary, width_px, height_px);
+    // let mut mut_mask: Vec<u8> = vec![0u8; packed_len];
+    // for (index, solid) in mut_binary.iter().enumerate() {
+    //     if *solid != 0 {
+    //         mut_mask[index / 8] |= 1 << (index % 8);
+    //     }
+    // }
+    // (mut_mask, true)
+    let hole: (Vec<u8>, bool) = ();
+}
+// TODO(human): end block 4/8
+
+// TODO(human): begin block 5/8 - flag_unresolved
+// A tile no heuristic could resolve gets a red 1px border baked into the emitted PNG, so a
+// human sees it and hand-edits the art. The interior is never repainted.
+fn flag_unresolved(img: &mut RgbaImage) {
+    // let width_px: u32 = img.width();
+    // let height_px: u32 = img.height();
+    // let border: Rgba<u8> = Rgba(UNRESOLVED_BORDER_RGBA);
+    // for col in 0..width_px {
+    //     img.put_pixel(col, 0, border);
+    //     img.put_pixel(col, height_px.saturating_sub(1), border);
+    // }
+    // for row in 0..height_px {
+    //     img.put_pixel(0, row, border);
+    //     img.put_pixel(width_px.saturating_sub(1), row, border);
+    // }
+    let hole: () = 0u8;
+}
+// TODO(human): end block 5/8
+
+// TODO(human): begin block 6/8 - terrain_entry_from_image
+// Turn one committed tile PNG into the `terrain_types.json` entry the framework reads: the
+// key, a walkable flag, and the per-pixel `solid_mask` derived from the art. The `resolved`
+// verdict is returned so the caller can flag an inconclusive tile.
+fn terrain_entry_from_image(
+    key: &str,
+    img: &RgbaImage,
+    min_cluster_gap: u8,
+) -> (TerrainTypeDef, bool) {
+    // let greyscale: Vec<u8> = to_greyscale(img);
+    // let (mask, resolved): (Vec<u8>, bool) =
+    //     derive_solid_mask(&greyscale, img.width(), img.height(), min_cluster_gap);
+    // let (red, green, blue, _) = average_color(img);
+    // let entry: TerrainTypeDef = TerrainTypeDef {
+    //     key: key.to_string(),
+    //     display_name: key.replace('_', " "),
+    //     is_walkable: true,
+    //     is_buildable: true,
+    //     surface: "normal".into(),
+    //     hazard: "none".into(),
+    //     elevation_tiles: 0,
+    //     color_hex: format!("#{:02x}{:02x}{:02x}", red, green, blue),
+    //     sub_tile_mask: 0xF,
+    //     solid_mask: mask,
+    //     hazard_damage_per_tick: 0,
+    //     is_destructible: false,
+    //     destructible_hp: 0,
+    //     on_destroy_terrain_key: String::new(),
+    // };
+    // (entry, resolved)
+    let hole: (TerrainTypeDef, bool) = ();
+}
+// TODO(human): end block 6/8
+
+// TODO(human): begin block 7/8 - scan_tile_directory
+// Scan a directory of `{key}_32x32.png` tiles (optionally filtered by `key_prefix`) into
+// terrain entries, sorted by key. A tile whose mask cannot be resolved is written back out
+// with the red border so the human sees it, and logged.
+fn scan_tile_directory(dir: &Path, key_prefix: &str, min_cluster_gap: u8) -> Vec<TerrainTypeDef> {
+    // let mut mut_entries: Vec<TerrainTypeDef> = std::fs::read_dir(dir)
+    //     .unwrap_or_else(|e| panic!("Failed to read tile dir '{}': {}", dir.display(), e))
+    //     .filter_map(|entry| entry.ok())
+    //     .filter_map(|entry| {
+    //         let file_name: String = entry.file_name().to_string_lossy().into_owned();
+    //         let key: &str = file_name
+    //             .strip_suffix("_32x32.png")
+    //             .filter(|stripped| stripped.starts_with(key_prefix))?;
+    //         let mut mut_img: RgbaImage = image::open(entry.path())
+    //             .unwrap_or_else(|e| panic!("Failed to open '{}': {}", entry.path().display(), e))
+    //             .to_rgba8();
+    //         let (terrain_entry, resolved): (TerrainTypeDef, bool) =
+    //             terrain_entry_from_image(key, &mut_img, min_cluster_gap);
+    //         if !resolved {
+    //             flag_unresolved(&mut mut_img);
+    //             let flagged_path: PathBuf = dir.join(format!("{}_unresolved.png", key));
+    //             mut_img
+    //                 .save(&flagged_path)
+    //                 .unwrap_or_else(|e| panic!("Failed to save '{}': {}", flagged_path.display(), e));
+    //             eprintln!("UNRESOLVED {} -> {}", file_name, flagged_path.display());
+    //         }
+    //         Some(terrain_entry)
+    //     })
+    //     .collect();
+    // mut_entries.sort_by(|a, b| a.key.cmp(&b.key));
+    // mut_entries
+    let hole: Vec<TerrainTypeDef> = ();
+}
+// TODO(human): end block 7/8
 
 // =========================================================================
 // CLI
@@ -547,6 +795,34 @@ fn main() {
     if let Some(ref path) = out_override {
         config.output_dir = path.clone();
     }
+
+    // TODO(human): begin block 8/8 - tile-scan mode in main()
+    // The spritesheet-slice path below needs an `input` sheet; the tile-scan path does not
+    // (it reads committed `{key}_32x32.png` tiles), so it runs first and returns. Its
+    // `terrain_types.json` lands in `output_dir` for the framework merge.
+    // if let Some(scan_dir) = &config.scan_tiles {
+    //     let key_prefix: &str = config.scan_prefix.as_deref().unwrap_or("");
+    //     let entries: Vec<TerrainTypeDef> =
+    //         scan_tile_directory(Path::new(scan_dir), key_prefix, config.min_cluster_gap);
+    //     let terrain_file: TerrainTypesFile = TerrainTypesFile {
+    //         version: "0.1.0".into(),
+    //         tiles: entries,
+    //     };
+    //     let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
+    //         .expect("Failed to serialize terrain_types.json");
+    //     let terrain_json_path: PathBuf =
+    //         PathBuf::from(&config.output_dir).join("terrain_types.json");
+    //     std::fs::write(&terrain_json_path, &terrain_json)
+    //         .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+    //     println!(
+    //         "\nWrote {} ({} tiles)",
+    //         terrain_json_path.display(),
+    //         terrain_file.tiles.len()
+    //     );
+    //     return;
+    // }
+    let hole: () = 0u8;
+    // TODO(human): end block 8/8
 
     let input_path = config
         .input
@@ -714,6 +990,7 @@ fn main() {
                         format!("#{:02x}{:02x}{:02x}", r, g, b)
                     }),
                     sub_tile_mask: mask,
+                    solid_mask: Vec::new(),
                     hazard_damage_per_tick: 0,
                     is_destructible: false,
                     destructible_hp: 0,
@@ -845,4 +1122,235 @@ fn average_color(img: &RgbaImage) -> (u8, u8, u8, u8) {
         (b / count) as u8,
         (a / count) as u8,
     )
+}
+
+// =========================================================================
+// Solid-mask pipeline tests (#126, ART -> DATA)
+// =========================================================================
+// These pin the contract the TODO(human) blocks implement. Synthetic RGBA tiles keep the
+// fixtures self-contained; the committed `slope_up_*` art is pinned separately by the greys
+// recorded in the repo AGENTS.md (air 0, ground 155, bottom-row anchor).
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    /// The committed slope art's two greys: air is 0, ground is 155 (MEASURED, AGENTS.md).
+    const GROUND_GREY: u8 = 155;
+    const AIR_GREY: u8 = 0;
+
+    /// A lone anti-aliased edge grey: in neither cluster, so a single-pixel read is wrong.
+    const EDGE_GREY: u8 = 78;
+
+    /// A smooth ramp whose adjacent greys are all closer than `DEFAULT_MIN_CLUSTER_GAP`,
+    /// so the tile has no two-cluster split at all.
+    const RAMP_START_GREY: u8 = 100;
+    const RAMP_STEP_GREY: u8 = 4;
+
+    /// An opaque tile whose bottom `ground_rows` rows are ground and the rest air.
+    fn tile_with_ground_rows(width_px: u32, height_px: u32, ground_rows: u32) -> RgbaImage {
+        RgbaImage::from_fn(width_px, height_px, |_, row| {
+            let grey = if row >= height_px - ground_rows {
+                GROUND_GREY
+            } else {
+                AIR_GREY
+            };
+            Rgba([grey, grey, grey, 255])
+        })
+    }
+
+    /// Overwrite one pixel with a grey, keeping it opaque.
+    fn paint_grey(img: &mut RgbaImage, col: u32, row: u32, grey: u8) {
+        img.put_pixel(col, row, Rgba([grey, grey, grey, 255]));
+    }
+
+    /// Read one bit of the packed mask `derive_solid_mask` returns.
+    fn mask_bit(mask: &[u8], width_px: u32, col: u32, row: u32) -> bool {
+        let bit_index = (row * width_px + col) as usize;
+        mask[bit_index / 8] & (1 << (bit_index % 8)) != 0
+    }
+
+    #[test]
+    fn mask_two_cluster_bottom_anchor() {
+        let img = tile_with_ground_rows(8, 8, 4);
+        let greyscale = to_greyscale(&img);
+        let (mask, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(resolved, "two clear clusters must resolve");
+        (4..8).for_each(|row| {
+            (0..8).for_each(|col| assert!(mask_bit(&mask, 8, col, row), "ground at ({col},{row})"));
+        });
+        (0..4).for_each(|row| {
+            (0..8).for_each(|col| assert!(!mask_bit(&mask, 8, col, row), "air at ({col},{row})"));
+        });
+    }
+
+    #[test]
+    fn mask_all_grey_is_all_solid() {
+        let img = tile_with_ground_rows(8, 8, 8);
+        let greyscale = to_greyscale(&img);
+        let (mask, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(resolved, "a single-grey tile is all solid, never flagged");
+        (0..8).for_each(|row| {
+            (0..8).for_each(|col| assert!(mask_bit(&mask, 8, col, row), "solid at ({col},{row})"));
+        });
+    }
+
+    #[test]
+    fn mask_removes_floating_solid_specks() {
+        let mut img = tile_with_ground_rows(8, 8, 4);
+        paint_grey(&mut img, 5, 1, GROUND_GREY); // a speck of ground floating in the air
+        let greyscale = to_greyscale(&img);
+        let (mask, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(resolved);
+        assert!(
+            !mask_bit(&mask, 8, 5, 1),
+            "a floating speck is dust, not ground"
+        );
+        (0..8).for_each(|col| {
+            assert!(
+                mask_bit(&mask, 8, col, 7),
+                "the ground survives at col {col}"
+            );
+        });
+    }
+
+    #[test]
+    fn mask_best_guess_resolves_ambiguous_sample() {
+        // The bottom row carries BOTH clusters, so the anchor is ambiguous; the best guess
+        // (the bottom-centre patch read) resolves it instead of flagging the tile.
+        let mut img = tile_with_ground_rows(8, 8, 4);
+        paint_grey(&mut img, 0, 7, AIR_GREY);
+        let greyscale = to_greyscale(&img);
+        let (_, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(
+            resolved,
+            "an ambiguous bottom row is guessed, never flagged"
+        );
+
+        let mut emitted = img.clone();
+        if !resolved {
+            flag_unresolved(&mut emitted);
+        }
+        assert_ne!(
+            emitted.get_pixel(0, 0),
+            &Rgba(UNRESOLVED_BORDER_RGBA),
+            "a resolved tile carries no red border"
+        );
+    }
+
+    #[test]
+    fn mask_flags_only_when_all_heuristics_inconclusive() {
+        // Every distinct grey is within `DEFAULT_MIN_CLUSTER_GAP` of the next, so no
+        // two-cluster split exists for any heuristic to anchor on: the tile is flagged.
+        let img = RgbaImage::from_fn(8, 8, |_, row| {
+            let grey = RAMP_START_GREY + (row as u8) * RAMP_STEP_GREY;
+            Rgba([grey, grey, grey, 255])
+        });
+        let greyscale = to_greyscale(&img);
+        let (_, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(!resolved, "a tile with no cluster split is flagged");
+
+        let mut emitted = img.clone();
+        flag_unresolved(&mut emitted);
+        assert_eq!(
+            emitted.get_pixel(0, 0),
+            &Rgba(UNRESOLVED_BORDER_RGBA),
+            "the emitted PNG carries the red 1px border"
+        );
+        assert_eq!(
+            emitted.get_pixel(4, 4)[0],
+            greyscale[(4 * 8 + 4) as usize],
+            "the border never repaints the tile interior"
+        );
+    }
+
+    #[test]
+    fn mask_uniform_patch_ignores_edge_pixel() {
+        // One anti-aliased pixel sits inside an otherwise uniform air patch: reading that
+        // single pixel gives the edge grey, reading the patch gives the region's air grey.
+        let mut img = tile_with_ground_rows(8, 8, 4);
+        paint_grey(&mut img, 2, 2, EDGE_GREY);
+        let greyscale = to_greyscale(&img);
+
+        assert_ne!(
+            greyscale[(2 * 8 + 2) as usize],
+            AIR_GREY,
+            "the lone edge pixel is not the region's air grey"
+        );
+        assert_eq!(
+            uniform_patch_grey(&greyscale, 8, 8, 2, 2, PATCH_SIZE_PX),
+            AIR_GREY,
+            "a 4x4 patch outvotes the lone edge pixel"
+        );
+    }
+
+    #[test]
+    fn terrain_entry_from_image_carries_the_mask() {
+        let img = tile_with_ground_rows(32, 32, 16);
+        let (entry, resolved) =
+            terrain_entry_from_image("slope_up_0", &img, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(resolved);
+        assert_eq!(entry.key, "slope_up_0");
+        assert!(entry.is_walkable);
+        assert_eq!(
+            entry.solid_mask.len(),
+            (32 * 32 + 7) / 8,
+            "packed 32x32 mask"
+        );
+    }
+
+    /// Copy the committed `{prefix}*_32x32.png` art into a fresh temp dir. The scan writes a
+    /// flagged tile's `*_unresolved.png` beside its input, so scanning a COPY keeps a mutation
+    /// experiment from dirtying the source tree.
+    fn temp_copy_of_tiles(prefix: &str) -> PathBuf {
+        let source_dir: PathBuf =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../editor/assets/tiles");
+        let temp_dir: PathBuf = std::env::temp_dir().join("import_tiles_scan_test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("temp tiles dir");
+        std::fs::read_dir(&source_dir)
+            .expect("committed tiles dir")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|file_name| file_name.starts_with(prefix) && file_name.ends_with("_32x32.png"))
+            .for_each(|file_name| {
+                std::fs::copy(source_dir.join(&file_name), temp_dir.join(&file_name))
+                    .expect("copy committed tile");
+            });
+        temp_dir
+    }
+
+    #[test]
+    fn scan_tile_directory_resolves_the_committed_slope_tiles() {
+        // Scans a temp COPY of the committed art (in git ls-files), not a fixture. The
+        // measured greys (air 0 / ground 155, ground on the bottom row) resolve all 7, so the
+        // flag never fires on this family and no `*_unresolved.png` is written.
+        let tiles_dir: PathBuf = temp_copy_of_tiles("slope_up_");
+        let entries: Vec<TerrainTypeDef> =
+            scan_tile_directory(&tiles_dir, "slope_up_", DEFAULT_MIN_CLUSTER_GAP);
+
+        assert_eq!(entries.len(), 7, "the committed slope_up_0..6 family");
+        let flagged: Vec<String> = std::fs::read_dir(&tiles_dir)
+            .expect("temp tiles dir")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|file_name| file_name.ends_with("_unresolved.png"))
+            .collect();
+        assert!(flagged.is_empty(), "no tile should be flagged: {flagged:?}");
+        entries.iter().for_each(|entry| {
+            assert_eq!(
+                entry.solid_mask.len(),
+                (32 * 32 + 7) / 8,
+                "{} packed mask",
+                entry.key
+            );
+            assert!(entry.is_walkable, "{} is walkable", entry.key);
+        });
+    }
 }
