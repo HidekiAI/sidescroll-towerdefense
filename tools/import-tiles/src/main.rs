@@ -1,4 +1,4 @@
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -154,8 +154,9 @@ struct TerrainTypeDef {
     color_hex: String,
     sub_tile_mask: u8,
     /// Per-pixel solid-air bitfield of the tile art (one bit per pixel, row-major).
-    /// Serialized as a JSON array of bytes, matching the core `TerrainTypeDef.solid_mask`
-    /// (`Vec<u8>` with a serde default), so no base64 dependency is needed on either side.
+    /// The tool emits it as serde_json's own `Vec<u8>` form (a JSON array of byte numbers);
+    /// the final on-disk encoding is settled together with the core field, so nothing here
+    /// commits the format yet.
     /// Empty means "not scanned" -> whole tile solid (legacy fallback).
     solid_mask: Vec<u8>,
     hazard_damage_per_tick: i32,
@@ -490,7 +491,6 @@ fn to_greyscale(img: &RgbaImage) -> Vec<u8> {
         .collect()
 }
 
-// TODO(human): begin block 2/8 - uniform_patch_grey
 // A region's colour is read through a patch, never a single pixel: an anti-aliased edge
 // pixel inside the patch is outvoted by its uniform neighbours. The window is
 // `patch_size_px` square, centred on (patch_x, patch_y) and clamped to the tile; the MODE
@@ -503,68 +503,62 @@ fn uniform_patch_grey(
     patch_y: u32,
     patch_size_px: u32,
 ) -> u8 {
-    // let half: u32 = patch_size_px / 2;
-    // let col_start: u32 = patch_x.saturating_sub(half);
-    // let row_start: u32 = patch_y.saturating_sub(half);
-    // let col_end: u32 = (col_start + patch_size_px).min(width_px);
-    // let row_end: u32 = (row_start + patch_size_px).min(height_px);
-    // let mut mut_histogram: [u32; 256] = [0; 256];
-    // for row in row_start..row_end {
-    //     for col in col_start..col_end {
-    //         mut_histogram[greyscale[(row * width_px + col) as usize] as usize] += 1;
-    //     }
-    // }
-    // mut_histogram
-    //     .iter()
-    //     .enumerate()
-    //     .max_by_key(|(_, count)| **count)
-    //     .map(|(grey, _)| grey as u8)
-    //     .unwrap_or(0)
-    let hole: u8 = ();
+    let half: u32 = patch_size_px / 2;
+    let col_start: u32 = patch_x.saturating_sub(half);
+    let row_start: u32 = patch_y.saturating_sub(half);
+    let col_end: u32 = (col_start + patch_size_px).min(width_px);
+    let row_end: u32 = (row_start + patch_size_px).min(height_px);
+    let mut mut_histogram: [u32; 256] = [0; 256];
+    for row in row_start..row_end {
+        for col in col_start..col_end {
+            mut_histogram[greyscale[(row * width_px + col) as usize] as usize] += 1;
+        }
+    }
+    mut_histogram
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| **count)
+        .map(|(grey, _)| grey as u8)
+        .unwrap_or(0)
 }
-// TODO(human): end block 2/8
 
-// TODO(human): begin block 3/8 - remove_floating_specks
 // A solid run that does not reach the tile's bottom row is dust, not ground: the bottom-row
 // anchor says the ground is the mass the tile stands on. Flood from every solid pixel of the
 // bottom row and clear whatever the flood never reaches.
 fn remove_floating_specks(binary: &mut [u8], width_px: u32, height_px: u32) {
-    // let width: usize = width_px as usize;
-    // let bottom_row_start: usize = (height_px as usize - 1) * width;
-    // let mut mut_reached: Vec<bool> = vec![false; binary.len()];
-    // let mut mut_stack: Vec<usize> = (0..width)
-    //     .filter(|col| binary[bottom_row_start + col] != 0)
-    //     .map(|col| bottom_row_start + col)
-    //     .collect();
-    // while let Some(index) = mut_stack.pop() {
-    //     if mut_reached[index] {
-    //         continue;
-    //     }
-    //     mut_reached[index] = true;
-    //     let col: usize = index % width;
-    //     let row: usize = index / width;
-    //     let neighbours: [Option<usize>; 4] = [
-    //         (col > 0).then(|| index - 1),
-    //         (col + 1 < width).then(|| index + 1),
-    //         (row > 0).then(|| index - width),
-    //         (row + 1 < height_px as usize).then(|| index + width),
-    //     ];
-    //     for neighbour in neighbours.into_iter().flatten() {
-    //         if binary[neighbour] != 0 && !mut_reached[neighbour] {
-    //             mut_stack.push(neighbour);
-    //         }
-    //     }
-    // }
-    // for (index, solid) in binary.iter_mut().enumerate() {
-    //     if *solid != 0 && !mut_reached[index] {
-    //         *solid = 0;
-    //     }
-    // }
-    let hole: () = 0u8;
+    let width: usize = width_px as usize;
+    let bottom_row_start: usize = (height_px as usize - 1) * width;
+    let mut mut_reached: Vec<bool> = vec![false; binary.len()];
+    let mut mut_stack: Vec<usize> = (0..width)
+        .filter(|col| binary[bottom_row_start + col] != 0)
+        .map(|col| bottom_row_start + col)
+        .collect();
+    while let Some(index) = mut_stack.pop() {
+        if mut_reached[index] {
+            continue;
+        }
+        mut_reached[index] = true;
+        let col: usize = index % width;
+        let row: usize = index / width;
+        let neighbours: [Option<usize>; 4] = [
+            (col > 0).then(|| index - 1),
+            (col + 1 < width).then(|| index + 1),
+            (row > 0).then(|| index - width),
+            (row + 1 < height_px as usize).then(|| index + width),
+        ];
+        for neighbour in neighbours.into_iter().flatten() {
+            if binary[neighbour] != 0 && !mut_reached[neighbour] {
+                mut_stack.push(neighbour);
+            }
+        }
+    }
+    for (index, solid) in binary.iter_mut().enumerate() {
+        if *solid != 0 && !mut_reached[index] {
+            *solid = 0;
+        }
+    }
 }
-// TODO(human): end block 3/8
 
-// TODO(human): begin block 4/8 - derive_solid_mask
 // Resolve one tile's pixels into a packed solid mask plus a `resolved` verdict. The two
 // clusters are the tile's dominant grey and the grey furthest from it; a gap under
 // `min_cluster_gap` means the art does not split into air and ground at all, so no heuristic
@@ -577,82 +571,77 @@ fn derive_solid_mask(
     height_px: u32,
     min_cluster_gap: u8,
 ) -> (Vec<u8>, bool) {
-    // let packed_len: usize = (greyscale.len() + 7) / 8;
-    // let mut mut_histogram: [u32; 256] = [0; 256];
-    // for grey in greyscale {
-    //     mut_histogram[*grey as usize] += 1;
-    // }
-    // let present: Vec<u8> = (0..=255u8)
-    //     .filter(|grey| mut_histogram[*grey as usize] > 0)
-    //     .collect();
-    // if present.len() <= 1 {
-    //     return (vec![0xFFu8; packed_len], true);
-    // }
-    // let dominant_grey: u8 = *present
-    //     .iter()
-    //     .max_by_key(|grey| mut_histogram[**grey as usize])
-    //     .unwrap();
-    // let opposite_grey: u8 = *present
-    //     .iter()
-    //     .max_by_key(|grey| (**grey as i32 - dominant_grey as i32).abs())
-    //     .unwrap();
-    // if (opposite_grey as i32 - dominant_grey as i32).abs() < min_cluster_gap as i32 {
-    //     return (vec![0xFFu8; packed_len], false);
-    // }
-    // let bottom_grey: u8 = uniform_patch_grey(
-    //     greyscale,
-    //     width_px,
-    //     height_px,
-    //     width_px / 2,
-    //     height_px - 1,
-    //     PATCH_SIZE_PX,
-    // );
-    // let (ground_grey, air_grey): (u8, u8) =
-    //     if (bottom_grey as i32 - dominant_grey as i32).abs()
-    //         <= (bottom_grey as i32 - opposite_grey as i32).abs()
-    //     {
-    //         (dominant_grey, opposite_grey)
-    //     } else {
-    //         (opposite_grey, dominant_grey)
-    //     };
-    // let mut mut_binary: Vec<u8> = greyscale
-    //     .iter()
-    //     .map(|grey| {
-    //         ((*grey as i32 - ground_grey as i32).abs() <= (*grey as i32 - air_grey as i32).abs()) as u8
-    //     })
-    //     .collect();
-    // remove_floating_specks(&mut mut_binary, width_px, height_px);
-    // let mut mut_mask: Vec<u8> = vec![0u8; packed_len];
-    // for (index, solid) in mut_binary.iter().enumerate() {
-    //     if *solid != 0 {
-    //         mut_mask[index / 8] |= 1 << (index % 8);
-    //     }
-    // }
-    // (mut_mask, true)
-    let hole: (Vec<u8>, bool) = ();
+    let packed_len: usize = (greyscale.len() + 7) / 8;
+    let mut mut_histogram: [u32; 256] = [0; 256];
+    for grey in greyscale {
+        mut_histogram[*grey as usize] += 1;
+    }
+    let present: Vec<u8> = (0..=255u8)
+        .filter(|grey| mut_histogram[*grey as usize] > 0)
+        .collect();
+    if present.len() <= 1 {
+        return (vec![0xFFu8; packed_len], true);
+    }
+    let dominant_grey: u8 = *present
+        .iter()
+        .max_by_key(|grey| mut_histogram[**grey as usize])
+        .unwrap();
+    let opposite_grey: u8 = *present
+        .iter()
+        .max_by_key(|grey| (**grey as i32 - dominant_grey as i32).abs())
+        .unwrap();
+    if (opposite_grey as i32 - dominant_grey as i32).abs() < min_cluster_gap as i32 {
+        return (vec![0xFFu8; packed_len], false);
+    }
+    let bottom_grey: u8 = uniform_patch_grey(
+        greyscale,
+        width_px,
+        height_px,
+        width_px / 2,
+        height_px - 1,
+        PATCH_SIZE_PX,
+    );
+    let (ground_grey, air_grey): (u8, u8) = if (bottom_grey as i32 - dominant_grey as i32).abs()
+        <= (bottom_grey as i32 - opposite_grey as i32).abs()
+    {
+        (dominant_grey, opposite_grey)
+    } else {
+        (opposite_grey, dominant_grey)
+    };
+    let mut mut_binary: Vec<u8> = greyscale
+        .iter()
+        .map(|grey| {
+            ((*grey as i32 - ground_grey as i32).abs() <= (*grey as i32 - air_grey as i32).abs())
+                as u8
+        })
+        .collect();
+    remove_floating_specks(&mut mut_binary, width_px, height_px);
+    let mut mut_mask: Vec<u8> = vec![0u8; packed_len];
+    for (index, solid) in mut_binary.iter().enumerate() {
+        if *solid != 0 {
+            mut_mask[index / 8] |= 1 << (index % 8);
+        }
+    }
+    (mut_mask, true)
 }
-// TODO(human): end block 4/8
 
-// TODO(human): begin block 5/8 - flag_unresolved
 // A tile no heuristic could resolve gets a red 1px border baked into the emitted PNG, so a
 // human sees it and hand-edits the art. The interior is never repainted.
 fn flag_unresolved(img: &mut RgbaImage) {
-    // let width_px: u32 = img.width();
-    // let height_px: u32 = img.height();
-    // let border: Rgba<u8> = Rgba(UNRESOLVED_BORDER_RGBA);
-    // for col in 0..width_px {
-    //     img.put_pixel(col, 0, border);
-    //     img.put_pixel(col, height_px.saturating_sub(1), border);
-    // }
-    // for row in 0..height_px {
-    //     img.put_pixel(0, row, border);
-    //     img.put_pixel(width_px.saturating_sub(1), row, border);
-    // }
-    let hole: () = 0u8;
+    use image::Rgba;
+    let width_px: u32 = img.width();
+    let height_px: u32 = img.height();
+    let border: Rgba<u8> = Rgba(UNRESOLVED_BORDER_RGBA);
+    for col in 0..width_px {
+        img.put_pixel(col, 0, border);
+        img.put_pixel(col, height_px.saturating_sub(1), border);
+    }
+    for row in 0..height_px {
+        img.put_pixel(0, row, border);
+        img.put_pixel(width_px.saturating_sub(1), row, border);
+    }
 }
-// TODO(human): end block 5/8
 
-// TODO(human): begin block 6/8 - terrain_entry_from_image
 // Turn one committed tile PNG into the `terrain_types.json` entry the framework reads: the
 // key, a walkable flag, and the per-pixel `solid_mask` derived from the art. The `resolved`
 // verdict is returned so the caller can flag an inconclusive tile.
@@ -661,65 +650,65 @@ fn terrain_entry_from_image(
     img: &RgbaImage,
     min_cluster_gap: u8,
 ) -> (TerrainTypeDef, bool) {
-    // let greyscale: Vec<u8> = to_greyscale(img);
-    // let (mask, resolved): (Vec<u8>, bool) =
-    //     derive_solid_mask(&greyscale, img.width(), img.height(), min_cluster_gap);
-    // let (red, green, blue, _) = average_color(img);
-    // let entry: TerrainTypeDef = TerrainTypeDef {
-    //     key: key.to_string(),
-    //     display_name: key.replace('_', " "),
-    //     is_walkable: true,
-    //     is_buildable: true,
-    //     surface: "normal".into(),
-    //     hazard: "none".into(),
-    //     elevation_tiles: 0,
-    //     color_hex: format!("#{:02x}{:02x}{:02x}", red, green, blue),
-    //     sub_tile_mask: 0xF,
-    //     solid_mask: mask,
-    //     hazard_damage_per_tick: 0,
-    //     is_destructible: false,
-    //     destructible_hp: 0,
-    //     on_destroy_terrain_key: String::new(),
-    // };
-    // (entry, resolved)
-    let hole: (TerrainTypeDef, bool) = ();
+    let greyscale: Vec<u8> = to_greyscale(img);
+    let (mask, resolved): (Vec<u8>, bool) =
+        derive_solid_mask(&greyscale, img.width(), img.height(), min_cluster_gap);
+    let (red, green, blue, _) = average_color(img);
+    let entry: TerrainTypeDef = TerrainTypeDef {
+        key: key.to_string(),
+        display_name: key.replace('_', " "),
+        is_walkable: true,
+        is_buildable: true,
+        surface: "normal".into(),
+        hazard: "none".into(),
+        elevation_tiles: 0,
+        color_hex: format!("#{:02x}{:02x}{:02x}", red, green, blue),
+        sub_tile_mask: 0xF,
+        solid_mask: mask,
+        hazard_damage_per_tick: 0,
+        is_destructible: false,
+        destructible_hp: 0,
+        on_destroy_terrain_key: String::new(),
+    };
+    (entry, resolved)
 }
-// TODO(human): end block 6/8
 
-// TODO(human): begin block 7/8 - scan_tile_directory
 // Scan a directory of `{key}_32x32.png` tiles (optionally filtered by `key_prefix`) into
-// terrain entries, sorted by key. A tile whose mask cannot be resolved is written back out
-// with the red border so the human sees it, and logged.
-fn scan_tile_directory(dir: &Path, key_prefix: &str, min_cluster_gap: u8) -> Vec<TerrainTypeDef> {
-    // let mut mut_entries: Vec<TerrainTypeDef> = std::fs::read_dir(dir)
-    //     .unwrap_or_else(|e| panic!("Failed to read tile dir '{}': {}", dir.display(), e))
-    //     .filter_map(|entry| entry.ok())
-    //     .filter_map(|entry| {
-    //         let file_name: String = entry.file_name().to_string_lossy().into_owned();
-    //         let key: &str = file_name
-    //             .strip_suffix("_32x32.png")
-    //             .filter(|stripped| stripped.starts_with(key_prefix))?;
-    //         let mut mut_img: RgbaImage = image::open(entry.path())
-    //             .unwrap_or_else(|e| panic!("Failed to open '{}': {}", entry.path().display(), e))
-    //             .to_rgba8();
-    //         let (terrain_entry, resolved): (TerrainTypeDef, bool) =
-    //             terrain_entry_from_image(key, &mut_img, min_cluster_gap);
-    //         if !resolved {
-    //             flag_unresolved(&mut mut_img);
-    //             let flagged_path: PathBuf = dir.join(format!("{}_unresolved.png", key));
-    //             mut_img
-    //                 .save(&flagged_path)
-    //                 .unwrap_or_else(|e| panic!("Failed to save '{}': {}", flagged_path.display(), e));
-    //             eprintln!("UNRESOLVED {} -> {}", file_name, flagged_path.display());
-    //         }
-    //         Some(terrain_entry)
-    //     })
-    //     .collect();
-    // mut_entries.sort_by(|a, b| a.key.cmp(&b.key));
-    // mut_entries
-    let hole: Vec<TerrainTypeDef> = ();
+// terrain entries, sorted by key. A tile whose mask cannot be resolved is written into
+// `output_dir` with the red border so the human sees it, and logged.
+fn scan_tile_directory(
+    dir: &Path,
+    key_prefix: &str,
+    min_cluster_gap: u8,
+    output_dir: &Path,
+) -> Vec<TerrainTypeDef> {
+    let mut mut_entries: Vec<TerrainTypeDef> = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("Failed to read tile dir '{}': {}", dir.display(), e))
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let file_name: String = entry.file_name().to_string_lossy().into_owned();
+            let key: &str = file_name
+                .strip_suffix("_32x32.png")
+                .filter(|stripped| stripped.starts_with(key_prefix))?;
+            let mut mut_img: RgbaImage = image::open(entry.path())
+                .unwrap_or_else(|e| panic!("Failed to open '{}': {}", entry.path().display(), e))
+                .to_rgba8();
+            let (terrain_entry, resolved): (TerrainTypeDef, bool) =
+                terrain_entry_from_image(key, &mut_img, min_cluster_gap);
+            if !resolved {
+                flag_unresolved(&mut mut_img);
+                let flagged_path: PathBuf = output_dir.join(format!("{}_unresolved.png", key));
+                mut_img.save(&flagged_path).unwrap_or_else(|e| {
+                    panic!("Failed to save '{}': {}", flagged_path.display(), e)
+                });
+                eprintln!("UNRESOLVED {} -> {}", file_name, flagged_path.display());
+            }
+            Some(terrain_entry)
+        })
+        .collect();
+    mut_entries.sort_by(|a, b| a.key.cmp(&b.key));
+    mut_entries
 }
-// TODO(human): end block 7/8
 
 // =========================================================================
 // CLI
@@ -802,33 +791,37 @@ fn main() {
         config.output_dir = path.clone();
     }
 
-    // TODO(human): begin block 8/8 - tile-scan mode in main()
     // The spritesheet-slice path below needs an `input` sheet; the tile-scan path does not
     // (it reads committed `{key}_32x32.png` tiles), so it runs first and returns. Its
-    // `terrain_types.json` lands in `output_dir` for the framework merge.
-    // if let Some(scan_dir) = &config.scan_tiles {
-    //     let key_prefix: &str = config.scan_prefix.as_deref().unwrap_or("");
-    //     let entries: Vec<TerrainTypeDef> =
-    //         scan_tile_directory(Path::new(scan_dir), key_prefix, config.min_cluster_gap);
-    //     let terrain_file: TerrainTypesFile = TerrainTypesFile {
-    //         version: "0.1.0".into(),
-    //         tiles: entries,
-    //     };
-    //     let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
-    //         .expect("Failed to serialize terrain_types.json");
-    //     let terrain_json_path: PathBuf =
-    //         PathBuf::from(&config.output_dir).join("terrain_types.json");
-    //     std::fs::write(&terrain_json_path, &terrain_json)
-    //         .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
-    //     println!(
-    //         "\nWrote {} ({} tiles)",
-    //         terrain_json_path.display(),
-    //         terrain_file.tiles.len()
-    //     );
-    //     return;
-    // }
-    let hole: () = 0u8;
-    // TODO(human): end block 8/8
+    // `terrain_types.json` lands in `output_dir` for the framework merge, and an unresolved
+    // tile's flagged PNG lands there too.
+    if let Some(scan_dir) = &config.scan_tiles {
+        let key_prefix: &str = config.scan_prefix.as_deref().unwrap_or("");
+        std::fs::create_dir_all(&config.output_dir)
+            .unwrap_or_else(|e| panic!("Failed to create '{}': {}", config.output_dir, e));
+        let entries: Vec<TerrainTypeDef> = scan_tile_directory(
+            Path::new(scan_dir),
+            key_prefix,
+            config.min_cluster_gap,
+            Path::new(&config.output_dir),
+        );
+        let terrain_file: TerrainTypesFile = TerrainTypesFile {
+            version: "0.1.0".into(),
+            tiles: entries,
+        };
+        let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
+            .expect("Failed to serialize terrain_types.json");
+        let terrain_json_path: PathBuf =
+            PathBuf::from(&config.output_dir).join("terrain_types.json");
+        std::fs::write(&terrain_json_path, &terrain_json)
+            .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+        println!(
+            "\nWrote {} ({} tiles)",
+            terrain_json_path.display(),
+            terrain_file.tiles.len()
+        );
+        return;
+    }
 
     let input_path = config
         .input
@@ -1133,8 +1126,7 @@ fn average_color(img: &RgbaImage) -> (u8, u8, u8, u8) {
 // =========================================================================
 // Solid-mask pipeline tests (#126, ART -> DATA)
 // =========================================================================
-// These pin the contract the TODO(human) blocks implement. Synthetic RGBA tiles keep the
-// fixtures self-contained; the committed `slope_up_*` art is pinned separately by the greys
+// Synthetic RGBA tiles keep the fixtures self-contained; the committed `slope_up_*` art is pinned separately by the greys
 // recorded in the repo AGENTS.md (air 0, ground 155, bottom-row anchor).
 #[cfg(test)]
 mod tests {
@@ -1311,9 +1303,8 @@ mod tests {
         );
     }
 
-    /// Copy the committed `{prefix}*_32x32.png` art into a fresh temp dir. The scan writes a
-    /// flagged tile's `*_unresolved.png` beside its input, so scanning a COPY keeps a mutation
-    /// experiment from dirtying the source tree.
+    /// Copy the committed `{prefix}*_32x32.png` art into a fresh temp dir so a scan test reads
+    /// the real committed art (in `git ls-files`) without writing into the source tree.
     fn temp_copy_of_tiles(prefix: &str) -> PathBuf {
         let source_dir: PathBuf =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../editor/assets/tiles");
@@ -1338,12 +1329,33 @@ mod tests {
         // measured greys (air 0 / ground 155, ground on the bottom row) resolve all 7, so the
         // flag never fires on this family and no `*_unresolved.png` is written.
         let tiles_dir: PathBuf = temp_copy_of_tiles("slope_up_");
-        let entries: Vec<TerrainTypeDef> =
-            scan_tile_directory(&tiles_dir, "slope_up_", DEFAULT_MIN_CLUSTER_GAP);
+        let output_dir: PathBuf = std::env::temp_dir().join("import_tiles_scan_out_test");
+        let _ = std::fs::remove_dir_all(&output_dir);
+        std::fs::create_dir_all(&output_dir).expect("temp out dir");
+        let entries: Vec<TerrainTypeDef> = scan_tile_directory(
+            &tiles_dir,
+            "slope_up_",
+            DEFAULT_MIN_CLUSTER_GAP,
+            &output_dir,
+        );
 
         assert_eq!(entries.len(), 7, "the committed slope_up_0..6 family");
-        let flagged: Vec<String> = std::fs::read_dir(&tiles_dir)
-            .expect("temp tiles dir")
+        let keys: Vec<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec![
+                "slope_up_0",
+                "slope_up_1",
+                "slope_up_2",
+                "slope_up_3",
+                "slope_up_4",
+                "slope_up_5",
+                "slope_up_6",
+            ],
+            "the keys are the committed family (a wrong strip_suffix leaves '.png' on them)"
+        );
+        let flagged: Vec<String> = std::fs::read_dir(&output_dir)
+            .expect("temp out dir")
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .filter(|file_name| file_name.ends_with("_unresolved.png"))

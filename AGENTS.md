@@ -499,6 +499,7 @@ All tunable gameplay constants must live in `sstd_config.sqlite3` via the popula
 - `TileSetGrouping` (`scripts/resources/tile_set_grouping.gd`) is the primary authoring format — a `.tres` Resource with `key`, `display_name`, `width_tiles`, `height_tiles`, `tiles: Array`, `tags`, `source_image`.
 - Each entry in `tiles` is a Dictionary with `local_x`, `local_y`, `terrain_key`, `elevation_tiles`, `z_depth`, `sub_tile_mask`, `source_col`, `source_row`.
 - `terrain_key` doubles as the individual tile PNG filename: `{terrain_key}_32x32.png` in `editor/assets/tiles/`.
+  - **The `_32x32.png` suffix is a deliberate literal, not a named constant** (@me, 2026-11-18). It is repeated across the Rust tool, the Rust bridge and the editor GDScript (7 Rust + 6 GDScript sites), and Rust and GDScript cannot share one constant, so naming it would mean two constants and the "respelling is one edit" goal would not be met anyway. A rename of the tile-file convention must therefore touch every site; grep `_32x32` before changing the suffix.
 - `source_image` is the original spritesheet path; `source_col`/`source_row` are the grid position within it. Currently unused at render time (PNG extraction is done offline), but stored for provenance.
 - `.tres` files in `editor/assets/tilesets/` are auto-discovered on Placement tab switch.
 - The `validate()` method checks for duplicate positions, empty keys, and bounds.
@@ -891,9 +892,10 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   8 `TODO(human)` blocks (`to_greyscale`, `uniform_patch_grey`, `remove_floating_specks`,
   `derive_solid_mask`, `flag_unresolved`, `terrain_entry_from_image`, `scan_tile_directory`, and
   the tile-scan branch in `main()`), its 8 in-source tests and 4 test helpers are in
-  `tools/import-tiles/src/main.rs`. MEASURED: `cargo check -p import-tiles --tests` = **13 E0308**,
-  which is exactly the 8 block holes plus the 5 typed fns' "implicitly returns ()" -- **0 of any
-  other error kind**; `cargo test -p import-tiles` was RED first (14 x E0425 `cannot find
+  `tools/import-tiles/src/main.rs`. MEASURED after block 1 landed: `cargo check -p import-tiles
+  --tests` = **11 E0308** (13 while all 8 blocks were still holes), which is exactly the remaining
+  block holes plus their typed fns' "implicitly returns ()" -- **0 of any other error kind**;
+  `cargo test -p import-tiles` was RED first (14 x E0425 `cannot find
   function`). The samples are PROVEN, not assumed: uncommenting all 8 blocks in a throwaway crate
   copy gives **8/8 green**, and the plan's T1-T6 mutants then each FIRE, PARSE and redden their
   named test (T1 reddens two). Two defects that proof caught and fixed: block 5's sample needed
