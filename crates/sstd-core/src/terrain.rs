@@ -865,4 +865,73 @@ mod tests {
         let def: TerrainTypeDef = serde_json::from_str(json).unwrap();
         assert_eq!(def.sub_tile_mask, 15);
     }
+
+    #[test]
+    fn terrain_type_def_deserializes_missing_solid_mask_as_empty() {
+        let json = "{\"key\":\"air\",\"display_name\":\"Air\",\"is_walkable\":true,\"is_buildable\":false,\"surface\":\"normal\",\"hazard\":\"none\",\"elevation_tiles\":0,\"color_hex\":\"#111111\",\"sub_tile_mask\":15}";
+        let def: TerrainTypeDef = serde_json::from_str(json).unwrap();
+        assert!(def.solid_mask.is_empty());
+    }
+
+    #[test]
+    fn terrain_type_def_deserializes_explicit_solid_mask() {
+        let json = "{\"key\":\"air\",\"display_name\":\"Air\",\"is_walkable\":true,\"is_buildable\":false,\"surface\":\"normal\",\"hazard\":\"none\",\"elevation_tiles\":0,\"color_hex\":\"#111111\",\"sub_tile_mask\":15,\"solid_mask\":[255,0,15]}";
+        let def: TerrainTypeDef = serde_json::from_str(json).unwrap();
+        assert_eq!(def.solid_mask, vec![255u8, 0u8, 15u8]);
+    }
+
+    #[test]
+    fn terrain_type_def_default_has_empty_solid_mask() {
+        let def = TerrainTypeDef::default();
+        assert!(def.solid_mask.is_empty());
+    }
+
+    #[test]
+    fn terrain_override_merge_overrides_solid_mask_when_present() {
+        let proto = grass_prototype();
+        let ov = TerrainTypeOverride {
+            key: Some("grass".into()),
+            display_name: None,
+            is_walkable: None,
+            is_buildable: None,
+            surface: None,
+            hazard: None,
+            elevation_tiles: None,
+            color_hex: None,
+            sub_tile_mask: None,
+            solid_mask: Some(vec![1u8, 2u8]),
+            hazard_damage_per_tick: None,
+            is_destructible: None,
+            destructible_hp: None,
+            on_destroy_terrain_key: None,
+        };
+        let merged = ov.merge(&proto);
+        assert_eq!(merged.solid_mask, vec![1u8, 2u8]);
+    }
+
+    #[test]
+    fn terrain_override_merge_inherits_solid_mask_when_absent() {
+        let proto = TerrainTypeDef {
+            solid_mask: vec![9u8],
+            ..grass_prototype()
+        };
+        let ov = TerrainTypeOverride {
+            key: Some("grass".into()),
+            display_name: None,
+            is_walkable: None,
+            is_buildable: None,
+            surface: None,
+            hazard: None,
+            elevation_tiles: None,
+            color_hex: None,
+            sub_tile_mask: None,
+            solid_mask: None,
+            hazard_damage_per_tick: None,
+            is_destructible: None,
+            destructible_hp: None,
+            on_destroy_terrain_key: None,
+        };
+        let merged = ov.merge(&proto);
+        assert_eq!(merged.solid_mask, vec![9u8]);
+    }
 }
