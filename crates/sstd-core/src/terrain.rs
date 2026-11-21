@@ -154,34 +154,12 @@ pub enum TileAffectingEntityType {
     IcePatch,
 }
 
-// =========================================================================
-// TODO(human): #126 solid_mask on TerrainTypeDef (ART -> DATA -> TECH, step 2)
-// =========================================================================
-// TODO(human): add the per-pixel collision datum `solid_mask` to `TerrainTypeDef`.
-// A `solid_mask` is the per-pixel solid-air bitfield of a tile's ART, carrying the
-// per-pixel collision surface. Shape: one bit per tile pixel, (w*h+7)/8 bytes, bit
-// (row * w + col). `sub_tile_mask` stays as the coarse 4-bit predecessor.
-// - Field: `#[serde(default = "default_solid_mask")] pub solid_mask: Vec<u8>,`
-// - Default: empty Vec means "no mask scanned" -> whole tile solid (legacy fallback).
-// - Default fn: `fn default_solid_mask() -> Vec<u8> { Vec::new() }`
-// - Validate: warning when solid_mask length != (w*h+7)/8 for the default tile size (see
-//   `w`/`h` on the owning producer side); do not hard-fail a tile the tool did not scan.
-// - Merge: `solid_mask: self.solid_mask.or(prototype.solid_mask)` (Option if nullable).
-// - The 7 `slope_up_*` entries land here via `tools/import-tiles` (step 3).
-// Sample (field + default + a serde test):
-//
-//     pub struct TerrainTypeDef {
-//         ...
-//         #[serde(default = "default_solid_mask")]
-//         pub solid_mask: Vec<u8>,
-//         ...
-//     }
-//     fn default_solid_mask() -> Vec<u8> { Vec::new() }
-//
-//     #[test]
-//     fn terrain_type_def_deserializes_solid_mask() { ... }
-//
-// TODO(human) end block.
+// The per-pixel solid-air mask of a tile's ART (one bit per pixel, row-major,
+// (w*h+7)/8 bytes). Empty means "no mask scanned", so legacy data falls back to a
+// whole-tile-solid interpretation until a mask is provided.
+fn default_solid_mask() -> Vec<u8> {
+    Vec::new()
+}
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -199,6 +177,12 @@ pub struct TerrainTypeDef {
         deserialize_with = "deserialize_sub_tile_mask"
     )]
     pub sub_tile_mask: u8,
+
+    // Per-pixel solid-air mask for this terrain's art (one bit per pixel, row-major,
+    // (w*h+7)/8 bytes). Empty means "no mask scanned" (legacy fallback: whole tile solid).
+    #[serde(default = "default_solid_mask")]
+    pub solid_mask: Vec<u8>,
+
     #[serde(default)]
     pub hazard_damage_per_tick: i32,
     #[serde(default)]
@@ -380,6 +364,8 @@ impl Default for TerrainTypeDef {
             elevation_tiles: 0,
             color_hex: "#888888".into(),
             sub_tile_mask: 0xF,
+            // Default is empty: no mask scanned (legacy data treats this as whole-tile solid).
+            solid_mask: default_solid_mask(),
             hazard_damage_per_tick: 0,
             is_destructible: false,
             destructible_hp: 0,
@@ -698,6 +684,11 @@ pub struct TerrainTypeOverride {
     pub color_hex: Option<String>,
     #[serde(default, deserialize_with = "deserialize_sub_tile_mask_option")]
     pub sub_tile_mask: Option<u8>,
+
+    // Optional per-pixel mask override; when absent, the prototype's mask is inherited.
+    #[serde(default)]
+    pub solid_mask: Option<Vec<u8>>,
+
     pub hazard_damage_per_tick: Option<i32>,
     pub is_destructible: Option<bool>,
     pub destructible_hp: Option<i32>,
@@ -725,6 +716,13 @@ impl TerrainTypeOverride {
                 .clone()
                 .unwrap_or_else(|| prototype.color_hex.clone()),
             sub_tile_mask: self.sub_tile_mask.unwrap_or(prototype.sub_tile_mask),
+
+            // Use the override's mask when provided, otherwise keep the prototype's mask.
+            solid_mask: self
+                .solid_mask
+                .clone()
+                .unwrap_or_else(|| prototype.solid_mask.clone()),
+
             hazard_damage_per_tick: self
                 .hazard_damage_per_tick
                 .unwrap_or(prototype.hazard_damage_per_tick),
@@ -771,6 +769,7 @@ mod tests {
             elevation_tiles: 0,
             color_hex: "#4a7c3f".into(),
             sub_tile_mask: 0xF,
+            solid_mask: Vec::new(),
             hazard_damage_per_tick: 0,
             is_destructible: false,
             destructible_hp: 0,
@@ -792,6 +791,7 @@ mod tests {
             elevation_tiles: None,
             color_hex: Some("#8a8a8a".into()),
             sub_tile_mask: None,
+            solid_mask: None,
             hazard_damage_per_tick: None,
             is_destructible: None,
             destructible_hp: None,
@@ -822,6 +822,7 @@ mod tests {
             elevation_tiles: None,
             color_hex: Some("#e34a1f".into()),
             sub_tile_mask: None,
+            solid_mask: None,
             hazard_damage_per_tick: Some(15),
             is_destructible: None,
             destructible_hp: None,
