@@ -2273,6 +2273,59 @@ mod tests {
             );
         }
     }
+
+    // #126 step 4 (bridge): WalkTile carries the per-pixel solid mask (legacy payloads omit it).
+    #[test]
+    fn walk_tile_deserializes_missing_solid_mask_as_empty() {
+        let tile: WalkTile =
+            serde_json::from_str(r#"{"world_tile_x":3,"world_tile_y":4,"is_walkable":true}"#)
+                .expect("legacy walk tile without solid_mask must deserialize");
+        assert!(tile.solid_mask.is_empty());
+    }
+
+    // #126 step 4 (bridge): WalkTile accepts an explicit solid_mask from the editor payload.
+    #[test]
+    fn walk_tile_deserializes_explicit_solid_mask() {
+        let tile: WalkTile = serde_json::from_str(
+            r#"{"world_tile_x":0,"world_tile_y":1,"is_walkable":true,"solid_mask":[255,0,15]}"#,
+        )
+        .expect("walk tile with solid_mask must deserialize");
+        assert_eq!(tile.solid_mask, vec![255u8, 0u8, 15u8]);
+    }
+
+    // #126 step 4 (bridge): walk_step_impl accepts tiles with and without solid_mask and maps them.
+    #[test]
+    fn walk_step_impl_accepts_tile_with_and_without_solid_mask() {
+        let request_without_mask = r#"{
+            "grid":{"tile_w":32.0,"tile_h":32.0},
+            "tiles":[{"world_tile_x":0,"world_tile_y":1,"is_walkable":true}],
+            "input":{"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false},
+            "walker":{"pos_x":16.0,"pos_y":32.0,"vel_x":0.0,"vel_y":0.0,"grounded":true,"hp":3.0,"fall_start_y":32.0},
+            "dt":0.016666666666666666
+        }"#;
+        let response_without_mask: serde_json::Value =
+            serde_json::from_str(&walk_step_impl(request_without_mask))
+                .expect("walk_step_impl must return json");
+        assert!(
+            response_without_mask.get("walker").is_some(),
+            "legacy tile payload must step, got {response_without_mask}"
+        );
+
+        let request_with_mask = r#"{
+            "grid":{"tile_w":32.0,"tile_h":32.0},
+            "tiles":[{"world_tile_x":0,"world_tile_y":1,"is_walkable":true,"solid_mask":[255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255]}],
+            "input":{"move_x":0.0,"move_y":0.0,"move_to_world":null,"scroll_vec":null,"place":false,"alt_place":false,"interact":false,"zoom_in":false,"zoom_out":false},
+            "walker":{"pos_x":16.0,"pos_y":32.0,"vel_x":0.0,"vel_y":0.0,"grounded":true,"hp":3.0,"fall_start_y":32.0},
+            "dt":0.016666666666666666
+        }"#;
+        let response_with_mask: serde_json::Value =
+            serde_json::from_str(&walk_step_impl(request_with_mask))
+                .expect("walk_step_impl must return json");
+        assert!(
+            response_with_mask.get("walker").is_some(),
+            "tile payload with solid_mask must step, got {response_with_mask}"
+        );
+    }
 }
 
 // --- ground/walk (issue #122) ---
@@ -2301,6 +2354,10 @@ struct WalkTile {
     world_tile_x: i32,
     world_tile_y: i32,
     is_walkable: bool,
+    // Per-pixel solid-air mask for this tile (one bit per pixel, row-major). Legacy payloads
+    // omit it, so deserialize missing values as an empty Vec (whole-tile-solid fallback).
+    #[serde(default)]
+    solid_mask: Vec<u8>,
 }
 
 fn walk_step_impl(req_json: &str) -> String {
@@ -2314,10 +2371,15 @@ fn walk_step_impl(req_json: &str) -> String {
     };
     let tiles: Vec<phys::Tile> = if let Some(t) = req.tiles {
         t.into_iter()
-            .map(|x| phys::Tile {
-                world_tile_x: x.world_tile_x,
-                world_tile_y: x.world_tile_y,
-                is_walkable: x.is_walkable,
+            .map(|x| {
+                // Map the bridge walk tile (wire payload) into the core physics tile, carrying the
+                // per-pixel solid mask so profile/stepper logic can use art-derived collision data.
+                phys::Tile {
+                    world_tile_x: x.world_tile_x,
+                    world_tile_y: x.world_tile_y,
+                    is_walkable: x.is_walkable,
+                    solid_mask: x.solid_mask,
+                }
             })
             .collect()
     } else {
