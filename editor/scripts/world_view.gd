@@ -64,9 +64,13 @@ var _ground_layer: Node2D = null
 var _avatar: Node2D = null
 var _walker_state: Dictionary = {"pos_x":0,"pos_y":0,"vel_x":0,"vel_y":0,"grounded":false}
 var _tiles_cache: Array = []
-# Column index -> the y (px) of that column's surface. Built once per `_rebuild_ground_tiles`
-# instead of rescanning `_tiles_cache` per frame: the prototype world is 180 columns wide.
-var _ground_y_by_col: Dictionary = {}
+# Per-pixel ground profile (#126): profile[i] is the surface Y at world_left_px+i, NAN for air.
+# Built once per `_rebuild_ground_tiles` instead of rescanning `_tiles_cache` every frame. The
+# left/right bounds are stored beside it because profile indices are relative to world_left_px.
+var _ground_profile: Array = []
+var _ground_profile_left_px: float = 0.0
+var _ground_profile_right_px: float = 0.0
+
 # #122 -- the prototype follows the avatar. OFF by default: #119/#120's camera belongs to the
 # user (pan, zoom, screen jump) and `test_world_view` / `test_world_view_controls` pin exactly
 # that, so a follow that always won would silently delete twenty assertions. `main.gd` turns it
@@ -537,58 +541,63 @@ static var _warned_step_walker_stub: bool = false
 # profile[i] is the surface Y at world_left_px+i, or NAN for air. Empty/missing solid_mask => whole-tile solid.
 # solid_mask is PackedByteArray/Array of bytes, bit = row*tile_w+col (row-major), topmost set bit wins.
 # Stitch overlapping tiles by smallest (topmost) Y. Cover every pixel column of every tile.
-static func build_ground_profile(tiles: Array, tile_h_px: float) -> Array:
+static func build_ground_profile(tiles: Array, tile_w_px: float, tile_h_px: float) -> Array:
     # Abstraction/proxy wrapper: GDScript implements the ground profile today; in the future this
     # function body should delegate to Rust physics/bridge logic when exposed, keeping call sites stable.
-    # Build a dense per-pixel ground profile: scan walkable tiles, allocate NAN columns over the full
-    # world-pixel span, then for each tile column resolve surface Y from solid_mask (empty mask means
-    # legacy whole-tile solid). Keep the smallest/topmost Y when tiles overlap.
-     var world_left_px: float = INF
-     var world_right_px: float = -INF
-     for tile in tiles:
-         if not bool(tile.get("is_walkable", false)):
-             continue
-         var tile_left_px: float = float(tile.get("world_tile_x", 0)) * float(tile_w_px)
-         world_left_px = minf(world_left_px, tile_left_px)
-         world_right_px = maxf(world_right_px, tile_left_px + float(tile_w_px))
-     if not is_finite(world_left_px):
-         return [[], 0.0, 0.0]
-     var width_px: int = int(ceil(world_right_px - world_left_px))
-     var profile: Array = []
-     profile.resize(maxi(width_px, 1))
-     for pixel_index in range(profile.size()):
-         profile[pixel_index] = NAN
-     for tile in tiles:
-         if not bool(tile.get("is_walkable", false)):
-             continue
-         var tile_left_px: float = float(tile.get("world_tile_x", 0)) * float(tile_w_px)
-         var tile_top_px: float = float(tile.get("world_tile_y", 0)) * tile_h_px
-         var solid_mask: Variant = tile.get("solid_mask", PackedByteArray())
-         var mask_bytes: PackedByteArray = solid_mask if solid_mask is PackedByteArray else PackedByteArray(solid_mask)
-         for local_col in range(int(tile_w_px)):
-             var world_pixel_x: int = int(floor(tile_left_px)) + local_col
-             var profile_index: int = world_pixel_x - int(floor(world_left_px))
-             if profile_index < 0 or profile_index >= profile.size():
-                 continue
-             var surface_y: float = NAN
-             if mask_bytes.is_empty():
-                 surface_y = tile_top_px
-             else:
-                 var top_row: int = -1
-                 for local_row in range(int(tile_h_px)):
-                     var bit_index: int = local_row * int(tile_w_px) + local_col
-                     var byte_index: int = int(bit_index / 8)
-                     var bit_offset: int = bit_index % 8
-                     if byte_index < mask_bytes.size() and ((int(mask_bytes[byte_index]) >> bit_offset) & 1) != 0:
-                         top_row = local_row
-                         break
-                 if top_row >= 0:
-                     surface_y = tile_top_px + float(top_row)
-             if not is_nan(surface_y):
-                 var old_surface: float = float(profile[profile_index])
-                 if is_nan(old_surface) or surface_y < old_surface:
-                     profile[profile_index] = surface_y
-     return [profile, world_left_px, world_right_px]
+    # Find the pixel span that covers every walkable tile, so no tile column is silently dropped.
+    var fn_world_bounds_px := func() -> Array:
+        var left_px: float = INF
+        var right_px: float = -INF
+        for tile in tiles:
+            if not bool(tile.get("is_walkable", false)):
+                continue
+            var tile_left_px: float = float(tile.get("world_tile_x", 0)) * tile_w_px
+            left_px = minf(left_px, tile_left_px)
+            right_px = maxf(right_px, tile_left_px + tile_w_px)
+        return [left_px, right_px]
+    # Read the topmost solid pixel of one tile column; an empty mask is a legacy whole-tile solid.
+    var fn_surface_y_from_mask := func(tile: Dictionary, local_col: int, tile_top_px: float) -> float:
+        var solid_mask: Variant = tile.get("solid_mask", PackedByteArray())
+        var mask_bytes: PackedByteArray = solid_mask if solid_mask is PackedByteArray else PackedByteArray(solid_mask)
+        if mask_bytes.is_empty():
+            return tile_top_px
+        for local_row in range(int(tile_h_px)):
+            var bit_index: int = local_row * int(tile_w_px) + local_col
+            var byte_index: int = bit_index / 8
+            var bit_offset: int = bit_index % 8
+            if byte_index < mask_bytes.size() and ((int(mask_bytes[byte_index]) >> bit_offset) & 1) != 0:
+                return tile_top_px + float(local_row)
+        return NAN
+
+    # Allocate a NAN profile across that span, then paint each walkable tile's topmost solid pixel
+    # into it, keeping the smallest (topmost) Y where tiles overlap.
+    var bounds: Array = fn_world_bounds_px.call()
+    var world_left_px: float = float(bounds[0])
+    var world_right_px: float = float(bounds[1])
+    if not is_finite(world_left_px):
+        return [[], 0.0, 0.0]
+    var width_px: int = maxi(int(ceil(world_right_px - world_left_px)), 1)
+    var profile: Array = []
+    profile.resize(width_px)
+    for pixel_index in range(width_px):
+        profile[pixel_index] = NAN
+    for tile in tiles:
+        if not bool(tile.get("is_walkable", false)):
+            continue
+        var tile_left_px: float = float(tile.get("world_tile_x", 0)) * tile_w_px
+        var tile_top_px: float = float(tile.get("world_tile_y", 0)) * tile_h_px
+        for local_col in range(int(tile_w_px)):
+            var world_pixel_x: int = int(floor(tile_left_px)) + local_col
+            var profile_index: int = world_pixel_x - int(floor(world_left_px))
+            if profile_index < 0 or profile_index >= profile.size():
+                continue
+            var surface_y: float = fn_surface_y_from_mask.call(tile, local_col, tile_top_px)
+            if is_nan(surface_y):
+                continue
+            var old_surface: float = float(profile[profile_index])
+            if is_nan(old_surface) or surface_y < old_surface:
+                profile[profile_index] = surface_y
+    return [profile, world_left_px, world_right_px]
 
 # Sample the ground profile at pos_x with linear interpolation between column and next.
 # Return NAN for air/out of bounds; clamp past the last column to last value.
@@ -598,19 +607,21 @@ static func ground_y_at(profile: Array, world_left_px: float, pos_x: float) -> f
     # Sample the per-pixel profile at pos_x. Air or out-of-bounds returns NAN. The last column clamps
     # to its own value; interior columns interpolate linearly to the next column when that next column
     # is solid.
-     var column_index: int = int(floor(pos_x)) - int(floor(world_left_px))
-     if column_index < 0 or column_index >= profile.size():
-         return NAN
-     var current_surface_y: float = float(profile[column_index])
-     if is_nan(current_surface_y):
-         return NAN
-     if column_index + 1 >= profile.size():
-         return current_surface_y
-     var next_surface_y: float = float(profile[column_index + 1])
-     if is_nan(next_surface_y):
-         return NAN
-     var fraction: float = pos_x - floor(pos_x)
-     return current_surface_y + (next_surface_y - current_surface_y) * fraction
+    var column_index: int = int(floor(pos_x)) - int(floor(world_left_px))
+    if column_index < 0 or column_index >= profile.size():
+        return NAN
+    var current_surface_y: float = float(profile[column_index])
+    if is_nan(current_surface_y):
+        return NAN
+    if column_index + 1 >= profile.size():
+        return current_surface_y
+    var next_surface_y: float = float(profile[column_index + 1])
+    if is_nan(next_surface_y):
+         # A NAN neighbour ends the solid run; hold this column's surface instead of reporting air,
+         # so the last solid pixel of a mask keeps its height.
+        return current_surface_y
+    var fraction: float = pos_x - floor(pos_x)
+    return current_surface_y + (next_surface_y - current_surface_y) * fraction
 
 # Issue #122 -- one frame of walker physics. Pure and static for the same reason: the test drives
 # it 600 steps with no scene, no input device and no Godot frame loop.
@@ -638,57 +649,71 @@ static func step_walker(state: Dictionary, move_x: float, dt: float, profile: Ar
     # Advance the walker one frame against the per-pixel ground profile. Apply gravity, clamp X to
     # world bounds, refuse a grounded step into an air column, land from above, allow step-up while
     # moving, apply fall damage past 32px, then snap/glue small penetration per #126 anti-jitter.
-     const WALKER_GRAVITY_PPS2: float = 980.0
-     const WALKER_SPEED_PPS: float = 200.0
-     const GROUND_SNAP_PX: float = 16.0
-     const EMBED_TOLERANCE_PX: float = 8.0
-     var frame_seconds: float = dt if dt > 0.0 else 1.0 / 60.0
-     var move_axis: float = clampf(move_x, -1.0, 1.0)
-     var move_speed_pps: float = move_axis * WALKER_SPEED_PPS
-     var feet_was_y: float = float(state.get("pos_y", 0.0))
-     var vel_y_after_gravity: float = float(state.get("vel_y", 0.0)) + WALKER_GRAVITY_PPS2 * frame_seconds
-     var feet_now_y: float = feet_was_y + vel_y_after_gravity * frame_seconds
-     var proposed_pos_x: float = clampf(float(state.get("pos_x", 0.0)) + move_speed_pps * frame_seconds, world_left_px, world_right_px)
-     var stepping_into_hole: bool = move_axis != 0.0 and bool(state.get("grounded", false)) and is_nan(ground_y_at(profile, world_left_px, proposed_pos_x))
-     var pos_x: float = float(state.get("pos_x", 0.0)) if stepping_into_hole else proposed_pos_x
-     var surface_y: float = ground_y_at(profile, world_left_px, pos_x)
-     var next_state: Dictionary = state.duplicate()
-     next_state["pos_x"] = pos_x
-     next_state["vel_x"] = move_speed_pps
-     next_state["hp"] = float(state.get("hp", 100.0))
-     next_state["fall_start_y"] = float(state.get("fall_start_y", feet_was_y))
-     if not is_nan(surface_y):
-         var landed_from_above: bool = vel_y_after_gravity >= 0.0 and feet_was_y <= surface_y and feet_now_y >= surface_y
-         var stepped_up: bool = surface_y < feet_was_y and move_axis != 0.0
-         if landed_from_above or stepped_up:
-             if not bool(state.get("grounded", false)) and surface_y - float(next_state["fall_start_y"]) > 32.0:
-                 next_state["hp"] = maxf(0.0, float(next_state["hp"]) - 1.0)
-             next_state["pos_y"] = surface_y
-             next_state["vel_y"] = 0.0
-             next_state["grounded"] = true
-             next_state["fall_start_y"] = surface_y
-         else:
-             next_state["pos_y"] = feet_now_y
-             next_state["vel_y"] = vel_y_after_gravity
-             next_state["grounded"] = false
-         var penetration_px: float = float(next_state["pos_y"]) - surface_y
-         if penetration_px > 0.0 and penetration_px <= EMBED_TOLERANCE_PX:
-             next_state["pos_y"] = surface_y
-             next_state["vel_y"] = 0.0
-             next_state["grounded"] = true
-             next_state["fall_start_y"] = surface_y
-         elif float(next_state["pos_y"]) < surface_y and surface_y - float(next_state["pos_y"]) <= GROUND_SNAP_PX and float(next_state.get("vel_y", 0.0)) >= 0.0:
-             next_state["pos_y"] = surface_y
-             next_state["vel_y"] = 0.0
-             next_state["grounded"] = true
-             next_state["fall_start_y"] = surface_y
-     else:
-         next_state["pos_y"] = feet_now_y
-         next_state["vel_y"] = vel_y_after_gravity
-         next_state["grounded"] = false
-         if bool(state.get("grounded", false)):
-             next_state["fall_start_y"] = feet_was_y
-     return next_state
+    # Name the tunables instead of leaving bare 32.0 / 1.0 literals in the landing path.
+    const WALKER_GRAVITY_PPS2: float = 980.0
+    const WALKER_SPEED_PPS: float = 200.0
+    const GROUND_SNAP_PX: float = 16.0
+    const EMBED_TOLERANCE_PX: float = 8.0
+    const FALL_DAMAGE_THRESHOLD_PX: float = 32.0
+    const FALL_DAMAGE_POINTS: float = 1.0
+    # Every route onto the surface lands here, so a drop is charged once no matter which path found it.
+    var fn_become_grounded := func(next_state: Dictionary, surface_y: float) -> void:
+        if not bool(state.get("grounded", false)):
+            var drop_px: float = surface_y - float(next_state.get("fall_start_y", surface_y))
+            if drop_px > FALL_DAMAGE_THRESHOLD_PX:
+                next_state["hp"] = maxf(0.0, float(next_state.get("hp", 100.0)) - FALL_DAMAGE_POINTS)
+        next_state["pos_y"] = surface_y
+        next_state["vel_y"] = 0.0
+        next_state["grounded"] = true
+        next_state["fall_start_y"] = surface_y
+    # Land from above or step up onto a higher surface; a missed surface stays airborne.
+    var fn_land_or_fall := func(next_state: Dictionary, surface_y: float, feet_was_y: float,
+            feet_now_y: float, vel_y_after_gravity: float, move_axis: float) -> void:
+        var landed_from_above: bool = vel_y_after_gravity >= 0.0 and feet_was_y <= surface_y and feet_now_y >= surface_y
+        var stepped_up: bool = surface_y < feet_was_y and move_axis != 0.0
+        if landed_from_above or stepped_up:
+            fn_become_grounded.call(next_state, surface_y)
+        else:
+            next_state["pos_y"] = feet_now_y
+            next_state["vel_y"] = vel_y_after_gravity
+            next_state["grounded"] = false
+    # Glue small penetration and small gaps to the surface so a resting walker never jitters.
+    var fn_penetration_snap := func(next_state: Dictionary, surface_y: float) -> void:
+        var penetration_px: float = float(next_state["pos_y"]) - surface_y
+        if penetration_px > 0.0 and penetration_px <= EMBED_TOLERANCE_PX:
+            fn_become_grounded.call(next_state, surface_y)
+        elif float(next_state["pos_y"]) < surface_y and surface_y - float(next_state["pos_y"]) <= GROUND_SNAP_PX and float(next_state.get("vel_y", 0.0)) >= 0.0:
+            fn_become_grounded.call(next_state, surface_y)
+
+    # Advance one frame: gravity, X clamp, refuse a grounded step into air, land or step up, then
+    # snap small penetration. Clamp the sample X to the last profile column so the world edge holds.
+    var frame_seconds: float = dt if dt > 0.0 else 1.0 / 60.0
+    var move_axis: float = clampf(move_x, -1.0, 1.0)
+    var move_speed_pps: float = move_axis * WALKER_SPEED_PPS
+    var feet_was_y: float = float(state.get("pos_y", 0.0))
+    var vel_y_after_gravity: float = float(state.get("vel_y", 0.0)) + WALKER_GRAVITY_PPS2 * frame_seconds
+    var feet_now_y: float = feet_was_y + vel_y_after_gravity * frame_seconds
+    var proposed_pos_x: float = clampf(float(state.get("pos_x", 0.0)) + move_speed_pps * frame_seconds, world_left_px, world_right_px)
+    var last_column_x: float = world_left_px + float(maxi(profile.size(), 1) - 1)
+    var sample_x: float = minf(proposed_pos_x, last_column_x)
+    var stepping_into_hole: bool = move_axis != 0.0 and bool(state.get("grounded", false)) and is_nan(ground_y_at(profile, world_left_px, sample_x))
+    var pos_x: float = float(state.get("pos_x", 0.0)) if stepping_into_hole else proposed_pos_x
+    var surface_y: float = ground_y_at(profile, world_left_px, minf(pos_x, last_column_x))
+    var next_state: Dictionary = state.duplicate()
+    next_state["pos_x"] = pos_x
+    next_state["vel_x"] = move_speed_pps
+    next_state["hp"] = float(state.get("hp", 100.0))
+    next_state["fall_start_y"] = float(state.get("fall_start_y", feet_was_y))
+    if not is_nan(surface_y):
+        fn_land_or_fall.call(next_state, surface_y, feet_was_y, feet_now_y, vel_y_after_gravity, move_axis)
+        fn_penetration_snap.call(next_state, surface_y)
+    else:
+        next_state["pos_y"] = feet_now_y
+        next_state["vel_y"] = vel_y_after_gravity
+        next_state["grounded"] = false
+        if bool(state.get("grounded", false)):
+            next_state["fall_start_y"] = feet_was_y
+    return next_state
 
 func _rebuild_ground_tiles() -> void:
     _tiles_cache.clear()
@@ -716,18 +741,22 @@ func _rebuild_ground_tiles() -> void:
             var walkable = true
             if terr == "air" or terr == "wall" or terr == "lava":
                 walkable = false
-            _tiles_cache.append({"world_tile_x": sx * max_w + wx_local, "world_tile_y": sy * max_h + wy_local, "is_walkable": walkable, "terrain": terr})
+            # A terrain with no injected mask falls back to the empty mask, i.e. legacy whole-tile solid.
+            var solid_mask: Variant = _terrain_masks.get(terr, PackedByteArray())
+            _tiles_cache.append({"world_tile_x": sx * max_w + wx_local, "world_tile_y": sy * max_h + wy_local, "is_walkable": walkable, "terrain": terr, "solid_mask": solid_mask})
+
     if _ground_layer != null and _ground_layer.has_method("set_data"):
         _ground_layer.call("set_data", _tiles_cache, grid_dict)
     # Rebuild ground profile from _tiles_cache (tiles include terrain key; resolve solid_mask from
     # _terrain_masks[terrain] when present, else empty mask for legacy whole-tile solid). Store profile
     # and bounds for _update_walker/_spawn. Replace legacy _ground_y_by_col column table.
-    _ground_y_by_col = {}
-    _ground_profile = build_ground_profile(_tiles_cache, float(th))
-    _ground_profile_left_px = float(_ground_profile[1])
-    _ground_profile_right_px = float(_ground_profile[2])
-    _ground_profile = _ground_profile[0]
-    _spawn_walker_on_ground(tw)
+    # build the profile with BOTH tile dimensions and unpack
+    # [profile, left_px, right_px] into the three members; spawn no longer needs tile width.
+    var built: Array = build_ground_profile(_tiles_cache, float(tw), float(th))
+    _ground_profile = built[0]
+    _ground_profile_left_px = float(built[1])
+    _ground_profile_right_px = float(built[2])
+    _spawn_walker_on_ground()
 
 
 # Issue #122 -- put the walker on the leftmost column that has ground, feet exactly ON the
@@ -736,13 +765,21 @@ func _rebuild_ground_tiles() -> void:
 # Only when the walker is not already standing: `_rebuild_ground_tiles` also runs on every tab
 # switch, and respawning there would teleport the avatar back mid-walk. A walker that fell
 # through a hole counts as not standing, so switching tabs recovers it.
-func _spawn_walker_on_ground(tile_w: int) -> void:
-    if _avatar == null or _ground_y_by_col.is_empty():
+func _spawn_walker_on_ground() -> void:
+    # guard on the profile, find the leftmost solid pixel, place.
+    if _avatar == null or _ground_profile.is_empty():
         return
     if bool(_walker_state.get("grounded", false)):
         return
-    var first_col: int = int(_ground_y_by_col.keys().min())
-    _place_walker_on_col(first_col, tile_w)
+    var spawn_px: float = NAN
+    for profile_index in range(_ground_profile.size()):
+        if not is_nan(float(_ground_profile[profile_index])):
+            spawn_px = _ground_profile_left_px + float(profile_index)
+            break
+    if is_nan(spawn_px):
+        return
+    _place_walker_at_px(spawn_px)
+
     if _camera_follow_enabled:
         move_camera_to(float(_walker_state["pos_x"]), GROUND_VIEW_CENTER_Y_PX)
         follow_avatar()
@@ -755,15 +792,19 @@ func reset_walker_on_screen(screen_id: int) -> void:
     if _avatar == null or _screen_store == null or not _screen_store.has_id(screen_id):
         return
     var cols_per_screen: int = int(_grid_config.get("max_tiles_per_screen_x", 60))
-    var first_col_of_screen: int = _screen_store.position_of_id(screen_id).x * cols_per_screen
-    var cols_on_screen: Array = _ground_y_by_col.keys().filter(
-        func(world_col: int) -> bool:
-            return world_col >= first_col_of_screen and world_col < first_col_of_screen + cols_per_screen)
-    if cols_on_screen.is_empty():
+    var tile_w: int = int(_grid_config.get("tile_width_in_pixels", 32))
+    var screen_start_px: float = float(_screen_store.position_of_id(screen_id).x * cols_per_screen * tile_w)
+    var screen_end_px: float = screen_start_px + float(cols_per_screen * tile_w)
+    var spawn_px: float = NAN
+    for profile_index in range(_ground_profile.size()):
+        var pixel_x: float = _ground_profile_left_px + float(profile_index)
+        if pixel_x >= screen_start_px and pixel_x < screen_end_px and not is_nan(float(_ground_profile[profile_index])):
+            spawn_px = pixel_x
+            break
+    if is_nan(spawn_px):
         return                                  # ground exists, but not on this screen
-    _place_walker_on_col(int(cols_on_screen.min()), int(_grid_config.get("tile_width_in_pixels", 32)))
+    _place_walker_at_px(spawn_px)
     _frame_walker_on_entry.call_deferred()
-
 
 # Screen-centred cameras can exclude ground near the bottom of a screen entirely. Frame the
 # actual feet after tab layout, leaving one quarter of the visible height beneath the ground.
@@ -781,18 +822,20 @@ func _frame_walker_on_entry() -> void:
 
 # Both spawn paths end here: state on the surface of `world_col`, node mirroring it. The camera is
 # the caller's business, because boot and tab entry want different camera behaviour.
-func _place_walker_on_col(world_col: int, tile_w: int) -> void:
+func _place_walker_at_px(world_pixel_x: float) -> void:
+    var surface_y: float = ground_y_at(_ground_profile, _ground_profile_left_px, world_pixel_x)
+    if is_nan(surface_y):
+        return
     _walker_state = {
-        "pos_x": (float(world_col) + 0.5) * float(tile_w),   # cell centre, not the cell edge
-        "pos_y": float(_ground_y_by_col[world_col]),
+        "pos_x": world_pixel_x,
+        "pos_y": surface_y,
         "vel_x": 0.0,
         "vel_y": 0.0,
         "grounded": true,
         "hp": 100.0,
-        "fall_start_y": float(_ground_y_by_col[world_col]),
+        "fall_start_y": surface_y,
     }
-    _avatar.position = Vector2(float(_walker_state["pos_x"]), float(_walker_state["pos_y"]))
-
+    _avatar.position = Vector2(world_pixel_x, surface_y)
 
 func _update_walker(dt: float) -> void:
     if Engine.is_editor_hint():
@@ -808,14 +851,14 @@ func _update_walker(dt: float) -> void:
         move_x -= 1.0
     if Input.is_key_pressed(KEY_D):
         move_x += 1.0
-    # step_walker now takes (state, move_x, dt, profile, world_left_px, world_right_px)
     _walker_state = step_walker(
         _walker_state,
         move_x,
         dt,
-        _ground_y_by_col,
-        _map_world_px().position.x,
-        _map_world_px().end.x)
+        _ground_profile,
+        _ground_profile_left_px,
+        _ground_profile_right_px)
+
     _avatar.position = Vector2(
         float(_walker_state.get("pos_x", 0.0)), float(_walker_state.get("pos_y", 0.0)))
     if move_x != 0.0:
