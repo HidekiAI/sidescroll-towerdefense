@@ -253,6 +253,24 @@ func inject_simulator_hills(store: ScreenStore) -> void:
 			tiles3.append({"x": i, "y": ground_row, "terrain": "dirt"})
 	store.cache[key3] = {"tiles": tiles3}
 
+# #126 step 7: build the terrain-key -> solid_mask map from the framework terrain types the
+# editor already loaded and hand it to the simulator's world view before the ground profile
+# builder reads masks by key. A terrain without a solid_mask stays absent so the profile
+# builder keeps its documented whole-tile fallback.
+#
+func _inject_terrain_masks() -> void:
+	if simulator_world_view == null or terrain_editor == null:
+		return
+	if not simulator_world_view.has_method("set_terrain_masks"):
+		return
+	var terrain_masks: Dictionary = {}
+	for terrain_type in terrain_editor.get_terrain_types():
+		var terrain_key: String = String(terrain_type.get("key", ""))
+		if terrain_key == "" or not terrain_type.has("solid_mask"):
+			continue
+		terrain_masks[terrain_key] = PackedByteArray(terrain_type["solid_mask"])
+	simulator_world_view.set_terrain_masks(terrain_masks)
+
 func _wire_editors() -> void:
 	screen_store = ScreenStore.new()
 	screen_store.load_world(_world_json_path)
@@ -284,6 +302,9 @@ func _wire_editors() -> void:
 			simulator_world_view.set_camera_follow(true)
 		if simulator_world_view.has_method("set_screen_store"):
 			simulator_world_view.set_screen_store(screen_store)
+		# #126: the ground profile reads tile masks by terrain key; inject them before the
+		# walker starts stepping. The helper guards on null so this is safe on every path.
+		_inject_terrain_masks()
 		if simulator_world_view.has_method("set_bridge_obj") and _bridge != null:
 			simulator_world_view.set_bridge_obj(_bridge)
 		elif simulator_world_view.has_method("try_get_bridge"):
