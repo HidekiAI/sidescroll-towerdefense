@@ -878,6 +878,12 @@ If you edit hill/ground terrain in the simulator and it does **not** appear:
   to within 1 px. That is a representation change, so plan it before coding.
 - **Do not fold in** the collision-bounds directive or the graduated fall-damage directive below;
   each needs its own ticket.
+- **@me's side note (2026-11-23, NOT in scope for #126):** when deriving collision from art,
+  consider documenting **Marching Squares** (contour extraction from the mask's scalar field) and
+  **Ramer-Douglas-Peucker** (RDP, polyline simplification of that contour to few line segments) as
+  candidate algorithms. The current #126 design already samples the per-pixel `solid_mask` directly
+  and does not need either; this is a future-option note, not a change to the live mask sampler.
+  Recorded here so it survives the session; discuss/plan separately before adding any code.
 - **MEASURED 2026-11-17 (do not re-measure; these are the mask detector's real inputs).** The 7
   committed `editor/assets/tiles/slope_up_{0..6}_32x32.png` each carry EXACTLY TWO greys once
   alpha is off: air `0` and ground `155`, with ground on the bottom row. Pixel counts
