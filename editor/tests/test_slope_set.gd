@@ -1,13 +1,3 @@
-# TODO(human): #126 test layer scaffolding for slope_set - verify profile-based collision surface matching.
-# This test should eventually verify that the walker's pos_x/pos_y matches the continuous ground profile
-# derived from tile masks (solid_mask), not the legacy column table approach.
-# Sample test structure:
-# - test_mask_grid() -> builds a grid with solid_mask tiles
-# - solid_mask_surface_rule() -> verifies profile[0] = surface_y at tile left edge
-# - interior_air_below_surface_is_solid() -> verifies empty mask = all-solid behavior
-# - slope_feet_y_matches_drawn_surface() -> verifies max_step_up < 16.0 per frame
-#
-# TODO(human) end block.
 extends SceneTree
 # Guard for issue #122's 4:7 slope set: what `inject_simulator_hills` emits, that a second call
 # does not clobber it, and the walkable surface `world_view` derives from it.
@@ -125,20 +115,26 @@ func _check_ground_profile() -> void:
     root.add_child(world_view)
     world_view.set_grid_config(_make_grid_config())
     world_view.set_screen_store(store)
-    var ground_y_by_col: Dictionary = world_view.get("_ground_y_by_col")
+    # Step 7 replaced _ground_y_by_col with a per-pixel profile. No masks are injected here, so
+    # build_ground_profile uses whole-tile fallback: the surface is the tile's top pixel row.
+    # Sample through ground_y_at so the guard follows the same path the walker uses.
+    var ground_profile: Array = world_view.get("_ground_profile")
+    var profile_left_px: float = float(world_view.get("_ground_profile_left_px"))
     for column_offset in range(SLOPE_RUN_COLUMNS):
         var world_col: int = SCREEN_2_WORLD_COL_OFFSET + column_offset
+        var sample_x: float = float(world_col * TILE_PX) + TILE_PX * 0.5
         var expected_y_px: float = float(GROUND_ROW - SLOPE_ROW_OFFSETS[column_offset]) * TILE_PX
-        var actual_y_px: float = float(ground_y_by_col.get(world_col, -1.0))
-        _check(actual_y_px == expected_y_px,
+        var actual_y_px: float = WorldView.ground_y_at(ground_profile, profile_left_px, sample_x)
+        _check(is_equal_approx(actual_y_px, expected_y_px),
             "world col %d: surface %.1f px, expected %.1f px" % [
                 world_col, actual_y_px, expected_y_px])
     # The column after the set is flat, which is the "flush to ground at the right edge" claim.
-    var flat_y_px: float = float(ground_y_by_col.get(
-        SCREEN_2_WORLD_COL_OFFSET + SLOPE_RUN_COLUMNS, -1.0))
-    _check(flat_y_px == float(GROUND_ROW) * TILE_PX,
+    var flat_world_col: int = SCREEN_2_WORLD_COL_OFFSET + SLOPE_RUN_COLUMNS
+    var flat_y_px: float = WorldView.ground_y_at(
+        ground_profile, profile_left_px, float(flat_world_col * TILE_PX) + TILE_PX * 0.5)
+    _check(is_equal_approx(flat_y_px, float(GROUND_ROW) * TILE_PX),
         "world col %d after the set: surface %.1f px, expected ground %.1f px" % [
-            SCREEN_2_WORLD_COL_OFFSET + SLOPE_RUN_COLUMNS, flat_y_px, float(GROUND_ROW) * TILE_PX])
+            flat_world_col, flat_y_px, float(GROUND_ROW) * TILE_PX])
     world_view.queue_free()
     await process_frame
 
