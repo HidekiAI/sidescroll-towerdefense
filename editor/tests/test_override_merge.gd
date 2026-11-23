@@ -16,6 +16,10 @@ extends SceneTree
 
 var _failures := 0
 
+# #126 added the seven slope_up_* terrain types (with solid masks) to the framework file, so its
+# prototype count moved from 7 to 14. The merge guards below still pin air/dirt/grass by key.
+const FRAMEWORK_TERRAIN_COUNT: int = 14
+
 # Each guard appends its name on its final line. A guard that dies partway (a
 # runtime script error aborts the coroutine but lets _run continue to the next
 # guard) would otherwise skip its remaining assertions and still let the suite
@@ -226,7 +230,8 @@ func _run() -> void:
 
     var fw_terrains := _load_framework_terrains()
     var fw_entities := _load_framework_entities()
-    check(fw_terrains.size() == 7, "framework terrain types loaded (%d)" % fw_terrains.size())
+    check(fw_terrains.size() == FRAMEWORK_TERRAIN_COUNT,
+        "framework terrain types loaded (%d)" % fw_terrains.size())
     check(fw_entities.size() == 8, "framework entity defs loaded (%d)" % fw_entities.size())
 
     await _guard_terrain_merge(fw_terrains)

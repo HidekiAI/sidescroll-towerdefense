@@ -20,7 +20,7 @@ func _check(condition: bool, description: String) -> void:
         printerr("FAIL: " + description)
 
 func _run() -> void:
-    # Scan only live lines: a TODO(human) SAMPLE carries the same tokens as comments, so a raw
+    # Scan only live lines: a commented-out SAMPLE carries the same tokens as comments, so a raw
     # text scan would pass on an unfilled scaffold. Stripping comments keeps the guard RED until
     # the draw calls are actually code.
     var raw_source: String = FileAccess.get_file_as_string("res://scripts/world_view_ground.gd")

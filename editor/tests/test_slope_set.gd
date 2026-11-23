@@ -2,10 +2,9 @@ extends SceneTree
 # Guard for issue #122's 4:7 slope set: what `inject_simulator_hills` emits, that a second call
 # does not clobber it, and the walkable surface `world_view` derives from it.
 #
-# NOT covered: the ramp polygon's pixels. `world_view_ground.gd` builds them inside `_draw()` with
-# `draw_polygon`, which cannot be intercepted from GDScript; covering that would mean reshaping
-# production code around the test. The surface asserted here is the same table the polygon's top
-# edge is drawn from, so a wrong slope still shows up as a wrong surface.
+# NOT covered here: the tile sprites. `world_view_ground.gd` draws the slope tiles from their PNGs,
+# and `test_ground_layer_draw.gd` pins that draw path from source. This suite owns the injected
+# placement and the mask-derived surface those sprites collide against.
 #
 # No race is possible here: every input is single-threaded scene-tree data. Back-to-back safety IS
 # covered, by asserting the second injection is a no-op rather than a partial overwrite.

@@ -18,12 +18,17 @@ const WORLD_RIGHT_PX: float = 5760.0
 const GROUND_TOP_PX: float = 992.0
 const STEP_SECONDS: float = 1.0 / 60.0
 
-# 4:7 slope run geometry (drawn surface in world_view_ground.gd):
-# row for column col (0-indexed from slope start) = GROUND_ROW - int(4 * col / 7)
-# Ground baseline row is 31 -> pixel y 992.
+# 4:7 slope run geometry: the seven tiles main.gd injects on screen 2, at world columns 60-66.
+# The TILE row for local column col is GROUND_ROW - int(4 * col / 7); the SURFACE is the topmost
+# solid pixel of that tile's PNG art, which this suite decodes independently as its oracle.
 const GROUND_ROW: int = 31
 const SLOPE_COLS: int = 7
 const SLOPE_START_COL: int = 60  # screen 1 starts at world column 60
+const SLOPE_PNG_GREEN_THRESHOLD: float = 0.5  # shipped slope art: ground green 0.702, air 0.0
+# Measured from the art by hand, independent of the PNG decoder: surface Y at each tile's left
+# seam and at its centre. A bug shared by the decoder and the mask builder cannot hide behind these.
+const SLOPE_SEAM_Y_PX: Array[int] = [992, 1005, 987, 968, 950, 932, 914]
+const SLOPE_CENTRE_Y_PX: Array[int] = [992, 996, 978, 960, 941, 928, 904]
 
 # Spending longer than this on a pure-function loop means the step is not converging.
 const SETTLE_STEPS: int = 180
@@ -174,6 +179,29 @@ func _tile_with_mask(world_tile_x: int, world_tile_y: int, top_row_by_col: Array
         "terrain": "test",
         "solid_mask": _solid_mask_with_top_rows(top_row_by_col),
     }
+
+
+# Decode the shipped slope PNG into one topmost-solid-row per local column. The art is the
+# independent oracle: green above the threshold is ground, every other pixel is air. Partially
+# transparent edge pixels count, the way the committed solid masks do.
+func _top_rows_from_png(slope_index: int) -> Array[int]:
+    var tile_path: String = "res://assets/tiles/slope_up_%d_32x32.png" % slope_index
+    # Read the FILE, not the imported texture: get_image() keeps green under fully transparent
+    # pixels, which moves the edge up by six rows and disagrees with the committed solid masks.
+    var tile_image: Image = Image.new()
+    if tile_image.load(tile_path) != OK:
+        return []
+    if tile_image.get_width() != int(TILE_W_PX) or tile_image.get_height() != int(TILE_H_PX):
+        return []
+    var top_rows: Array[int] = []
+    for local_col in range(int(TILE_W_PX)):
+        var top_row: int = -1
+        for local_row in range(int(TILE_H_PX)):
+            if tile_image.get_pixel(local_col, local_row).g > SLOPE_PNG_GREEN_THRESHOLD:
+                top_row = local_row
+                break
+        top_rows.append(top_row)
+    return top_rows
 
 
 func _flat_profile_ctx() -> Dictionary:
@@ -361,35 +389,103 @@ func _test_walker_step() -> void:
             float(at_hill_top.get("hp", 0.0))])
     _completed.append("hill_fall_damage")
 
-    # --- slope fidelity: walking up the 4:7 slope hops no more than a small step per frame ---
-    var slope_ground: Dictionary = {}
-    for col in range(SLOPE_COLS):
-        var world_col: int = SLOPE_START_COL + col
-        var row: int = GROUND_ROW - int(4 * col / 7)
-        slope_ground[world_col] = float(row) * TILE_H_PX
-    for col in range(SLOPE_START_COL):
-        slope_ground[col] = GROUND_TOP_PX
-    for col in range(SLOPE_START_COL + SLOPE_COLS, int(WORLD_RIGHT_PX / TILE_W_PX)):
-        slope_ground[col] = GROUND_TOP_PX
-    var slope_ctx: Dictionary = _profile_from_column_table(slope_ground)
+    # --- #126 slope fidelity: every column of the injected run matches the drawn PNG art ---
+    # The oracle is the shipped slope art itself, decoded here (green over threshold = ground).
+    # The profile under test is built from masks derived from those PNGs, so this sweep proves the
+    # builder and sampler carry the art's topmost solid row into the walker's collision surface.
+    var top_rows_by_tile: Array = []
+    for slope_index in range(SLOPE_COLS):
+        top_rows_by_tile.append(_top_rows_from_png(slope_index))
+    var png_oracle_ok: bool = top_rows_by_tile.size() == SLOPE_COLS
+    for decoded_rows in top_rows_by_tile:
+        png_oracle_ok = png_oracle_ok and (decoded_rows as Array).size() == int(TILE_W_PX)
+    check(png_oracle_ok,
+        "slope_feet_y_matches_drawn_surface: all 7 slope PNGs decode to 32 columns")
+    if not png_oracle_ok:
+        _completed.append("slope_feet_y_matches_drawn_surface")
+        return
 
+    # Rebuild the tiles inject_simulator_hills emits, carrying the art-derived solid masks.
+    var slope_tiles: Array = []
+    for slope_index in range(SLOPE_COLS):
+        var world_col: int = SLOPE_START_COL + slope_index
+        var tile_row: int = GROUND_ROW - int(4 * slope_index / SLOPE_COLS)
+        slope_tiles.append(_tile_with_mask(world_col, tile_row, top_rows_by_tile[slope_index]))
+    var slope_ctx: Dictionary = _profile_from_tiles(slope_tiles)
+    var slope_profile: Array = slope_ctx["profile"]
+    var slope_left_px: float = float(slope_ctx["world_left_px"])
+
+    # Independent surface Y at a world pixel column: tile placement row plus the PNG's topmost
+    # solid row at that local column. No 4:7 ladder and no profile lookup in this derivation.
+    var fn_png_surface_y := func(world_pixel_x: int) -> float:
+        var slope_index: int = int(float(world_pixel_x - SLOPE_START_COL * int(TILE_W_PX)) / TILE_W_PX)
+        if slope_index < 0 or slope_index >= SLOPE_COLS:
+            return NAN
+        var local_col: int = world_pixel_x - (SLOPE_START_COL + slope_index) * int(TILE_W_PX)
+        var top_row: int = int(top_rows_by_tile[slope_index][local_col])
+        if top_row < 0:
+            return NAN
+        var tile_row: int = GROUND_ROW - int(4 * slope_index / SLOPE_COLS)
+        return float(tile_row * int(TILE_H_PX) + top_row)
+
+    # Sweep all 224 columns: the sampled profile must equal the PNG oracle within 1 px.
+    var sweep_start_px: int = SLOPE_START_COL * int(TILE_W_PX)
+    var sweep_end_px: int = sweep_start_px + SLOPE_COLS * int(TILE_W_PX)
+    var worst_profile_error_px: float = 0.0
+    for world_pixel_x in range(sweep_start_px, sweep_end_px):
+        var want_y: float = fn_png_surface_y.call(world_pixel_x)
+        var got_y: float = WorldView.ground_y_at(slope_profile, slope_left_px, float(world_pixel_x))
+        worst_profile_error_px = maxf(worst_profile_error_px, absf(got_y - want_y))
+    check(worst_profile_error_px <= 1.0,
+        "slope_feet_y_matches_drawn_surface: profile matches the PNG at every column (%.2f px, want <= 1)" % [
+            worst_profile_error_px])
+
+    # Second, hand-derived pin: the 7 seams and 7 centres must agree with the PNG oracle, so a
+    # bug shared by the decoder and the mask builder cannot pass.
+    var worst_hand_pin_error_px: float = 0.0
+    for slope_index in range(SLOPE_COLS):
+        var seam_x: int = (SLOPE_START_COL + slope_index) * int(TILE_W_PX)
+        var centre_x: int = seam_x + int(TILE_W_PX) / 2
+        worst_hand_pin_error_px = maxf(worst_hand_pin_error_px,
+            absf(fn_png_surface_y.call(seam_x) - float(SLOPE_SEAM_Y_PX[slope_index])))
+        worst_hand_pin_error_px = maxf(worst_hand_pin_error_px,
+            absf(fn_png_surface_y.call(centre_x) - float(SLOPE_CENTRE_Y_PX[slope_index])))
+    check(worst_hand_pin_error_px <= 1.0,
+        "slope_feet_y_matches_drawn_surface: hand-measured seams and centres agree with the art (%.2f px, want <= 1)" % [
+            worst_hand_pin_error_px])
+
+    # The 13 px notch at world column 61 is drawn art, not noise to smooth away.
+    var notch_px: float = absf(fn_png_surface_y.call((SLOPE_START_COL + 1) * int(TILE_W_PX))
+        - fn_png_surface_y.call((SLOPE_START_COL + 1) * int(TILE_W_PX) - 1))
+    check(is_equal_approx(notch_px, 13.0),
+        "slope_feet_y_matches_drawn_surface: 13 px notch at world column 61 (%.1f px)" % [notch_px])
+
+    # Seed at the run's first column centre and climb right: feet track the oracle every frame,
+    # with no half-tile hop. This is the smooth-climb acceptance line.
+    var first_centre_x: int = sweep_start_px + int(TILE_W_PX) / 2
     var slope_walker: Dictionary = _walker_hp(
-        float(SLOPE_START_COL) * TILE_W_PX + 16.0, GROUND_TOP_PX, true, 100.0, GROUND_TOP_PX)
-    var max_step_up: float = 0.0
-    var min_y: float = GROUND_TOP_PX
-    for step_index in range(90):
-        var prev_y: float = float(slope_walker.get("pos_y", 0.0))
+        float(first_centre_x), fn_png_surface_y.call(first_centre_x), true)
+    var worst_feet_error_px: float = 0.0
+    var max_frame_rise_px: float = 0.0
+    var walked_frames: int = 0
+    for frame_index in range(SETTLE_STEPS):
+        var previous_y: float = float(slope_walker.get("pos_y", 0.0))
         slope_walker = _step(slope_walker, 1.0, slope_ctx)
-        var current_y: float = float(slope_walker.get("pos_y", 0.0))
-        var step_up: float = prev_y - current_y
-        if step_up > max_step_up:
-            max_step_up = step_up
-        if current_y < min_y:
-            min_y = current_y
-    check(max_step_up < 16.0,
-        "slope_feet_y_matches_drawn_surface: no single-frame rise exceeds half a tile (%.1f, want < 16.0)" % [
-            max_step_up])
-    check(min_y < GROUND_TOP_PX - 1.0,
-        "slope_feet_y_matches_drawn_surface: walker actually rises above the start (%.1f, want < %.1f)" % [
-            min_y, GROUND_TOP_PX])
+        var walker_x: float = float(slope_walker.get("pos_x", 0.0))
+        var want_y: float = fn_png_surface_y.call(int(floor(walker_x)))
+        if is_nan(want_y):
+            break
+        var feet_y: float = float(slope_walker.get("pos_y", 0.0))
+        worst_feet_error_px = maxf(worst_feet_error_px, absf(feet_y - want_y))
+        max_frame_rise_px = maxf(max_frame_rise_px, previous_y - feet_y)
+        walked_frames += 1
+    check(walked_frames > 50,
+        "slope_feet_y_matches_drawn_surface: walker climbs the whole run (%d frames inside the run)" % [
+            walked_frames])
+    check(worst_feet_error_px <= 2.0,
+        "slope_feet_y_matches_drawn_surface: feet track the PNG art at every walked frame (%.2f px, want <= 2)" % [
+            worst_feet_error_px])
+    check(max_frame_rise_px < 16.0,
+        "slope_feet_y_matches_drawn_surface: no single-frame rise exceeds half a tile (%.1f px, want < 16)" % [
+            max_frame_rise_px])
     _completed.append("slope_feet_y_matches_drawn_surface")
