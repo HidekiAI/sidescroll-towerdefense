@@ -85,8 +85,9 @@ func _walker(pos_x: float, pos_y: float, grounded: bool) -> Dictionary:
     }
 
 
-func _profile_from_tiles(tiles: Array, tile_h_px: float = TILE_H_PX) -> Dictionary:
-    var result: Array = WorldView.build_ground_profile(tiles, tile_h_px)
+func _profile_from_tiles(tiles: Array, tile_w_px: float = TILE_W_PX,
+        tile_h_px: float = TILE_H_PX) -> Dictionary:
+    var result: Array = WorldView.build_ground_profile(tiles, tile_w_px, tile_h_px)
     return {"profile": result[0], "world_left_px": float(result[1]), "world_right_px": float(result[2])}
 
 
@@ -109,16 +110,6 @@ func _step_many(state: Dictionary, move_x: float, profile_ctx: Dictionary,
 
 
 # Walker with HP and fall tracking, so the hill tests can assert on the new keys.
-# TODO(human): #126 test layer scaffolding for walker_step - verify profile-based collision surface matching.
-# This test should eventually verify that the walker's pos_x/pos_y matches the continuous ground profile
-# derived from tile masks (solid_mask), not the legacy column table approach.
-# Sample test structure:
-# - test_mask_grid() -> builds a grid with solid_mask tiles
-# - solid_mask_surface_rule() -> verifies profile[0] = surface_y at tile left edge
-# - interior_air_below_surface_is_solid() -> verifies empty mask = all-solid behavior
-# - slope_feet_y_matches_drawn_surface() -> verifies max_step_up < 16.0 per frame
-#
-# TODO(human) end block.
 func _walker_hp(pos_x: float, pos_y: float, grounded: bool, hp: float = 100.0,
         fall_start_y: float = 0.0) -> Dictionary:
     return {
@@ -209,7 +200,7 @@ func _test_walker_step() -> void:
         {"world_tile_x": 0, "world_tile_y": 30, "is_walkable": false, "terrain": "air"},
         {"world_tile_x": 1, "world_tile_y": 30, "is_walkable": false, "terrain": "air"},
     ]
-    var ground_ctx: Dictionary = _profile_from_tiles(column_tiles, TILE_H_PX)
+    var ground_ctx: Dictionary = _profile_from_tiles(column_tiles)
     var ground_surface: float = WorldView.ground_y_at(
         ground_ctx["profile"], float(ground_ctx["world_left_px"]), 0.0)
     check(is_equal_approx(ground_surface, GROUND_TOP_PX),
@@ -229,7 +220,7 @@ func _test_walker_step() -> void:
     top_rows[5] = 7
     top_rows[6] = -1
     var mask_tile: Dictionary = _tile_with_mask(0, 1, top_rows)
-    var mask_ctx: Dictionary = _profile_from_tiles([mask_tile], TILE_H_PX)
+    var mask_ctx: Dictionary = _profile_from_tiles([mask_tile])
     check(is_equal_approx(WorldView.ground_y_at(mask_ctx["profile"], float(mask_ctx["world_left_px"]), 0.0), 32.0),
         "solid_mask_surface_rule: col 0 top row 0 => surface 32")
     check(is_equal_approx(WorldView.ground_y_at(mask_ctx["profile"], float(mask_ctx["world_left_px"]), 5.0), 39.0),
@@ -250,7 +241,7 @@ func _test_walker_step() -> void:
     var extra_bit: int = 6 * 32 + 3
     interior_mask[int(extra_bit / 8)] = int(interior_mask[int(extra_bit / 8)]) | (1 << (extra_bit % 8))
     var interior_tile: Dictionary = {"world_tile_x": 0, "world_tile_y": 0, "is_walkable": true, "terrain": "test", "solid_mask": interior_mask}
-    var interior_ctx: Dictionary = _profile_from_tiles([interior_tile], TILE_H_PX)
+    var interior_ctx: Dictionary = _profile_from_tiles([interior_tile])
     check(is_equal_approx(WorldView.ground_y_at(interior_ctx["profile"], float(interior_ctx["world_left_px"]), 3.0), 2.0),
         "interior_air_below_surface_is_solid: topmost solid row 2 wins over deeper solid row 6")
     _completed.append("interior_air_below_surface_is_solid")
