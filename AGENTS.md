@@ -16,7 +16,9 @@ file — a session started here must still get the full process contract.
 Workspace-level orientation (the two-repo layout, branch topology) lives one level up in
 `SSTD/AGENTS.md`. Session state of record lives in `docs/SESSION-CHECKPOINT.md`.
 
-## Interruption record (2026-11-24) - PENDING, not started
+## Interruption record (2026-11-24) - SUPERSEDED, design delivered and #149 closed
+
+Resolved 2026-11-24: the design-only deliverable shipped on wiki `master` as `TDD_Model-Migration-Rust` (issue #149 CLOSED), and `docs/SESSION-CHECKPOINT.md` CURRENT STATE is terminal ("nothing in flight"). The implementation ledger is section 8 of that TDD; open a new ticket before any migration code.
 
 @me interrupted the #126 close-out with a NEW design direction. Recorded here verbatim in intent so it survives a crash or session switch. Do NOT act on it inside the #126 session; finish #126 first (its closing comment still awaits @me's own wording), then start a fresh task/agent for this.
 
