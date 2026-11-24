@@ -482,8 +482,8 @@ func _test_walker_step() -> void:
     check(walked_frames > 50,
         "slope_feet_y_matches_drawn_surface: walker climbs the whole run (%d frames inside the run)" % [
             walked_frames])
-    check(worst_feet_error_px <= 2.0,
-        "slope_feet_y_matches_drawn_surface: feet track the PNG art at every walked frame (%.2f px, want <= 2)" % [
+    check(worst_feet_error_px <= 1.0,
+        "slope_feet_y_matches_drawn_surface: feet track the PNG art at every walked frame (%.2f px, want <= 1)" % [
             worst_feet_error_px])
     check(max_frame_rise_px < 16.0,
         "slope_feet_y_matches_drawn_surface: no single-frame rise exceeds half a tile (%.1f px, want < 16)" % [

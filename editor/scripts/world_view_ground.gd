@@ -17,6 +17,9 @@ func set_data(t: Array, g: Dictionary) -> void:
 # #126 step 8: every walkable tile draws its own sprite at its cell. The 4:7 polygon and the flat
 # rects are gone; the sprite alpha is the drawn surface AC1 compares feet against. A tile with an
 # empty terrain key or a missing PNG is skipped, and no draw call lowers a sprite's alpha.
+# Legacy hill_up/hill_down have no committed PNG, so on this sprite path they render blank instead
+# of the retired generic rect; the framework config no longer defines them and injected hills use
+# slope_up_* art. If a shipped world still needs those keys drawn, that is a separate follow-up.
 func _draw() -> void:
 	var tw: float = float(grid.get("tile_w", 64))
 	var th: float = float(grid.get("tile_h", 64))
