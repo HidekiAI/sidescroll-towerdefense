@@ -228,7 +228,7 @@ pub fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> GroundProfileS
 /// Sample the ground profile at a world pixel X position, with linear interpolation
 /// between the pixel column and the next.
 ///
-/// Returns `None` if the column is air (hole) or past the profile bounds.
+/// Returns `None` if the column is air (hole), the next column is air, or the position is past the profile bounds.
 // The snapshot owns its own origin, so callers pass one argument instead of a profile
 // plus a separate left edge. The interpolation math itself does not change.
 pub fn ground_y_at(snapshot: &GroundProfileSnapshot, pos_x: f64) -> Option<f64> {
