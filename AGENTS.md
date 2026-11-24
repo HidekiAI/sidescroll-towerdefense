@@ -189,7 +189,7 @@ Recorded 2026-09-07; ticketed and designed the same day.
   wiki `TDD_OpenRouter-Gateway.md` (AuthoringService gRPC service on the 8-service
   agent-action model; `sstd-openrouter` HTTP client for `POST /v1/images`; pure-Rust
   validation contracts for the tile pipeline + screen/world pipeline; `openrouter.*`
-  config domain population 006; `generation_log` journal; human approval gate;
+  config domain population 007; `generation_log` journal; human approval gate;
   budgets as credit-strings; testing plan) + `GDD_AI-Content-Workflows.md`
   (Slice A/B designer workflows, editorial guardrails). This entry stays as the
   durable handoff lever for that implementation.
