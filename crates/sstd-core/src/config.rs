@@ -23,6 +23,9 @@ struct Population {
     func: PopulateFn,
 }
 
+// Persisted token: it lands in `populations.id` and derives the schema version.
+const PHYSICS_POPULATION_ID: &str = "006";
+
 const POPULATIONS: &[Population] = &[
     Population {
         id: "001",
@@ -48,6 +51,13 @@ const POPULATIONS: &[Population] = &[
         id: "005",
         description: "Gacha rarity enum + guild revive cooldowns (issue #7 FK integrity)",
         func: populate_005,
+    },
+    // Physics tuning moves into config so the editor and the Rust model read one
+    // value; INSERT OR IGNORE in the population keeps an operator override intact.
+    Population {
+        id: PHYSICS_POPULATION_ID,
+        description: "Physics walker and fall-damage tuning",
+        func: populate_006,
     },
 ];
 
@@ -195,6 +205,25 @@ fn populate_005(conn: &Connection) -> SstdResult<()> {
         ",
     )
     .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+    Ok(())
+}
+
+// Physics tuning moves into config so the editor and the Rust model read one
+// value; INSERT OR IGNORE keeps an operator override intact when populations re-run.
+fn populate_006(conn: &Connection) -> SstdResult<()> {
+    let entries: [(&str, &str); 4] = [
+        ("physics.walker_speed_pps", "200.0"),
+        ("physics.walker_gravity_pps2", "980.0"),
+        ("physics.ground_snap_px", "16.0"),
+        ("physics.fall_damage_threshold_px", "32.0"),
+    ];
+    for (key, value) in &entries {
+        conn.execute(
+            "INSERT OR IGNORE INTO config (key, default_value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| crate::error::StorageError::Io(e.to_string()))?;
+    }
     Ok(())
 }
 
@@ -661,7 +690,7 @@ mod tests {
     fn test_config_store_in_memory() {
         let store = ConfigStore::in_memory().unwrap();
         let configs = store.all_config().unwrap();
-        assert_eq!(configs.len(), 30);
+        assert_eq!(configs.len(), 34);
     }
 
     #[test]
@@ -717,6 +746,7 @@ mod tests {
         assert!(pops.iter().any(|(id, _)| id == "003"));
         assert!(pops.iter().any(|(id, _)| id == "004"));
         assert!(pops.iter().any(|(id, _)| id == "005"));
+        assert!(pops.iter().any(|(id, _)| id == "006"));
     }
 
     #[test]
@@ -733,6 +763,28 @@ mod tests {
         assert_eq!(bonus, "0.15");
         let radius = store.get_str("luck.aura_radius").unwrap();
         assert_eq!(radius, "3");
+    }
+
+    #[test]
+    fn test_physics_keys_seeded() {
+        let store = ConfigStore::in_memory().unwrap();
+        let configs = store.all_config().unwrap();
+        let physics_keys: Vec<String> = configs
+            .iter()
+            .filter(|(k, _)| k.starts_with("physics."))
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(physics_keys.len(), 4);
+        assert_eq!(store.get_str("physics.walker_speed_pps").unwrap(), "200.0");
+        assert_eq!(
+            store.get_str("physics.walker_gravity_pps2").unwrap(),
+            "980.0"
+        );
+        assert_eq!(store.get_str("physics.ground_snap_px").unwrap(), "16.0");
+        assert_eq!(
+            store.get_str("physics.fall_damage_threshold_px").unwrap(),
+            "32.0"
+        );
     }
 
     #[test]
@@ -908,7 +960,7 @@ mod tests {
     fn test_schema_version_after_population() {
         let store = ConfigStore::in_memory().unwrap();
         let ver = store.get_meta("schema_version").unwrap();
-        assert_eq!(ver, "0.0.5");
+        assert_eq!(ver, "0.0.6");
     }
 
     #[test]
