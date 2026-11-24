@@ -1028,3 +1028,31 @@ switches.
 
 Never use Python for any purpose — not scripts, one-liners, data inspection, or JSON
 parsing. Use Rust, `jq`, or GDScript instead.
+
+## Side note recorded mid-#161 (2026-11-24) - DO NOT act on it inside the current task
+
+@me interjected a new direction while S1 (physics config population `006`) of issue #161 was
+in flight. Recorded here verbatim in intent so it survives a crash or session switch; it is
+NOT part of #161 and must be handled in a separate task/agent after the current step is
+brought to a documented state:
+
+> "take 'slope_grass_30deg_4x2.tres' to (firstly) convert to grids and tiles (whatever pixel
+> dimension defined in config), then (secondly) silouette (i.e. to greyscale, etc) to generate
+> collision based tiles, lastly overlay the collision alpha to the newly converted
+> slope_gress_30deg_4x2.tres for our usage, and save it world.zip (or whatever we now do to
+> bundle and make it persisted as default terrain for distributions)"
+
+Intent: a three-stage pipeline over the grass slope TileSetGrouping resource - (1) expand the
+group into grid cells and tile PNGs at the config-defined tile size, (2) derive greyscale /
+silhouette masks into collision tiles, (3) overlay the collision alpha onto the regenerated
+`.tres` for use, then persist the result as the default terrain in the current world bundle
+(`world.zip` or the mechanism that now replaces it). Known context to carry into that task:
+`TileSetGrouping` (`scripts/resources/tile_set_grouping.gd`) owns `key`, `width_tiles` /
+`height_tiles`, `tiles[]` and `resolve()`; tile size comes from `grid.tile_width_in_pixels` /
+`grid.tile_height_in_pixels` in the config DB; collision derivation already has a proven
+bottom-row-anchor path in `tools/import-tiles` (`derive_solid_mask` / `flag_unresolved`) and
+the 7 committed `slope_up_{0..6}_32x32.png` greys are MEASURED in the slope section above;
+world bundling is currently the `.zip` path described in "World Files & Override Deltas".
+Ticket-First applies: create/identify an issue and document the approach before code, and
+confirm whether "default terrain for distributions" means the committed `default_package/`
+or the user-data world bundle before choosing where to save.
