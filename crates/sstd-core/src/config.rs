@@ -52,8 +52,8 @@ const POPULATIONS: &[Population] = &[
         description: "Gacha rarity enum + guild revive cooldowns (issue #7 FK integrity)",
         func: populate_005,
     },
-    // Physics tuning moves into config so the editor and the Rust model read one
-    // value; INSERT OR IGNORE in the population keeps an operator override intact.
+    // Seeds the physics keys in config; INSERT OR IGNORE keeps an operator override intact.
+    // Neither the editor nor `physics.rs` loads them yet - this is the seed, not the shared runtime source.
     Population {
         id: PHYSICS_POPULATION_ID,
         description: "Physics walker and fall-damage tuning",
@@ -208,8 +208,8 @@ fn populate_005(conn: &Connection) -> SstdResult<()> {
     Ok(())
 }
 
-// Physics tuning moves into config so the editor and the Rust model read one
-// value; INSERT OR IGNORE keeps an operator override intact when populations re-run.
+// INSERT OR IGNORE keeps an operator override intact when populations re-run.
+// Loading these values into the stepper is a later mini-step, not this seed.
 fn populate_006(conn: &Connection) -> SstdResult<()> {
     let entries: [(&str, &str); 4] = [
         ("physics.walker_speed_pps", "200.0"),
@@ -771,8 +771,8 @@ mod tests {
         let configs = store.all_config().unwrap();
         let physics_keys: Vec<String> = configs
             .iter()
-            .filter(|(k, _)| k.starts_with("physics."))
-            .map(|(k, _)| k.clone())
+            .filter(|(config_key, _)| config_key.starts_with("physics."))
+            .map(|(config_key, _)| config_key.clone())
             .collect();
         assert_eq!(physics_keys.len(), 4);
         assert_eq!(store.get_str("physics.walker_speed_pps").unwrap(), "200.0");

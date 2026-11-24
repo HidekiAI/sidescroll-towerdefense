@@ -131,8 +131,9 @@ fn fall_damage_points(fall_start_y: f64, landing_y: f64) -> Option<f64> {
     (landing_y - fall_start_y > FALL_DAMAGE_THRESHOLD_PX).then_some(FALL_DAMAGE_POINTS)
 }
 
-// The bridge and the Model share one named wire shape: a snapshot carries the world-pixel
-// bounds next to the per-pixel-column surface Ys, so no caller unpacks a bare tuple.
+// One named shape carries the world-pixel bounds beside the per-pixel-column surface Ys,
+// so callers do not unpack a bare tuple. The GDScript path still owns movement today;
+// exposing the shape is the first step toward the bridge consuming it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroundProfileSnapshot {
     pub world_left_px: f64,
@@ -151,7 +152,7 @@ pub struct GroundProfileSnapshot {
 /// bit in each pixel column determines the surface; if no bit is set in a column, that
 /// tile contributes no surface for that column.
 // One named return type replaces the bare tuple, so the bounds travel with the profile.
-fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> GroundProfileSnapshot {
+pub fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> GroundProfileSnapshot {
     let (world_left_px, world_right_px) = world_bounds_px(tiles, grid);
     let tile_w_px = grid.tile_w;
     let tile_h_px = grid.tile_h;
@@ -230,7 +231,7 @@ fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> GroundProfileSnaps
 /// Returns `None` if the column is air (hole) or past the profile bounds.
 // The snapshot owns its own origin, so callers pass one argument instead of a profile
 // plus a separate left edge. The interpolation math itself does not change.
-fn ground_y_at(snapshot: &GroundProfileSnapshot, pos_x: f64) -> Option<f64> {
+pub fn ground_y_at(snapshot: &GroundProfileSnapshot, pos_x: f64) -> Option<f64> {
     let profile = &snapshot.surface_y_by_column;
     let col = pos_x.floor() as i32;
     let left = snapshot.world_left_px.floor() as i32;
@@ -741,6 +742,7 @@ mod tests {
     }
 
     const TEST_MASK_TILE_PX: f64 = 32.0;
+    const TEST_GAP_SURFACE_ROW: u32 = 4;
 
     fn test_mask_grid() -> GridConfig {
         GridConfig {
@@ -809,16 +811,20 @@ mod tests {
     #[test]
     fn snapshot_builder_exposes_named_shape() {
         let grid = test_mask_grid();
-        let tiles = vec![flat_mask_tile(1, 2, 10)];
+        const PROFILE_SURFACE_ROW: u32 = 10;
+        let tiles = vec![flat_mask_tile(1, 2, PROFILE_SURFACE_ROW)];
         let snapshot = build_ground_profile(&tiles, &grid);
-        assert_eq!(snapshot.world_left_px, TEST_MASK_TILE_PX as f64);
+        assert_eq!(snapshot.world_left_px, TEST_MASK_TILE_PX);
         // The right bound is the last tile's LEFT edge, not its right edge (today's contract).
-        assert_eq!(snapshot.world_right_px, TEST_MASK_TILE_PX as f64);
+        assert_eq!(snapshot.world_right_px, TEST_MASK_TILE_PX);
         assert_eq!(
             snapshot.surface_y_by_column.len(),
             TEST_MASK_TILE_PX as usize
         );
-        assert_eq!(snapshot.surface_y_by_column[0], Some(74.0));
+        assert_eq!(
+            snapshot.surface_y_by_column[0],
+            Some(2.0 * TEST_MASK_TILE_PX + f64::from(PROFILE_SURFACE_ROW))
+        );
     }
 
     #[test]
@@ -834,10 +840,14 @@ mod tests {
     fn snapshot_sampler_reports_an_air_column_as_none() {
         let grid = test_mask_grid();
         // Tiles at world columns 0 and 2 leave world pixels 32..63 without a surface.
-        let tiles = vec![flat_mask_tile(0, 0, 4), flat_mask_tile(2, 0, 4)];
+        let tiles = vec![
+            flat_mask_tile(0, 0, TEST_GAP_SURFACE_ROW),
+            flat_mask_tile(2, 0, TEST_GAP_SURFACE_ROW),
+        ];
         let snapshot = build_ground_profile(&tiles, &grid);
-        assert_eq!(snapshot.surface_y_by_column[40], None);
-        assert_eq!(ground_y_at(&snapshot, 40.5), None);
+        let gap_start_column = TEST_MASK_TILE_PX as usize;
+        assert_eq!(snapshot.surface_y_by_column[gap_start_column], None);
+        assert_eq!(ground_y_at(&snapshot, TEST_MASK_TILE_PX + 0.5), None);
     }
 
     #[test]
@@ -845,20 +855,33 @@ mod tests {
         // Today's Rust contract: a solid pixel whose next pixel is air samples as `None`.
         // GDScript holds the plateau at `world_view.gd:604-624`; aligning it needs its own ticket.
         let grid = test_mask_grid();
-        let tiles = vec![flat_mask_tile(0, 0, 4), flat_mask_tile(2, 0, 4)];
+        let tiles = vec![
+            flat_mask_tile(0, 0, TEST_GAP_SURFACE_ROW),
+            flat_mask_tile(2, 0, TEST_GAP_SURFACE_ROW),
+        ];
         let snapshot = build_ground_profile(&tiles, &grid);
-        assert_eq!(snapshot.surface_y_by_column[31], Some(4.0));
-        assert_eq!(ground_y_at(&snapshot, 31.5), None);
+        let last_solid_column = TEST_MASK_TILE_PX as usize - 1;
+        assert_eq!(
+            snapshot.surface_y_by_column[last_solid_column],
+            Some(f64::from(TEST_GAP_SURFACE_ROW))
+        );
+        assert_eq!(ground_y_at(&snapshot, TEST_MASK_TILE_PX - 0.5), None);
     }
 
     #[test]
     fn snapshot_wire_shape_uses_null_for_air_columns() {
         let grid = test_mask_grid();
-        let tiles = vec![flat_mask_tile(0, 0, 4), flat_mask_tile(2, 0, 4)];
+        let tiles = vec![
+            flat_mask_tile(0, 0, TEST_GAP_SURFACE_ROW),
+            flat_mask_tile(2, 0, TEST_GAP_SURFACE_ROW),
+        ];
         let snapshot = build_ground_profile(&tiles, &grid);
         let wire: serde_json::Value = serde_json::to_value(&snapshot).unwrap();
         // The first tile owns columns 0..32; the gap starts exactly one tile width in.
-        assert_eq!(wire["surface_y_by_column"][0], serde_json::Value::from(4.0));
+        assert_eq!(
+            wire["surface_y_by_column"][0],
+            serde_json::Value::from(f64::from(TEST_GAP_SURFACE_ROW))
+        );
         assert!(wire["surface_y_by_column"][TEST_MASK_TILE_PX as usize].is_null());
         let decoded: GroundProfileSnapshot = serde_json::from_value(wire).unwrap();
         assert_eq!(decoded, snapshot);
