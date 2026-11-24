@@ -16,6 +16,21 @@ file — a session started here must still get the full process contract.
 Workspace-level orientation (the two-repo layout, branch topology) lives one level up in
 `SSTD/AGENTS.md`. Session state of record lives in `docs/SESSION-CHECKPOINT.md`.
 
+## Interruption record (2026-11-24) - PENDING, not started
+
+@me interrupted the #126 close-out with a NEW design direction. Recorded here verbatim in intent so it survives a crash or session switch. Do NOT act on it inside the #126 session; finish #126 first (its closing comment still awaits @me's own wording), then start a fresh task/agent for this.
+
+> "can we now place the key logics that aren't 'View' (on C.M.V.) on rust side? I imagine model will be on rust side, but transformed to GDScript to-from on GDScript (perhaps create a GDScript DAO'ish classes to transform?) and control via gRPC (or at least, via API); key is abstractions; go ahead and design TDD, in an attempt to move Physics and Terrain characteristics (models) towards rust-side. If this means we'll need a separate GDScript Tool that will preprocess ART -> DATA -> rust-model, so be it"
+
+Scope of the requested follow-up (not yet designed, not yet ticketed):
+- Objective: move Model responsibilities (Physics, Terrain characteristics) to the Rust side of C.M.V.; leave View in GDScript.
+- Control: gRPC preferred, or at minimum an API surface. Abstractions are the point.
+- Data bridge: GDScript <-> Rust transformation, possibly GDScript DAO-ish wrapper classes.
+- Possibly a separate GDScript tool: ART -> DATA -> Rust model preprocessing.
+- Deliverable asked for: a TDD design (wiki repo), BEFORE any code. Ticket first per the Ticket-First Rule.
+
+Relevant lesson supplied with the interruption (shared DB id `01M78GC563G13ZCHP5VXAHGHSW`): Godot `JSON.stringify` writes float Variants as `15.0` and serde `u8`/`i32` rejects them. Any GDScript-to-Rust transform must coerce integer fields to `int` before stringify, keep a `deserialize_with` reader tolerant of integral floats, and re-save artifacts already polluted. Treat this as a design constraint on the proposed DAO layer, not as a fix to apply here.
+
 ## Session Progress Checkpoint (permanent)
 
 The user may switch sessions mid-task at any time, and may also **abandon a
