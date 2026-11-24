@@ -31,6 +31,8 @@ Scope of the requested follow-up (not yet designed, not yet ticketed):
 
 Relevant lesson supplied with the interruption (shared DB id `01M78GC563G13ZCHP5VXAHGHSW`): Godot `JSON.stringify` writes float Variants as `15.0` and serde `u8`/`i32` rejects them. Any GDScript-to-Rust transform must coerce integer fields to `int` before stringify, keep a `deserialize_with` reader tolerant of integral floats, and re-save artifacts already polluted. Treat this as a design constraint on the proposed DAO layer, not as a fix to apply here.
 
+Authorisation update (same day, after @me confirmed the C.M.V. separation is already documented): "OK, as long as we have the separation documented, all's well, proceed to next plannings and documentations to migrate gdscript logic to rust". This green-lights the planning and wiki TDD work for the migration, NOT code changes. Still gated on the in-flight #126 close-out (closing comment wording + checkpoint refresh); do not branch into the design mid-close. When starting it: Ticket-First Rule applies (create/identify the GitHub issue and document design, approach and scope in its body before any TDD or code), the TDD belongs in the wiki `TechnicalDesign/` repo, and `Home.md` plus wiki `TODO.md` must gain entries in the same commit.
+
 ## Session Progress Checkpoint (permanent)
 
 The user may switch sessions mid-task at any time, and may also **abandon a
