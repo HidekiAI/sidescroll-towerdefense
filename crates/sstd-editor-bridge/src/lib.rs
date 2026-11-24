@@ -249,6 +249,18 @@ impl SstdBridge {
         GString::from(walk_step_impl(&request_json.to_string()).as_str())
     }
 
+    /// Build a ground-profile snapshot from GDScript's JSON tile payload.
+    #[func]
+    fn build_ground_profile(&self, request_json: GString) -> GString {
+        GString::from(build_ground_profile_impl(&request_json.to_string()).as_str())
+    }
+
+    /// Sample a serialized ground-profile snapshot at a world pixel X.
+    #[func]
+    fn ground_y_at(&self, request_json: GString) -> GString {
+        GString::from(ground_y_at_impl(&request_json.to_string()).as_str())
+    }
+
     #[func]
     fn poll_grpc_commands(&mut self) -> i32 {
         let mut handled = 0;
@@ -2326,6 +2338,131 @@ mod tests {
             "tile payload with solid_mask must step, got {response_with_mask}"
         );
     }
+
+    // Bridge seam for the ground snapshot: pure functions with no shared state, so no concurrent
+    // race can interleave a partial profile. Only the deterministic back-to-back repeat needs
+    // pinning.
+    const BRIDGE_TEST_TILE_PX: f64 = 32.0;
+    const BRIDGE_TEST_TILE_COUNT: i32 = 7;
+    // The mask's top four pixel rows stay air, so the builder's first solid bit sits on row four.
+    const BRIDGE_TEST_AIR_ROWS: u32 = 4;
+
+    // Derive the mask shape and each tile's origin from the same tile size and air rows the
+    // assertion uses, so a fixture change cannot silently move the expected surface under it.
+    fn profile_request_json() -> serde_json::Value {
+        // One bit per pixel, row-major: bytes before the first solid row are clear, the rest set.
+        let fn_solid_mask = || {
+            const MASK_BYTES: usize =
+                (BRIDGE_TEST_TILE_PX as usize * BRIDGE_TEST_TILE_PX as usize) / 8;
+            const AIR_BYTES: usize =
+                (BRIDGE_TEST_AIR_ROWS as usize * BRIDGE_TEST_TILE_PX as usize) / 8;
+            (0..MASK_BYTES)
+                .map(|byte_index| if byte_index < AIR_BYTES { 0 } else { u8::MAX })
+                .collect::<Vec<u8>>()
+        };
+        serde_json::json!({
+            "grid": {"tile_w": BRIDGE_TEST_TILE_PX, "tile_h": BRIDGE_TEST_TILE_PX},
+            "tiles": (0..BRIDGE_TEST_TILE_COUNT)
+                .map(|world_tile_col| serde_json::json!({
+                    "world_tile_x": world_tile_col,
+                    "world_tile_y": world_tile_col,
+                    "is_walkable": true,
+                    "solid_mask": fn_solid_mask()
+                }))
+                .collect::<Vec<_>>()
+        })
+    }
+
+    #[test]
+    fn bridge_profile_round_trips_every_column() {
+        let response: serde_json::Value = serde_json::from_str(&build_ground_profile_impl(
+            &profile_request_json().to_string(),
+        ))
+        .expect("the bridge always returns json");
+        assert!(
+            response.get("error").is_none(),
+            "unexpected error: {response}"
+        );
+        assert_eq!(response["world_left_px"], serde_json::json!(0.0));
+        assert_eq!(
+            response["world_right_px"],
+            serde_json::json!((BRIDGE_TEST_TILE_COUNT - 1) as f64 * BRIDGE_TEST_TILE_PX)
+        );
+        let columns = response["surface_y_by_column"]
+            .as_array()
+            .expect("surface_y_by_column must be an array");
+        // The builder covers the last tile's right edge, so the width spans every tile width.
+        let expected_width = (BRIDGE_TEST_TILE_COUNT as f64 * BRIDGE_TEST_TILE_PX) as usize;
+        assert_eq!(columns.len(), expected_width);
+        // Each fixture tile sits one tile-row lower than the previous and its first solid row is
+        // the fifth, so the surface steps by one tile height at every tile boundary.
+        let fn_expected_surface = |world_pixel_col: usize| -> f64 {
+            let world_tile_col = world_pixel_col / BRIDGE_TEST_TILE_PX as usize;
+            world_tile_col as f64 * BRIDGE_TEST_TILE_PX + BRIDGE_TEST_AIR_ROWS as f64
+        };
+        assert!(
+            columns
+                .iter()
+                .enumerate()
+                .all(|(world_pixel_col, surface)| {
+                    surface.as_f64() == Some(fn_expected_surface(world_pixel_col))
+                }),
+            "each column must carry its own tile's masked surface, got {columns:?}"
+        );
+    }
+
+    #[test]
+    fn bridge_profile_is_identical_on_two_calls() {
+        let request = profile_request_json().to_string();
+        let first = build_ground_profile_impl(&request);
+        let second = build_ground_profile_impl(&request);
+        assert_eq!(first, second, "a pure builder must not change across calls");
+    }
+
+    #[test]
+    fn bridge_ground_y_interpolates_between_columns() {
+        let request = serde_json::json!({
+            "profile": {
+                "world_left_px": 0.0,
+                "world_right_px": 32.0,
+                "surface_y_by_column": [10.0, 20.0]
+            },
+            "pos_x": 0.5
+        });
+        let response: serde_json::Value =
+            serde_json::from_str(&ground_y_at_impl(&request.to_string()))
+                .expect("the bridge always returns json");
+        assert_eq!(response, serde_json::json!({"y": 15.0}));
+    }
+
+    #[test]
+    fn bridge_ground_y_keeps_an_air_column_null() {
+        let request = serde_json::json!({
+            "profile": {
+                "world_left_px": 0.0,
+                "world_right_px": 32.0,
+                "surface_y_by_column": [10.0, null]
+            },
+            "pos_x": 1.0
+        });
+        let response: serde_json::Value =
+            serde_json::from_str(&ground_y_at_impl(&request.to_string()))
+                .expect("the bridge always returns json");
+        assert_eq!(response, serde_json::json!({ "y": null }));
+    }
+
+    #[test]
+    fn bridge_ground_y_reports_a_malformed_request() {
+        let response: serde_json::Value = serde_json::from_str(&ground_y_at_impl("{not json"))
+            .expect("the bridge always returns json");
+        assert!(
+            response
+                .get("error")
+                .and_then(|value| value.as_str())
+                .is_some(),
+            "a malformed request must be reported, got {response}"
+        );
+    }
 }
 
 // --- ground/walk (issue #122) ---
@@ -2395,4 +2532,57 @@ fn walk_step_impl(req_json: &str) -> String {
         phys::DEFAULT_AVATAR_SPEED_PPS,
     );
     json::json!({ "walker": out }).to_string()
+}
+
+// --- ground profile bridge seam ---
+// These wire structs stay private to Control: they parse the GDScript payload at the boundary and
+// never leak into core. `WalkGrid`/`WalkTile` are reused so one tile payload keeps one shape.
+#[derive(serde::Deserialize)]
+struct BuildGroundProfileReq {
+    grid: WalkGrid,
+    tiles: Vec<WalkTile>,
+}
+
+#[derive(serde::Deserialize)]
+struct GroundYAtReq {
+    profile: phys::GroundProfileSnapshot,
+    pos_x: f64,
+}
+
+// Parse at the boundary with the same error-shape idiom as `walk_step_impl`; the core builder owns
+// every profile calculation (2 guards: round-trip, back-to-back repeat).
+// build a snapshot from the JSON request
+fn build_ground_profile_impl(req_json: &str) -> String {
+    // A bad payload is reported as JSON rather than panicking the extension.
+    let req: BuildGroundProfileReq = match json::from_str(req_json) {
+        Ok(value) => value,
+        Err(error) => return json::json!({"error": error.to_string()}).to_string(),
+    };
+    // Map the wire tile to the core tile; the mask and walkability travel through unchanged.
+    let fn_core_tile = |wire: WalkTile| phys::Tile {
+        world_tile_x: wire.world_tile_x,
+        world_tile_y: wire.world_tile_y,
+        is_walkable: wire.is_walkable,
+        solid_mask: wire.solid_mask,
+    };
+    let tiles: Vec<phys::Tile> = req.tiles.into_iter().map(fn_core_tile).collect();
+    let grid = phys::GridConfig {
+        tile_w: req.grid.tile_w,
+        tile_h: req.grid.tile_h,
+    };
+    // Serialize the snapshot directly: serde carries air columns as JSON null.
+    json::json!(phys::build_ground_profile(&tiles, &grid)).to_string()
+}
+
+// The snapshot deserializes straight into the core type, so the sampler stays the single owner of
+// interpolation and the null rule (3 guards: interpolate, air column, malformed request).
+// sample a serialized snapshot at a pixel X
+fn ground_y_at_impl(req_json: &str) -> String {
+    // A bad payload is reported as JSON rather than panicking the extension.
+    let req: GroundYAtReq = match json::from_str(req_json) {
+        Ok(value) => value,
+        Err(error) => return json::json!({"error": error.to_string()}).to_string(),
+    };
+    // Option<f64> serializes as f64 or null, so no conversion is needed at this boundary.
+    json::json!({ "y": phys::ground_y_at(&req.profile, req.pos_x) }).to_string()
 }
