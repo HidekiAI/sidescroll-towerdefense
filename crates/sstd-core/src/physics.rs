@@ -131,9 +131,18 @@ fn fall_damage_points(fall_start_y: f64, landing_y: f64) -> Option<f64> {
     (landing_y - fall_start_y > FALL_DAMAGE_THRESHOLD_PX).then_some(FALL_DAMAGE_POINTS)
 }
 
+// The bridge and the Model share one named wire shape: a snapshot carries the world-pixel
+// bounds next to the per-pixel-column surface Ys, so no caller unpacks a bare tuple.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GroundProfileSnapshot {
+    pub world_left_px: f64,
+    pub world_right_px: f64,
+    pub surface_y_by_column: Vec<Option<f64>>,
+}
+
 /// Build the per-pixel-column ground profile from tiles and their solid_masks.
 ///
-/// Returns `(profile, world_left_px)` where `profile[i]` is the surface Y at pixel column
+/// In the returned snapshot, `surface_y_by_column[i]` is the surface Y at pixel column
 /// `(world_left_px + i as f64)`, or `None` if that column is fully air (no walkable tile
 /// with a solid pixel in that column).
 ///
@@ -141,7 +150,8 @@ fn fall_damage_points(fall_start_y: f64, landing_y: f64) -> Option<f64> {
 /// framework tiles that predate the mask tool). For a tile with a mask, the topmost set
 /// bit in each pixel column determines the surface; if no bit is set in a column, that
 /// tile contributes no surface for that column.
-fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> (Vec<Option<f64>>, f64, f64) {
+// One named return type replaces the bare tuple, so the bounds travel with the profile.
+fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> GroundProfileSnapshot {
     let (world_left_px, world_right_px) = world_bounds_px(tiles, grid);
     let tile_w_px = grid.tile_w;
     let tile_h_px = grid.tile_h;
@@ -205,16 +215,25 @@ fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> (Vec<Option<f64>>,
             }
         }
     }
-    (profile, world_left_px, world_right_px)
+    // Bundle the three values into the named snapshot; the two bounds describe the
+    // pixel-column domain that `surface_y_by_column` indexes into.
+    GroundProfileSnapshot {
+        world_left_px,
+        world_right_px,
+        surface_y_by_column: profile,
+    }
 }
 
 /// Sample the ground profile at a world pixel X position, with linear interpolation
 /// between the pixel column and the next.
 ///
 /// Returns `None` if the column is air (hole) or past the profile bounds.
-fn ground_y_at(profile: &[Option<f64>], world_left_px: f64, pos_x: f64) -> Option<f64> {
+// The snapshot owns its own origin, so callers pass one argument instead of a profile
+// plus a separate left edge. The interpolation math itself does not change.
+fn ground_y_at(snapshot: &GroundProfileSnapshot, pos_x: f64) -> Option<f64> {
+    let profile = &snapshot.surface_y_by_column;
     let col = pos_x.floor() as i32;
-    let left = world_left_px.floor() as i32;
+    let left = snapshot.world_left_px.floor() as i32;
     let idx = col - left;
     if idx < 0 || idx >= profile.len() as i32 {
         return None;
@@ -284,18 +303,19 @@ pub fn step_walker(
     let vel_y_after_gravity = state.vel_y + GRAVITY_PPS2 * frame_seconds;
     let feet_now_y = feet_was_y + vel_y_after_gravity * frame_seconds;
 
-    let (profile, world_left_px, world_right_px) = build_ground_profile(tiles, grid);
-    let proposed_pos_x =
-        (state.pos_x + move_speed_pps * frame_seconds).clamp(world_left_px, world_right_px);
+    // The stepper keeps its own state machine; only the profile plumbing changes to the
+    // named snapshot, whose bounds drive the clamp and whose sampler takes one argument.
+    let snapshot = build_ground_profile(tiles, grid);
+    let proposed_pos_x = (state.pos_x + move_speed_pps * frame_seconds)
+        .clamp(snapshot.world_left_px, snapshot.world_right_px);
 
     // A pixel column holding no walkable solid content has no surface, so a grounded walker stepping
     // into it would fall exactly as if it were a pit. Refuse the step by staying on the previous pixel.
     // An ungrounded walker keeps moving (it is already falling), and a walker that does not move is
     // unaffected. Refusing rather than clamping to the column edge keeps this direction-agnostic:
     // the walker is at most one frame of travel from the boundary, so no visible gap opens.
-    let stepping_into_hole = move_axis != 0.0
-        && state.grounded
-        && ground_y_at(&profile, world_left_px, proposed_pos_x).is_none();
+    let stepping_into_hole =
+        move_axis != 0.0 && state.grounded && ground_y_at(&snapshot, proposed_pos_x).is_none();
     let pos_x = if stepping_into_hole {
         state.pos_x
     } else {
@@ -303,7 +323,7 @@ pub fn step_walker(
     };
 
     // Surface at the walker's current pixel column (topmost solid bit of the overlapping tiles).
-    let surface_y = ground_y_at(&profile, world_left_px, pos_x);
+    let surface_y = ground_y_at(&snapshot, pos_x);
 
     let contact = match surface_y {
         Some(surface_y) => {
@@ -766,11 +786,11 @@ mod tests {
         let grid = test_mask_grid();
         // A tile at (1, row 2) with surface at row 10: topmost solid row = 10 for every column.
         let tiles = vec![flat_mask_tile(1, 2, 10)];
-        let (profile, _left, _right) = build_ground_profile(&tiles, &grid);
+        let snapshot = build_ground_profile(&tiles, &grid);
         // Column under the tile's left edge (global pixel 32): local index = 0 because
         // world_left_px == tile_left_px == 32.
         // surface_y = world_tile_y * tile_h + top_row(PIXEL row) = 2 * 32 + 10 = 74.
-        assert_eq!(profile[0].unwrap(), 2.0 * 32.0 + 10.0);
+        assert_eq!(snapshot.surface_y_by_column[0].unwrap(), 2.0 * 32.0 + 10.0);
     }
 
     #[test]
@@ -778,10 +798,69 @@ mod tests {
         // Legacy tile (empty mask) is all-solid; masked topmost bit rule tested elsewhere.
         let tiles = flat_ground(&[0, 1], TEST_GROUND_ROW);
         let grid = test_grid();
-        let (profile, _left, _right) = build_ground_profile(&tiles, &grid);
+        let snapshot = build_ground_profile(&tiles, &grid);
+        let profile = &snapshot.surface_y_by_column;
         // Column 0 is solid at row TEST_GROUND_ROW.
         assert_eq!(profile[0], Some(TEST_GROUND_ROW as f64 * TEST_TILE_PX));
         // Column 100 (inside second tile) also solid at same row.
         assert_eq!(profile[100], Some(TEST_GROUND_ROW as f64 * TEST_TILE_PX));
+    }
+
+    #[test]
+    fn snapshot_builder_exposes_named_shape() {
+        let grid = test_mask_grid();
+        let tiles = vec![flat_mask_tile(1, 2, 10)];
+        let snapshot = build_ground_profile(&tiles, &grid);
+        assert_eq!(snapshot.world_left_px, TEST_MASK_TILE_PX as f64);
+        // The right bound is the last tile's LEFT edge, not its right edge (today's contract).
+        assert_eq!(snapshot.world_right_px, TEST_MASK_TILE_PX as f64);
+        assert_eq!(
+            snapshot.surface_y_by_column.len(),
+            TEST_MASK_TILE_PX as usize
+        );
+        assert_eq!(snapshot.surface_y_by_column[0], Some(74.0));
+    }
+
+    #[test]
+    fn snapshot_sampler_interpolates_between_columns() {
+        let grid = test_mask_grid();
+        let tiles = vec![ramp_tile(0, 0, 0, 31)];
+        let snapshot = build_ground_profile(&tiles, &grid);
+        // Column 0 tops out at row 0, column 1 at row 1; half a pixel in gives 0.5.
+        assert_eq!(ground_y_at(&snapshot, 0.5), Some(0.5));
+    }
+
+    #[test]
+    fn snapshot_sampler_reports_an_air_column_as_none() {
+        let grid = test_mask_grid();
+        // Tiles at world columns 0 and 2 leave world pixels 32..63 without a surface.
+        let tiles = vec![flat_mask_tile(0, 0, 4), flat_mask_tile(2, 0, 4)];
+        let snapshot = build_ground_profile(&tiles, &grid);
+        assert_eq!(snapshot.surface_y_by_column[40], None);
+        assert_eq!(ground_y_at(&snapshot, 40.5), None);
+    }
+
+    #[test]
+    fn snapshot_sampler_ends_a_solid_run_at_a_gap() {
+        // Today's Rust contract: a solid pixel whose next pixel is air samples as `None`.
+        // GDScript holds the plateau at `world_view.gd:604-624`; aligning it needs its own ticket.
+        let grid = test_mask_grid();
+        let tiles = vec![flat_mask_tile(0, 0, 4), flat_mask_tile(2, 0, 4)];
+        let snapshot = build_ground_profile(&tiles, &grid);
+        assert_eq!(snapshot.surface_y_by_column[31], Some(4.0));
+        assert_eq!(ground_y_at(&snapshot, 31.5), None);
+    }
+
+    #[test]
+    fn snapshot_wire_shape_uses_null_for_air_columns() {
+        let grid = test_mask_grid();
+        let tiles = vec![flat_mask_tile(0, 0, 4), flat_mask_tile(2, 0, 4)];
+        let snapshot = build_ground_profile(&tiles, &grid);
+        let wire: serde_json::Value = serde_json::to_value(&snapshot).unwrap();
+        // The first tile owns columns 0..32; the gap starts exactly one tile width in.
+        assert_eq!(wire["surface_y_by_column"][0], serde_json::Value::from(4.0));
+        assert!(wire["surface_y_by_column"][TEST_MASK_TILE_PX as usize].is_null());
+        let decoded: GroundProfileSnapshot = serde_json::from_value(wire).unwrap();
+        assert_eq!(decoded, snapshot);
     }
 }

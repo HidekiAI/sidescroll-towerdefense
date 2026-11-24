@@ -1056,3 +1056,11 @@ world bundling is currently the `.zip` path described in "World Files & Override
 Ticket-First applies: create/identify an issue and document the approach before code, and
 confirm whether "default terrain for distributions" means the committed `default_package/`
 or the user-data world bundle before choosing where to save.
+
+## Mini-step labels must never stand alone (2026-11-24)
+
+When briefing @me, never use a bare `S1`, `S2`, and so on as the name of the work. Name the work
+itself first, then put the label in parentheses as a cross-reference only, for example
+"expose a public ground-profile snapshot from `physics.rs` (aka S2)". @me cannot scroll back to
+the ledger to resolve a bare label. This restates the global "never cite plan or ticket shorthand
+labels" rule after a slip on 2026-11-24.
