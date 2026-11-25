@@ -1,11 +1,15 @@
 class_name ModelGateway
 extends RefCounted
-# Issue #161 (Rust-owned physics and terrain models): the GDScript DAO transform seam.
+# Rust-owned physics and terrain models: the GDScript DAO transform seam.
 # Godot Variants become bridge JSON here; integer fields are coerced before stringify because
 # serde rejects an integral float for i32/u8. A null snapshot sample stays null until ground_y(),
 # where it becomes NAN so every View caller keeps its existing is_nan() guard.
 
 var _bridge: Object = null
+
+# Keep the exact failed request in the engine log so an incident can be replayed from it.
+func _log_bridge_failure(method_name: String, request_text: String, reason: String) -> void:
+    push_warning("ModelGateway %s failed: %s; request=%s" % [method_name, reason, request_text])
 
 # Keep one injected bridge reference; fall back to Main when no caller injected one.
 func set_bridge(bridge: Object) -> void:
@@ -44,18 +48,24 @@ func _coerce_tiles(tiles: Array) -> Array:
 func build_profile(tiles: Array, grid: Dictionary) -> Dictionary:
     var bridge: Object = _resolve_bridge()
     if bridge == null:
+        _log_bridge_failure("build_ground_profile", "", "bridge unavailable")
         return {}
-    var request: Dictionary = {"grid": grid, "tiles": _coerce_tiles(tiles)}
-    var decoded: Variant = JSON.parse_string(bridge.build_ground_profile(JSON.stringify(request)))
+    var request_text: String = JSON.stringify({"grid": grid, "tiles": _coerce_tiles(tiles)})
+    var decoded: Variant = JSON.parse_string(bridge.build_ground_profile(request_text))
+    if not decoded is Dictionary:
+        _log_bridge_failure("build_ground_profile", request_text, "response is not a JSON object")
     return decoded if decoded is Dictionary else {}
 
 # Decode the bridge's null sample to NAN at this boundary; solid columns keep their surface Y.
 func ground_y(profile: Dictionary, pos_x: float) -> float:
     var bridge: Object = _resolve_bridge()
     if bridge == null:
+        _log_bridge_failure("ground_y_at", "", "bridge unavailable")
         return NAN
-    var request: Dictionary = {"profile": profile, "pos_x": pos_x}
-    var decoded: Variant = JSON.parse_string(bridge.ground_y_at(JSON.stringify(request)))
+    var request_text: String = JSON.stringify({"profile": profile, "pos_x": pos_x})
+    var decoded: Variant = JSON.parse_string(bridge.ground_y_at(request_text))
+    if not decoded is Dictionary:
+        _log_bridge_failure("ground_y_at", request_text, "response is not a JSON object")
     var response: Dictionary = decoded if decoded is Dictionary else {}
     var sample_y: Variant = response.get("y", null)
     return NAN if sample_y == null else float(sample_y)
@@ -64,6 +74,7 @@ func ground_y(profile: Dictionary, pos_x: float) -> float:
 func step_walker(state: Dictionary, input: Dictionary, tiles: Array, grid: Dictionary, dt: float) -> Dictionary:
     var bridge: Object = _resolve_bridge()
     if bridge == null:
+        _log_bridge_failure("walk_step", "", "bridge unavailable")
         return {}
     var walker_input: Dictionary = {
         "move_x": float(input.get("move_x", 0.0)),
@@ -85,14 +96,16 @@ func step_walker(state: Dictionary, input: Dictionary, tiles: Array, grid: Dicti
         "hp": float(state.get("hp", 0.0)),
         "fall_start_y": float(state.get("fall_start_y", state.get("pos_y", 0.0))),
     }
-    var request: Dictionary = {
+    var request_text: String = JSON.stringify({
         "grid": grid,
         "input": walker_input,
         "walker": walker_state,
         "tiles": _coerce_tiles(tiles),
         "dt": dt,
-    }
-    var decoded: Variant = JSON.parse_string(bridge.walk_step(JSON.stringify(request)))
+    })
+    var decoded: Variant = JSON.parse_string(bridge.walk_step(request_text))
+    if not decoded is Dictionary:
+        _log_bridge_failure("walk_step", request_text, "response is not a JSON object")
     var response: Dictionary = decoded if decoded is Dictionary else {}
     var walker: Variant = response.get("walker", null)
     return walker if walker is Dictionary else {}
@@ -113,6 +126,10 @@ func import_terrain_types(terrain_file: Dictionary) -> Dictionary:
         return coerced
     var bridge: Object = _resolve_bridge()
     if bridge == null:
+        _log_bridge_failure("import_terrain_types", "", "bridge unavailable")
         return {}
-    var decoded: Variant = JSON.parse_string(bridge.import_terrain_types(JSON.stringify(fn_coerce_file.call(terrain_file))))
+    var request_text: String = JSON.stringify(fn_coerce_file.call(terrain_file))
+    var decoded: Variant = JSON.parse_string(bridge.import_terrain_types(request_text))
+    if not decoded is Dictionary:
+        _log_bridge_failure("import_terrain_types", request_text, "response is not a JSON object")
     return decoded if decoded is Dictionary else {}

@@ -17,6 +17,7 @@ const GUARDS: Array[String] = [
     "view_profile_delegates_to_gateway",
     "view_surface_sample_delegates_to_gateway",
     "view_walker_delegates_to_gateway",
+    "view_walker_malformed_response_keeps_state",
     "real_bridge_profile_round_trip",
 ]
 
@@ -62,6 +63,7 @@ func _run() -> void:
     _test_view_profile_delegation()
     _test_view_surface_sample_delegation()
     _test_view_walker_delegation()
+    _test_view_walker_malformed_response()
     _test_real_bridge_round_trip()
     _assert_all_guards_completed()
     print("=== test_view_model_delegation: %d failures ===" % _failures)
@@ -169,6 +171,27 @@ func _test_view_walker_delegation() -> void:
     check(absf(float(next_state.get("pos_x", -1.0)) - 17.0) < 0.001,
         "walker: the View unwraps the gateway's walker result")
     _completed.append("view_walker_delegates_to_gateway")
+
+
+# A malformed walker response must never invent a surface: the caller keeps its own state.
+func _test_view_walker_malformed_response() -> void:
+    _install_recording_gateway({
+        "build_ground_profile": _snapshot_response(),
+        "walk_step": "this is not JSON",
+    })
+    var built: Array = WorldView.build_ground_profile(
+        _float_typed_tiles(), TILE_W_PX, TILE_H_PX)
+    var state: Dictionary = {
+        "pos_x": 16.0, "pos_y": 32.0, "vel_x": 0.0, "vel_y": 0.0,
+        "grounded": true, "hp": 100.0, "fall_start_y": 32.0,
+    }
+    var next_state: Dictionary = WorldView.step_walker(
+        state, 1.0, STEP_SECONDS, built[0], float(built[1]), float(built[2]))
+    check(_bridge.calls.size() == 2 and String(_bridge.calls[1]["method"]) == "walk_step",
+        "malformed: the bridge call was attempted before the fallback")
+    check(next_state == state,
+        "malformed: an unparsable walker response leaves the caller's state unchanged")
+    _completed.append("view_walker_malformed_response_keeps_state")
 
 
 # A mask bit at local row 7 in columns 5 and 6, with column 7 left as air.

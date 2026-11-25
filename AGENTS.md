@@ -21,6 +21,9 @@ Workspace-level orientation (the two-repo layout, branch topology) lives one lev
 Use the assisted `TODO(human)` path only for Rust code. Write GDScript production logic directly.
 The assistant still writes every test first, runs it RED against the current code, and keeps the
 test as the regression guard; only the hand-written-logic split is scoped to Rust.
+Recorded 2026-11-25 during issue #161 (Rust-owned physics and terrain models); the decision and its
+verification ledger are in wiki `TDD_Model-Migration-Rust` section 8 and
+`docs/SESSION-CHECKPOINT.md` CURRENT STATE.
 
 ## Interruption record (2026-11-24) - SUPERSEDED, design delivered and #149 closed
 

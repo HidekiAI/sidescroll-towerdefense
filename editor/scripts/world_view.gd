@@ -566,9 +566,8 @@ static func build_ground_profile(tiles: Array, tile_w_px: float, tile_h_px: floa
     var snapshot: Dictionary = _fn_gateway().build_profile(tiles, grid)
     if snapshot.is_empty():
         return [[], 0.0, 0.0]
-    var profile: Array = []
-    for sample in snapshot.get("surface_y_by_column", []):
-        profile.append(NAN if sample == null else float(sample))
+    var profile: Array = snapshot.get("surface_y_by_column", []).map(
+        func(sample: Variant) -> float: return NAN if sample == null else float(sample))
     _walk_contexts[profile.hash()] = {"profile": profile, "tiles": tiles, "grid": grid}
     return [profile, float(snapshot.get("world_left_px", 0.0)),
         float(snapshot.get("world_right_px", 0.0))]
@@ -586,9 +585,9 @@ static func ground_y_at(profile: Array, world_left_px: float, pos_x: float) -> f
     # ponytail: the Rust sampler ends a solid run at air; hold this View's plateau until both
     # steppers agree. The guard is one column read, so no second bridge call is needed.
     var column_index: int = int(floor(pos_x)) - int(floor(world_left_px))
-    var has_surface: bool = column_index >= 0 and column_index < profile.size() \
-        and not is_nan(float(profile[column_index]))
-    return float(profile[column_index]) if is_nan(sampled_y) and has_surface else sampled_y
+    var surface_y: float = float(profile[column_index]) if column_index >= 0 \
+        and column_index < profile.size() else NAN
+    return surface_y if is_nan(sampled_y) and not is_nan(surface_y) else sampled_y
 
 # Issue #122 -- one frame of walker physics. Pure and static for the same reason: the test drives
 # it 600 steps with no scene, no input device and no Godot frame loop.
@@ -611,9 +610,10 @@ static func ground_y_at(profile: Array, world_left_px: float, pos_x: float) -> f
 static func step_walker(state: Dictionary, move_x: float, dt: float, profile: Array,
         world_left_px: float, world_right_px: float) -> Dictionary:
     # Resolve the source tiles cached when this exact profile was built; the bridge steps from them.
-    var cached_context: Dictionary = _walk_contexts.get(profile.hash(), {})
-    if cached_context.get("profile", null) != profile:
-        cached_context = {}
+    var fn_cached_context: Callable = func() -> Dictionary:
+        var context: Dictionary = _walk_contexts.get(profile.hash(), {})
+        return context if context.get("profile", null) == profile else {}
+    var cached_context: Dictionary = fn_cached_context.call()
     var stepped: Dictionary = _fn_gateway().step_walker(state, {"move_x": move_x},
         cached_context.get("tiles", []), cached_context.get("grid", {}), dt)
     # An unbuilt profile has no source tiles; returning the state unchanged is safer than inventing

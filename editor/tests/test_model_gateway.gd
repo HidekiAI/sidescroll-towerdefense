@@ -1,5 +1,5 @@
 extends SceneTree
-# Issue #161 (Rust-owned physics and terrain models): the GDScript DAO transform seam.
+# Rust-owned physics and terrain models: the GDScript DAO transform seam.
 #
 # The DAO is the trust boundary where Godot Variants become the JSON the Rust bridge deserializes.
 # Godot writes a float Variant as `15.0`, while the bridge's wire types are integers, so every
