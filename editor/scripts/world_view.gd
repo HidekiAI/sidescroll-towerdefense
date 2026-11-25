@@ -22,6 +22,24 @@ class_name WorldView extends Control
 const FRONT_PLANE_KEY: String = "front"
 const DEFAULT_STACK_PATH: String = "res://assets/backdrop_stacks/neutral_default/stack.json"
 
+# The DAO is the single gateway from this View to the Rust terrain and physics models.
+const MODEL_GATEWAY_SCRIPT: GDScript = preload("res://scripts/model_gateway.gd")
+static var _model_gateway: Object = null
+# step_walker's signature has no tiles, so build_ground_profile caches the tiles and grid per
+# profile hash; several profiles stay live at once and each frame must use its own source tiles.
+static var _walk_contexts: Dictionary = {}
+
+# Replace the shared gateway in tests and at boot; production callers need no injection.
+static func set_model_gateway(gateway: Object) -> void:
+    _model_gateway = gateway
+
+# Resolve once; the gateway itself falls back to Main's bridge when no instance was injected.
+static func _fn_gateway() -> Object:
+    if _model_gateway != null and is_instance_valid(_model_gateway):
+        return _model_gateway
+    _model_gateway = MODEL_GATEWAY_SCRIPT.new()
+    return _model_gateway
+
 # The zoom ladder. Optical zoom, so a rung doubles or halves the drawn size; nothing between rungs
 # is reachable, which is what lets the ladder be a find() over this list rather than arithmetic.
 const ZOOM_LADDER: Array[float] = [2.0, 1.0, 0.5, 0.25]
@@ -542,86 +560,35 @@ static var _warned_step_walker_stub: bool = false
 # solid_mask is PackedByteArray/Array of bytes, bit = row*tile_w+col (row-major), topmost set bit wins.
 # Stitch overlapping tiles by smallest (topmost) Y. Cover every pixel column of every tile.
 static func build_ground_profile(tiles: Array, tile_w_px: float, tile_h_px: float) -> Array:
-    # Abstraction/proxy wrapper: GDScript implements the ground profile today; in the future this
-    # function body should delegate to Rust physics/bridge logic when exposed, keeping call sites stable.
-    # Find the pixel span that covers every walkable tile, so no tile column is silently dropped.
-    var fn_world_bounds_px := func() -> Array:
-        var left_px: float = INF
-        var right_px: float = -INF
-        for tile in tiles:
-            if not bool(tile.get("is_walkable", false)):
-                continue
-            var tile_left_px: float = float(tile.get("world_tile_x", 0)) * tile_w_px
-            left_px = minf(left_px, tile_left_px)
-            right_px = maxf(right_px, tile_left_px + tile_w_px)
-        return [left_px, right_px]
-    # Read the topmost solid pixel of one tile column; an empty mask is a legacy whole-tile solid.
-    var fn_surface_y_from_mask := func(tile: Dictionary, local_col: int, tile_top_px: float) -> float:
-        var solid_mask: Variant = tile.get("solid_mask", PackedByteArray())
-        var mask_bytes: PackedByteArray = solid_mask if solid_mask is PackedByteArray else PackedByteArray(solid_mask)
-        if mask_bytes.is_empty():
-            return tile_top_px
-        for local_row in range(int(tile_h_px)):
-            var bit_index: int = local_row * int(tile_w_px) + local_col
-            var byte_index: int = bit_index / 8
-            var bit_offset: int = bit_index % 8
-            if byte_index < mask_bytes.size() and ((int(mask_bytes[byte_index]) >> bit_offset) & 1) != 0:
-                return tile_top_px + float(local_row)
-        return NAN
-
-    # Allocate a NAN profile across that span, then paint each walkable tile's topmost solid pixel
-    # into it, keeping the smallest (topmost) Y where tiles overlap.
-    var bounds: Array = fn_world_bounds_px.call()
-    var world_left_px: float = float(bounds[0])
-    var world_right_px: float = float(bounds[1])
-    if not is_finite(world_left_px):
+    # Cache the tiles and grid for step_walker, whose signature deliberately has neither.
+    var grid: Dictionary = {"tile_w": tile_w_px, "tile_h": tile_h_px}
+    # Ask the DAO for the snapshot, then restore the View's original three-element shape.
+    var snapshot: Dictionary = _fn_gateway().build_profile(tiles, grid)
+    if snapshot.is_empty():
         return [[], 0.0, 0.0]
-    var width_px: int = maxi(int(ceil(world_right_px - world_left_px)), 1)
     var profile: Array = []
-    profile.resize(width_px)
-    for pixel_index in range(width_px):
-        profile[pixel_index] = NAN
-    for tile in tiles:
-        if not bool(tile.get("is_walkable", false)):
-            continue
-        var tile_left_px: float = float(tile.get("world_tile_x", 0)) * tile_w_px
-        var tile_top_px: float = float(tile.get("world_tile_y", 0)) * tile_h_px
-        for local_col in range(int(tile_w_px)):
-            var world_pixel_x: int = int(floor(tile_left_px)) + local_col
-            var profile_index: int = world_pixel_x - int(floor(world_left_px))
-            if profile_index < 0 or profile_index >= profile.size():
-                continue
-            var surface_y: float = fn_surface_y_from_mask.call(tile, local_col, tile_top_px)
-            if is_nan(surface_y):
-                continue
-            var old_surface: float = float(profile[profile_index])
-            if is_nan(old_surface) or surface_y < old_surface:
-                profile[profile_index] = surface_y
-    return [profile, world_left_px, world_right_px]
+    for sample in snapshot.get("surface_y_by_column", []):
+        profile.append(NAN if sample == null else float(sample))
+    _walk_contexts[profile.hash()] = {"profile": profile, "tiles": tiles, "grid": grid}
+    return [profile, float(snapshot.get("world_left_px", 0.0)),
+        float(snapshot.get("world_right_px", 0.0))]
 
 # Sample the ground profile at pos_x with linear interpolation between column and next.
 # Return NAN for air/out of bounds; clamp past the last column to last value.
 static func ground_y_at(profile: Array, world_left_px: float, pos_x: float) -> float:
-    # Abstraction/proxy wrapper: GDScript implements ground sampling today; in the future this
-    # function body should delegate to Rust physics/bridge logic when exposed, keeping call sites stable.
-    # Sample the per-pixel profile at pos_x. Air or out-of-bounds returns NAN. The last column clamps
-    # to its own value; interior columns interpolate linearly to the next column when that next column
-    # is solid.
+    # Wrap the View's array in the snapshot the DAO sends; NAN stringifies as JSON null.
+    var snapshot: Dictionary = {
+        "world_left_px": world_left_px,
+        "world_right_px": world_left_px + float(profile.size()),
+        "surface_y_by_column": profile,
+    }
+    var sampled_y: float = _fn_gateway().ground_y(snapshot, pos_x)
+    # ponytail: the Rust sampler ends a solid run at air; hold this View's plateau until both
+    # steppers agree. The guard is one column read, so no second bridge call is needed.
     var column_index: int = int(floor(pos_x)) - int(floor(world_left_px))
-    if column_index < 0 or column_index >= profile.size():
-        return NAN
-    var current_surface_y: float = float(profile[column_index])
-    if is_nan(current_surface_y):
-        return NAN
-    if column_index + 1 >= profile.size():
-        return current_surface_y
-    var next_surface_y: float = float(profile[column_index + 1])
-    if is_nan(next_surface_y):
-         # A NAN neighbour ends the solid run; hold this column's surface instead of reporting air,
-         # so the last solid pixel of a mask keeps its height.
-        return current_surface_y
-    var fraction: float = pos_x - floor(pos_x)
-    return current_surface_y + (next_surface_y - current_surface_y) * fraction
+    var has_surface: bool = column_index >= 0 and column_index < profile.size() \
+        and not is_nan(float(profile[column_index]))
+    return float(profile[column_index]) if is_nan(sampled_y) and has_surface else sampled_y
 
 # Issue #122 -- one frame of walker physics. Pure and static for the same reason: the test drives
 # it 600 steps with no scene, no input device and no Godot frame loop.
@@ -638,82 +605,20 @@ static func ground_y_at(profile: Array, world_left_px: float, pos_x: float) -> f
 # Advance walker by one frame using the per-pixel ground profile (#126). Signature changes from
 # (state, move_x, dt, ground_y_by_col, tile_w_px, world_left_px, world_right_px) to
 # (state, move_x, dt, profile, world_left_px, world_right_px).
-# Use ground_y_at(profile, world_left_px, pos_x) for surface sampling. Keep behavior: gravity,
-# landing from above, step up, fall damage >32px, world clamp, block grounded walk into air hole.
-# Add anti-jitter/snap per plan: GROUND_SNAP_PX=16, EMBED_TOLERANCE_PX=8, penetration snap and
-# grounded glue zero offending vy; penetration arm must come after landing/step-up.
+# The Rust bridge owns gravity, landing, step-up, fall damage, the world clamp, air-hole
+# refusal and anti-jitter. The View only routes the frame
+# to the DAO and keeps this signature for every existing caller.
 static func step_walker(state: Dictionary, move_x: float, dt: float, profile: Array,
         world_left_px: float, world_right_px: float) -> Dictionary:
-    # Abstraction/proxy wrapper: GDScript implements the per-frame step today; in the future this
-    # function body should delegate to Rust physics/bridge logic when exposed, keeping call sites stable.
-    # Advance the walker one frame against the per-pixel ground profile. Apply gravity, clamp X to
-    # world bounds, refuse a grounded step into an air column, land from above, allow step-up while
-    # moving, apply fall damage past 32px, then snap/glue small penetration per #126 anti-jitter.
-    # Name the tunables instead of leaving bare 32.0 / 1.0 literals in the landing path.
-    const WALKER_GRAVITY_PPS2: float = 980.0
-    const WALKER_SPEED_PPS: float = 200.0
-    const GROUND_SNAP_PX: float = 16.0
-    const EMBED_TOLERANCE_PX: float = 8.0
-    const FALL_DAMAGE_THRESHOLD_PX: float = 32.0
-    const FALL_DAMAGE_POINTS: float = 1.0
-    # Every route onto the surface lands here, so a drop is charged once no matter which path found it.
-    var fn_become_grounded := func(next_state: Dictionary, surface_y: float) -> void:
-        if not bool(state.get("grounded", false)):
-            var drop_px: float = surface_y - float(next_state.get("fall_start_y", surface_y))
-            if drop_px > FALL_DAMAGE_THRESHOLD_PX:
-                next_state["hp"] = maxf(0.0, float(next_state.get("hp", 100.0)) - FALL_DAMAGE_POINTS)
-        next_state["pos_y"] = surface_y
-        next_state["vel_y"] = 0.0
-        next_state["grounded"] = true
-        next_state["fall_start_y"] = surface_y
-    # Land from above or step up onto a higher surface; a missed surface stays airborne.
-    var fn_land_or_fall := func(next_state: Dictionary, surface_y: float, feet_was_y: float,
-            feet_now_y: float, vel_y_after_gravity: float, move_axis: float) -> void:
-        var landed_from_above: bool = vel_y_after_gravity >= 0.0 and feet_was_y <= surface_y and feet_now_y >= surface_y
-        var stepped_up: bool = surface_y < feet_was_y and move_axis != 0.0
-        if landed_from_above or stepped_up:
-            fn_become_grounded.call(next_state, surface_y)
-        else:
-            next_state["pos_y"] = feet_now_y
-            next_state["vel_y"] = vel_y_after_gravity
-            next_state["grounded"] = false
-    # Glue small penetration and small gaps to the surface so a resting walker never jitters.
-    var fn_penetration_snap := func(next_state: Dictionary, surface_y: float) -> void:
-        var penetration_px: float = float(next_state["pos_y"]) - surface_y
-        if penetration_px > 0.0 and penetration_px <= EMBED_TOLERANCE_PX:
-            fn_become_grounded.call(next_state, surface_y)
-        elif float(next_state["pos_y"]) < surface_y and surface_y - float(next_state["pos_y"]) <= GROUND_SNAP_PX and float(next_state.get("vel_y", 0.0)) >= 0.0:
-            fn_become_grounded.call(next_state, surface_y)
-
-    # Advance one frame: gravity, X clamp, refuse a grounded step into air, land or step up, then
-    # snap small penetration. Clamp the sample X to the last profile column so the world edge holds.
-    var frame_seconds: float = dt if dt > 0.0 else 1.0 / 60.0
-    var move_axis: float = clampf(move_x, -1.0, 1.0)
-    var move_speed_pps: float = move_axis * WALKER_SPEED_PPS
-    var feet_was_y: float = float(state.get("pos_y", 0.0))
-    var vel_y_after_gravity: float = float(state.get("vel_y", 0.0)) + WALKER_GRAVITY_PPS2 * frame_seconds
-    var feet_now_y: float = feet_was_y + vel_y_after_gravity * frame_seconds
-    var proposed_pos_x: float = clampf(float(state.get("pos_x", 0.0)) + move_speed_pps * frame_seconds, world_left_px, world_right_px)
-    var last_column_x: float = world_left_px + float(maxi(profile.size(), 1) - 1)
-    var sample_x: float = minf(proposed_pos_x, last_column_x)
-    var stepping_into_hole: bool = move_axis != 0.0 and bool(state.get("grounded", false)) and is_nan(ground_y_at(profile, world_left_px, sample_x))
-    var pos_x: float = float(state.get("pos_x", 0.0)) if stepping_into_hole else proposed_pos_x
-    var surface_y: float = ground_y_at(profile, world_left_px, minf(pos_x, last_column_x))
-    var next_state: Dictionary = state.duplicate()
-    next_state["pos_x"] = pos_x
-    next_state["vel_x"] = move_speed_pps
-    next_state["hp"] = float(state.get("hp", 100.0))
-    next_state["fall_start_y"] = float(state.get("fall_start_y", feet_was_y))
-    if not is_nan(surface_y):
-        fn_land_or_fall.call(next_state, surface_y, feet_was_y, feet_now_y, vel_y_after_gravity, move_axis)
-        fn_penetration_snap.call(next_state, surface_y)
-    else:
-        next_state["pos_y"] = feet_now_y
-        next_state["vel_y"] = vel_y_after_gravity
-        next_state["grounded"] = false
-        if bool(state.get("grounded", false)):
-            next_state["fall_start_y"] = feet_was_y
-    return next_state
+    # Resolve the source tiles cached when this exact profile was built; the bridge steps from them.
+    var cached_context: Dictionary = _walk_contexts.get(profile.hash(), {})
+    if cached_context.get("profile", null) != profile:
+        cached_context = {}
+    var stepped: Dictionary = _fn_gateway().step_walker(state, {"move_x": move_x},
+        cached_context.get("tiles", []), cached_context.get("grid", {}), dt)
+    # An unbuilt profile has no source tiles; returning the state unchanged is safer than inventing
+    # a surface. Every production caller builds the profile first via _rebuild_ground_tiles().
+    return stepped if not stepped.is_empty() else state.duplicate()
 
 func _rebuild_ground_tiles() -> void:
     _tiles_cache.clear()

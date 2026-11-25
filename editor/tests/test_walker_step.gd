@@ -128,29 +128,36 @@ func _walker_hp(pos_x: float, pos_y: float, grounded: bool, hp: float = 100.0,
     }
 
 
+# One walkable tile whose mask marks the requested surface row, either across the whole tile
+# (local_col < 0) or at a single pixel column. The bridge rebuilds the profile from these tiles.
+func _surface_tile(world_col: int, surface_y: float, tile_w_px: float,
+        local_col: int = -1) -> Dictionary:
+    var mask: PackedByteArray = PackedByteArray()
+    mask.resize(int(tile_w_px * TILE_H_PX / 8.0))
+    mask.fill(0)
+    var tile_row: int = int(floor(surface_y / TILE_H_PX))
+    var local_row: int = int(round(surface_y - float(tile_row) * TILE_H_PX))
+    var first_col: int = 0 if local_col < 0 else local_col
+    var last_col: int = int(tile_w_px) - 1 if local_col < 0 else local_col
+    for solid_col in range(first_col, last_col + 1):
+        var bit_index: int = local_row * int(tile_w_px) + solid_col
+        mask[bit_index / 8] = mask[bit_index / 8] | (1 << (bit_index % 8))
+    return {"world_tile_x": world_col, "world_tile_y": tile_row,
+        "is_walkable": true, "terrain": "test", "solid_mask": mask}
+
+
+# Convert a sparse column->surface_y table into tiles, then let WorldView build the profile so
+# the walker proxy receives real source tiles. A trailing tile restores the column table's old
+# right edge, because the Rust snapshot reports the last tile's LEFT edge as its right bound.
 func _profile_from_column_table(ground_y_by_col: Dictionary, tile_w_px: float = TILE_W_PX) -> Dictionary:
-    # Build a dense profile array from a sparse column->surface_y dictionary. The profile spans
-    # from the lowest to highest column key (inclusive) with NAN for missing columns (holes).
-    var keys: Array = ground_y_by_col.keys()
-    if keys.is_empty():
-        return {"profile": [], "world_left_px": 0.0, "world_right_px": 0.0}
-    var min_col: int = int(keys.min())
-    var max_col: int = int(keys.max())
-    var world_left_px: float = float(min_col) * tile_w_px
-    var world_right_px: float = float(max_col + 1) * tile_w_px
-    var width_px: int = int(world_right_px - world_left_px)
-    var profile: Array = []
-    profile.resize(width_px)
-    for pixel_index in range(width_px):
-        profile[pixel_index] = NAN
-    for world_col in keys:
-        var surface_y: float = float(ground_y_by_col[world_col])
-        var col_start_px: int = (int(world_col) - min_col) * int(tile_w_px)
-        for local_pixel_x in range(int(tile_w_px)):
-            var profile_index: int = col_start_px + local_pixel_x
-            if profile_index >= 0 and profile_index < profile.size():
-                profile[profile_index] = surface_y
-    return {"profile": profile, "world_left_px": world_left_px, "world_right_px": world_right_px}
+    var tiles: Array = []
+    for world_col in ground_y_by_col.keys():
+        tiles.append(_surface_tile(int(world_col), float(ground_y_by_col[world_col]), tile_w_px))
+    if not ground_y_by_col.is_empty():
+        var last_col: int = int(ground_y_by_col.keys().max())
+        tiles.append(_surface_tile(last_col + 1, float(ground_y_by_col[last_col]), tile_w_px))
+    var result: Array = WorldView.build_ground_profile(tiles, tile_w_px, TILE_H_PX)
+    return {"profile": result[0], "world_left_px": float(result[1]), "world_right_px": float(result[2])}
 
 
 func _solid_mask_with_top_rows(top_row_by_col: Array, tile_w: int = 32, tile_h: int = 32) -> PackedByteArray:
@@ -294,7 +301,7 @@ func _test_walker_step() -> void:
     _completed.append("stays_on_ground")
 
     # --- a hole means falling, not snapping back up ---
-    var void_ctx: Dictionary = {"profile": [], "world_left_px": 0.0, "world_right_px": 0.0}
+    var void_ctx: Dictionary = _profile_from_column_table({})
     var over_void: Dictionary = _step_many(_walker(16.0, GROUND_TOP_PX, true), 0.0, void_ctx,
         SETTLE_STEPS)
     check(float(over_void.get("pos_y", 0.0)) > GROUND_TOP_PX,

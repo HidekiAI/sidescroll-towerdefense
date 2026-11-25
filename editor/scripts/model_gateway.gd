@@ -21,6 +21,11 @@ func _resolve_bridge() -> Object:
     var main_node: Node = scene_root.get_node_or_null("Main") if scene_root != null else null
     var candidate: Object = main_node.get("_bridge") if main_node != null else null
     _bridge = candidate if candidate != null and is_instance_valid(candidate) and candidate.has_method("build_ground_profile") else null
+    # Headless --script runs have no Main node; instantiate the registered extension so a test
+    # never silently receives an empty snapshot instead of the Rust model.
+    if _bridge == null and ClassDB.class_exists("SstdBridge"):
+        var extension_bridge: Object = ClassDB.instantiate("SstdBridge")
+        _bridge = extension_bridge if extension_bridge != null and extension_bridge.has_method("build_ground_profile") else null
     return _bridge
 
 # Coerce tile integers at the wire boundary; the grid stays float because the bridge declares f64.
