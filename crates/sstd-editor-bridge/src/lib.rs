@@ -2551,7 +2551,6 @@ struct GroundYAtReq {
 
 // Parse at the boundary with the same error-shape idiom as `walk_step_impl`; the core builder owns
 // every profile calculation (2 guards: round-trip, back-to-back repeat).
-// build a snapshot from the JSON request
 fn build_ground_profile_impl(req_json: &str) -> String {
     // A bad payload is reported as JSON rather than panicking the extension.
     let req: BuildGroundProfileReq = match json::from_str(req_json) {
@@ -2576,7 +2575,6 @@ fn build_ground_profile_impl(req_json: &str) -> String {
 
 // The snapshot deserializes straight into the core type, so the sampler stays the single owner of
 // interpolation and the null rule (3 guards: interpolate, air column, malformed request).
-// sample a serialized snapshot at a pixel X
 fn ground_y_at_impl(req_json: &str) -> String {
     // A bad payload is reported as JSON rather than panicking the extension.
     let req: GroundYAtReq = match json::from_str(req_json) {
