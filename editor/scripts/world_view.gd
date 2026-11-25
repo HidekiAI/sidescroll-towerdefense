@@ -542,23 +542,19 @@ func _handle_movement_keys(key_event: InputEventKey) -> void:
         return
 
 
-# Issue #122 -- "what is the surface of column N", derived from the same tile list the ground
-# layer draws. Pure and static so the walker test can call it with a hand-built tile array.
-#
-# The prototype world has 3 screens x 60 columns of 32 px tiles with ground at rows 31-32, so the
-# table is 180 entries all holding 992.0 -- the flat, seam-free ground across all three screens.
-#
-# `tile_h_px` rather than `tile_w_px` because a surface is a ROW: a non-square tile grid would
-# make the two differ, and the caller passes both.
+# The three ground helpers below are thin View proxies: ModelGateway owns the JSON transform and
+# the Rust bridge owns the surface model. Their static signatures stay unchanged so scene callers
+# and headless tests can keep calling them with a hand-built tile array. The stub-warning flags
+# immediately below are pre-delegation leftovers; no helper reads them now that the gateway logs.
 static var _warned_build_ground_profile_stub: bool = false
 static var _warned_ground_y_at_stub: bool = false
 static var _warned_step_walker_stub: bool = false
 
 
-# Build a per-pixel ground profile from tile dictionaries. Return [profile, world_left_px, world_right_px].
-# profile[i] is the surface Y at world_left_px+i, or NAN for air. Empty/missing solid_mask => whole-tile solid.
-# solid_mask is PackedByteArray/Array of bytes, bit = row*tile_w+col (row-major), topmost set bit wins.
-# Stitch overlapping tiles by smallest (topmost) Y. Cover every pixel column of every tile.
+# Build a per-pixel ground profile through the gateway. Return [profile, world_left_px, world_right_px].
+# profile[i] is the surface Y at world_left_px+i, or NAN for air; an empty snapshot yields an empty
+# profile so callers can fall back without a bridge error. Both tile dimensions go to the gateway
+# because the surface is a ROW and a non-square grid would make width and height differ.
 static func build_ground_profile(tiles: Array, tile_w_px: float, tile_h_px: float) -> Array:
     # Cache the tiles and grid for step_walker, whose signature deliberately has neither.
     var grid: Dictionary = {"tile_w": tile_w_px, "tile_h": tile_h_px}
