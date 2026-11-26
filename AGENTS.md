@@ -1083,6 +1083,37 @@ reader.
 Godot 4 GDScript timing uses `Time.get_ticks_msec()`; `OS.get_ticks_msec()` was removed from
 the script API after Godot 3.
 
+## Side note recorded 2026-11-26 - tile-art cleanup tool and TDD update; DO NOT act inside the current task
+
+@me redirected the still-open preview-ticket question with a new feature direction. Recorded
+verbatim in intent so a crash or session switch cannot lose it. The preview scope question
+(Inspector only vs Inspector plus FileSystem thumbnail) is still unanswered and is parked.
+
+> Tool spec: first "clean up" these PNG files to remove excess junk such as text, and crop to
+> the outer rectangle enclosing the whole grid (in `tileset_2-2.png` the full 4x2 grid, not
+> each cell). Then whiteout/blackout the grid lines so those pixels become air (alpha = 0x00).
+> Rescale the cropped, edge-cleaned image to multiples of the tile size from config (at 32x32
+> a 4x2 grid becomes 128x64). Then "air color" the pixels that look like air by guessing /
+> fuzzy logic, generating a collision mask with the same dimensions as the alpha channel,
+> either greyscale 0x00..0xff or discrete 0x00 air / 0x80 water / 0xFF solid. Save the result
+> as a "cleaned" PNG whose dimensions are divisible by the tile size, so a human can inspect
+> and fix what the fuzzy guess missed. In phase II, once the human is satisfied, emit a
+> metadata JSONC file describing each tile's position, dimensions, etc. for Rust to read:
+> ART -> tool-cleaned data plus metadata -> Rust tech.
+
+Confirmed by @me on 2026-11-26: `editor/assets/samples/tileset_2-2.png` is the slope source;
+`editor/assets/auto_sets/*.png` is not. Tile size comes from `grid.tile_width_in_pixels` and
+`grid.tile_height_in_pixels` in the config DB. Existing collision derivation to build on is
+`tools/import-tiles` (`derive_solid_mask`, `flag_unresolved`). Decode source PNGs with raw
+`Image.load(path)`, never `(load(path) as CompressedTexture2D).get_image()` - the imported
+texture keeps RGB under transparent pixels (shared lesson `01M85D7FS36ZSVZB20AMH53PCX`).
+
+@me then said "update the TDD": the design of record for this tool belongs in the wiki
+`TechnicalDesign/` repo, not in code-repo `docs/` (TDD/GDD location rule). Ticket-First still
+applies - create or identify the issue and document approach and scope in its body before
+writing the TDD or any code. Do not start it inside the parked preview task; start a new
+agent for it, or finish that decision first.
+
 ## Stateless-agent mini-checkpoint ledger (2026-11-25)
 
 @me directive: every multi-step task in this repo must persist a LIVE-UPDATED mini-checklist.
