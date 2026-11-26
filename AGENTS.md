@@ -1062,9 +1062,9 @@ silhouette masks into collision tiles, (3) overlay the collision alpha onto the 
 bottom-row-anchor path in `tools/import-tiles` (`derive_solid_mask` / `flag_unresolved`) and
 the 7 committed `slope_up_{0..6}_32x32.png` greys are MEASURED in the slope section above;
 world bundling is currently the `.zip` path described in "World Files & Override Deltas".
-Ticket-First applies: create/identify an issue and document the approach before code, and
-confirm whether "default terrain for distributions" means the committed `default_package/`
-or the user-data world bundle before choosing where to save.
+Ticketed as issue #178 on 2026-11-25; document the approach before code and confirm whether
+"default terrain for distributions" means the committed `default_package/` or the user-data
+world bundle before choosing where to save.
 
 ## Mini-step labels must never stand alone (2026-11-24)
 
