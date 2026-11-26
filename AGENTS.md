@@ -1073,6 +1073,13 @@ data storage, its data retrieval, and both transformation directions (Rust -> Go
 Godot 4 -> Rust). Do not add implementation code while planning. No implementation starts until
 the plan is complete and passes the user-set 95/100 bar in the independent plan-to-ticket gate.
 
+The destination question in the ticket was answered by @me during planning on 2026-11-25:
+"default terrain for distributions" means the committed `editor/default_package/` (with the
+committed tile catalog and authoring resources), NOT the user-data world bundle. That is the
+decision of record. The ticket's COMMENTS block is empty, so the answer is persisted here and
+in `docs/PLAN-2026-11-25-slope-conversion-tool.md` instead of being re-derived by a cold-start
+reader.
+
 Godot 4 GDScript timing uses `Time.get_ticks_msec()`; `OS.get_ticks_msec()` was removed from
 the script API after Godot 3.
 
