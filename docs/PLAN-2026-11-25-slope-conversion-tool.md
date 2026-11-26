@@ -765,8 +765,9 @@ scored 90/100, and the final re-gate scored 96/100. This document still contains
 implementation, and no code step may start before a SEPARATE implementation ticket and branch
 exist.
 Bar: 95/100 (user-set).
-Evaluator: independent `general` subagent in its own context, `opencode/big-pickle` (free),
-unchanged across all five iterations. No model or provider switch during the gate.
+Evaluator: independent `general` subagent in its own context. The 2026-11-25 self-review
+draft records `opencode/big-pickle` (free) for that pass; no model record survives for the
+two 2026-11-26 re-gate iterations, so no model continuity is claimed here.
 
 | Iteration | Score | Trace | Coverage | Minimality | Grounding | Provenance | CRITICAL | UNCOVERED |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
