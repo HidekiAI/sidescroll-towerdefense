@@ -1107,6 +1107,8 @@ cleaning region only. The 128x64 result at 32x32 requires slicing the eight cell
 and resizing each cell to configured W x H, then assembling them 4 columns by 2 rows. A
 whole-grid resize gives 512x256 and is not the contract.
 
+Commit-marker directive (@me, 2026-11-26): when work is in flight, commit the current state early so a cold-start session has a commit to resume from; do not wait for the whole review cycle to finish.
+
 Confirmed by @me on 2026-11-26: `editor/assets/samples/tileset_2-2.png` is the slope source;
 `editor/assets/auto_sets/*.png` is not. Tile size comes from `grid.tile_width_in_pixels` and
 `grid.tile_height_in_pixels` in the config DB. Existing collision derivation to build on is
