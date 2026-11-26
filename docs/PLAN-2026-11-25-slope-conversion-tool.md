@@ -759,7 +759,7 @@ to "nothing in flight" and names the shipped artifacts.
 ## Plan gate
 
 Status: PASS on 2026-11-26 after five iterations. The 2026-11-25 PASS at 96/100 was re-opened
-because ticket #178 gained the two-phase preprocessing scope at lines 55-75; the first re-gate
+because ticket #178 gained the two-phase preprocessing scope at lines 57-75; the first re-gate
 scored 90/100, and the final re-gate scored 96/100. This document still contains no
 implementation, and no code step may start before the implementation branch exists; ticket #239
 (two-phase preprocessing implementation) opened on 2026-11-26 and satisfies the ticket half of
