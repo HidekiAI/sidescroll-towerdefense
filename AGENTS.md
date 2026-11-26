@@ -1085,9 +1085,10 @@ the script API after Godot 3.
 
 ## Side note recorded 2026-11-26 - tile-art cleanup tool and TDD update; DO NOT act inside the current task
 
-@me redirected the still-open preview-ticket question with a new feature direction. Recorded
+@me redirected the still-open preview scope question with a new feature direction. Recorded
 verbatim in intent so a crash or session switch cannot lose it. The preview scope question
-(Inspector only vs Inspector plus FileSystem thumbnail) is still unanswered and is parked.
+(Inspector only vs Inspector plus FileSystem thumbnail) is still unanswered and parked; no
+tracking issue was found for it.
 
 > Tool spec: first "clean up" these PNG files to remove excess junk such as text, and crop to
 > the outer rectangle enclosing the whole grid (in `tileset_2-2.png` the full 4x2 grid, not
@@ -1101,18 +1102,25 @@ verbatim in intent so a crash or session switch cannot lose it. The preview scop
 > metadata JSONC file describing each tile's position, dimensions, etc. for Rust to read:
 > ART -> tool-cleaned data plus metadata -> Rust tech.
 
+Clarification recorded 2026-11-26 after review: the quoted "crop to the outer rectangle" is the
+cleaning region only. The 128x64 result at 32x32 requires slicing the eight cells at pitch 127
+and resizing each cell to configured W x H, then assembling them 4 columns by 2 rows. A
+whole-grid resize gives 512x256 and is not the contract.
+
 Confirmed by @me on 2026-11-26: `editor/assets/samples/tileset_2-2.png` is the slope source;
 `editor/assets/auto_sets/*.png` is not. Tile size comes from `grid.tile_width_in_pixels` and
 `grid.tile_height_in_pixels` in the config DB. Existing collision derivation to build on is
 `tools/import-tiles` (`derive_solid_mask`, `flag_unresolved`). Decode source PNGs with raw
-`Image.load(path)`, never `(load(path) as CompressedTexture2D).get_image()` - the imported
+`Image.new().load(path)`, never `(load(path) as CompressedTexture2D).get_image()` - the imported
 texture keeps RGB under transparent pixels (shared lesson `01M85D7FS36ZSVZB20AMH53PCX`).
 
 @me then said "update the TDD": the design of record for this tool belongs in the wiki
-`TechnicalDesign/` repo, not in code-repo `docs/` (TDD/GDD location rule). Ticket-First still
-applies - create or identify the issue and document approach and scope in its body before
-writing the TDD or any code. Do not start it inside the parked preview task; start a new
-agent for it, or finish that decision first.
+`TechnicalDesign/` repo, not in code-repo `docs/` (TDD/GDD location rule). Ticket-First is
+satisfied by issue #178 (grass slope conversion tool), whose body was expanded on 2026-11-26
+with this two-phase scope and AC8-AC10; no new issue was opened. A SEPARATE implementation
+ticket and branch are still required before any code, as the unchecked implementation gate in
+the plan says. Do not start it inside the parked preview question; start a new agent for it, or
+finish that question first.
 
 ## Stateless-agent mini-checkpoint ledger (2026-11-25)
 
