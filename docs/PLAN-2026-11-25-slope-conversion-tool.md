@@ -491,6 +491,24 @@ Ownership: `tools/import-tiles` owns both subcommands and reuses `to_greyscale`,
 `derive_solid_mask` and `flag_unresolved`; no second mask classifier is added. GDScript only
 orchestrates the human sign-off gate and the request/result JSON.
 
+### GDScript seam contract named by the step S2 guards
+
+These names are fixed before the guards are written so a RED failure is a named missing seam,
+not an ambiguous crash. S4/S5 implement exactly these signatures and no others for this ticket:
+
+- `ModelGateway.build_slope_conversion_request(request: Dictionary) -> String`: coerce W/H,
+  margins, separation, cell size and every cell index to `int`, then `JSON.stringify`.
+- `SlopeConversionTool.merge_terrain_entries(existing: Array, generated: Array) -> Array`:
+  keyed upsert by `key`, sorted, 14 existing + 16 generated = 30 on a repeated call.
+- `SlopeConversionTool.canonical_terrain_json(entries: Array) -> String`: canonical JSON with
+  integer `sub_tile_mask` / `elevation_tiles` / `solid_mask` bytes, never integral floats.
+- `SlopeConversionTool.convert_all(output_dir: String) -> Dictionary`: full conversion into a
+  throwaway dir, returning `{"ok": bool, "entries": int, "error": String}`.
+- `SlopeConversionTool.preprocess(source_path: String, output_dir: String) -> Dictionary`:
+  Phase I cleaned PNG plus flagged cells; Phase II stays Rust-owned.
+- `SlopeConversionTool.load_default_terrain(profile_dir: String) -> Dictionary`: read the
+  framework defaults when the profile has no terrain file; no import is run.
+
 ## Test plan (unit versus E2E, falsifiability, races)
 
 Tests are written FIRST against current code and run RED before the production block they guard.
@@ -597,7 +615,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP5 - Planning branch ff-only merged to `trunk` and `trunk` pushed. Resume was: `git -C sidescroll-towerdefense switch trunk`, `git -C sidescroll-towerdefense pull --ff-only origin trunk`, `git -C sidescroll-towerdefense merge --ff-only docs/plan-slope-conversion-tool`, `git -C sidescroll-towerdefense push origin trunk`. Evidence: `Updating be48c36..6937b17` / `Fast-forward`, then `be48c36..6937b17 trunk -> trunk`; at merge time `trunk`, `origin/trunk` and `origin/docs/plan-slope-conversion-tool` resolved to `6937b1743d606d44ad3cc623cf10158b26246c87`; raw output in `/tmp/user/1000/opencode/sstd-plan-push.log`. The independent pre-push self-review returned PUSH-READY at 100/100 after three full-diff passes, and its five findings were filed as #196 through #200 after @me approved the wording. Recovery: if `--ff-only` refuses, STOP and ask; never author a merge commit. The merged local branch `docs/plan-slope-conversion-tool` was deleted on 2026-11-25 with @me's approval; the remote-delete handover is `/tmp/user/1000/opencode/sstd-delete-remote-plan-branch.sh`, for @me to run only.
 - [x] CP6 - Separate implementation ticket opened (implementation gate). Evidence: https://github.com/HidekiAI/sidescroll-towerdefense/issues/239, opened 2026-11-26T16:07:19Z; its body names both phases, this plan, AC1-AC10, the sixteen RED-first tests and `Difficulty: L`. Recovery: an implementation branch is still required; no code may exist before that branch is cut.
 - [x] CP7 - Sources and config measured (S1). Evidence: `## Step S1 result`, W/H 32/32, both eight-key lists, 16 resolved cells, 956 tracked tile files and 0 collision-key hits. Recovery: re-run `/tmp/user/1000/opencode/sstd-s1-measure.sh`.
-- [ ] CP8 - Sixteen tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result`, naming `preprocess_crops_whole_grid_then_slices_eight_cells`, `preprocess_clears_every_grid_line_pixel`, `preprocess_flags_unresolved_and_blocks_phase_ii` and `jsonc_sidecar_round_trips_after_human_signoff` alongside the original twelve. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
+- [x] CP8 - Sixteen tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result` -- Rust exit 101 with 57 missing-symbol errors, five GDScript suites exit 1 with named failures; the four preprocessing guards are named there alongside the original twelve. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
 - [ ] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, test count measured, mutation results. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours.
 - [ ] CP10 - GDScript orchestrator and both bridge directions written (S4). Resume: `godot4 --headless --check-only --script res://scripts/<name>.gd --quit`. Evidence: exit 0 and the request/result JSON shapes. Recovery: GDScript production logic is written directly; only its tests are assistant-written.
 - [ ] CP11 - Artifacts and palette registration written (S5). Resume: temp-dir-then-rename check plus the 16-key registration unit test. Evidence: 30 entries, no duplicate keys, explicit staged paths. Recovery: never `git add -A` here; stage only named artifacts.
@@ -614,7 +632,7 @@ blocks are append-only; corrections go in a later block and name what was wrong.
 | --- | --- | --- | --- |
 | S0 Plan gate and checkpoint pointer | DONE | `## Plan gate`, PASS 96/100 at bar 95 | path `docs/PLAN-2026-11-25-slope-conversion-tool.md`, branch `local/docs/plan-slope-conversion-tool` |
 | S1 Measure sources, config, and collision resolvability | DONE | `## Step S1 result`, 2026-11-26 | 16 cells, 8 per resource, W/H 32/32 from config DB, 0 unresolved |
-| S2 RED tests for request, expansion, alpha, registration, determinism and preprocessing | NOT STARTED | - | 9 Rust unit + 3 GDScript unit + 4 headless E2E tests, RED exit codes |
+| S2 RED tests for request, expansion, alpha, registration, determinism and preprocessing | DONE | `## Step S2 result`, 2026-11-26 | 9 Rust unit + 3 GDScript unit + 4 headless E2E tests, RED exit 101 / 1 |
 | S3 Rust `convert-slope` subcommand | NOT STARTED | - | `tools/import-tiles/src/main.rs`, 128-byte mask at 32px |
 | S4 GDScript orchestrator and DAO coercion | NOT STARTED | - | `editor/scripts/slope_conversion_tool.gd`, request/result JSON |
 | S5 Commit generated artifacts and palette registration | NOT STARTED | - | 2 `.tres`, 16 PNGs + `.import`, 14 -> 30 terrain entries |
@@ -861,3 +879,88 @@ and `/tmp/user/1000/opencode/sstd-s1-clusters.sh`. Nothing in this step wrote to
   cell, not the contract. The classifier must see the 32x32 resized cell; the corrected run
   above produces 128 bytes.
 - No premise in this plan proved wrong; no plan edit was needed beyond this result block.
+
+## Step S2 result
+
+MEASURED 2026-11-26 on implementation branch `local/feat/slope-preprocess`. Sixteen
+assistant-written guards exist with ZERO production changes: nine in-source Rust guards in
+`tools/import-tiles/src/main.rs`, three GDScript unit guards in
+`editor/tests/test_slope_conversion.gd`, four headless E2E guards in
+`editor/tests/test_both_slope_sets_appear_in_palette.gd`,
+`editor/tests/test_fresh_profile_loads_default_terrain.gd`,
+`editor/tests/test_walker_contact_tracks_drawn_edge.gd` and
+`editor/tests/test_second_full_conversion_run_is_byte_identical.gd`. The test-only plan edit
+added the named GDScript seam contract above so RED failures identify a missing method rather
+than an ambiguous crash. Logs: `/tmp/user/1000/opencode/sstd-s2-rust-red.log` and
+`/tmp/user/1000/opencode/sstd-s2-gdscript-red.log`.
+
+Rust command `cargo test -p import-tiles` exit **101**. Exact RED excerpt (first and last
+lines of the log):
+
+```text
+   Compiling import-tiles v0.1.0 (/home/hidekiai/projects/SSTD/sidescroll-towerdefense/tools/import-tiles)
+error[E0425]: cannot find type `ConversionRequest` in this scope
+    --> tools/import-tiles/src/main.rs:1394:10
+     |
+1394 |     ) -> ConversionRequest {
+     |          ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `CellRequest` in this scope
+    --> tools/import-tiles/src/main.rs:1395:32
+     |
+1395 |         let mut mut_cells: Vec<CellRequest> = Vec::new();
+     |                                ^^^^^^^^^^^ not found in this scope
+...
+error[E0433]: failed to resolve: use of undeclared type `ConvertError`
+...
+Some errors have detailed explanations: E0422, E0425, E0433.
+For more information about an error, try `rustc --explain E0422`.
+error: could not compile `import-tiles` (bin "import-tiles" test) due to 57 previous errors
+```
+
+The 57 errors are only E0422/E0425/E0433 for the production symbols the guards name
+(`ConversionRequest`, `CellRequest`, `PixelPoint`, `REQUEST_VERSION`, `MASK_ENCODING_GREYSCALE`,
+`fn_convert_resource`, `fn_merge_terrain_entries`, `preprocess_source_sheet`, `fn_phase_two_gate`,
+`read_sidecar`, `ConvertError`). No test-side type or import error remains: an earlier E0599 on
+`DynamicImage::dimensions` was fixed by importing `GenericImageView` and `Rgba` into the test
+module, then the run above was captured.
+
+GDScript commands, each `$HOME/bin/godot4 --headless --path editor --script res://tests/<suite>.gd`,
+gated on exit code under Godot 4.7.2. Exact RED summary lines:
+
+```text
+=== test_slope_conversion ===
+FAIL: ModelGateway.build_slope_conversion_request exists
+FAIL: SlopeConversionTool.merge_terrain_entries exists
+FAIL: SlopeConversionTool.canonical_terrain_json exists
+slope_conversion failures=3 completed=0
+EXIT=1
+
+=== test_both_slope_sets_appear_in_palette ===
+FAIL: palette receives generated key slope_grass_30deg_4x2_r0
+... (32 generated-key/PNG failures, 16 terrain-entry failures)
+FAIL: framework terrain has 30 entries, got 14
+both_slope_sets failures=49
+EXIT=1
+
+=== test_fresh_profile_loads_default_terrain ===
+FAIL: SlopeConversionTool script exists at res://scripts/slope_conversion_tool.gd
+fresh_profile failures=1
+EXIT=1
+
+=== test_walker_contact_tracks_drawn_edge ===
+FAIL: all 16 generated slopes were checked, got 0
+walker_contact failures=1
+EXIT=1
+
+=== test_second_full_conversion_run_is_byte_identical ===
+FAIL: SlopeConversionTool script exists at res://scripts/slope_conversion_tool.gd
+second_full_conversion failures=1
+EXIT=1
+```
+
+Race and back-to-back notes: the Rust conversion repeat guard covers byte identity across two
+runs; the GDScript merge guard merges the same generated set twice to pin upsert-not-append.
+No shared mutable state is introduced by any guard, so no forced-interleaving race test applies.
+Mutation verification is deliberately deferred to S7, where each named mutation must turn its
+named guard red; this RED run proves only that the seams do not exist yet.

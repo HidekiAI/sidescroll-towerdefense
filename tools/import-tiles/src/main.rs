@@ -1131,7 +1131,7 @@ fn average_color(img: &RgbaImage) -> (u8, u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::Rgba;
+    use image::{GenericImageView, Rgba};
 
     /// The committed slope art's two greys: air is 0, ground is 155 (MEASURED, AGENTS.md).
     const GROUND_GREY: u8 = 155;
@@ -1370,5 +1370,609 @@ mod tests {
             );
             assert!(entry.is_walkable, "{} is walkable", entry.key);
         });
+    }
+
+    // ---- Two-phase preprocessing and conversion guards ----
+
+    const FIXTURE_GRID_COLS: i32 = 4;
+    const FIXTURE_GRID_ROWS: i32 = 2;
+    const FIXTURE_GENERATED_KEYS: usize = 16;
+    const FIXTURE_BASE_ENTRIES: usize = 14;
+    const EXPECTED_TERRAIN_ENTRIES: usize = 30;
+
+    /// Build a 4x2 request over one sheet. Right cells use the measured key suffix; left cells
+    /// repeat the same source regions with the authored horizontal flip.
+    fn fn_fixture_request(
+        source_path: &Path,
+        margin_x_px: i32,
+        margin_y_px: i32,
+        cell_width_px: i32,
+        cell_height_px: i32,
+        separation_px: i32,
+        width_px: u32,
+        height_px: u32,
+    ) -> ConversionRequest {
+        let mut mut_cells: Vec<CellRequest> = Vec::new();
+        for source_row in 0..FIXTURE_GRID_ROWS {
+            for source_col in 0..FIXTURE_GRID_COLS {
+                let cell_index = source_row * FIXTURE_GRID_COLS + source_col;
+                mut_cells.push(CellRequest {
+                    local_x: source_col,
+                    local_y: source_row,
+                    source_col,
+                    source_row,
+                    flip_h: false,
+                    generated_key: format!("slope_grass_30deg_4x2_r{cell_index}"),
+                });
+                mut_cells.push(CellRequest {
+                    local_x: source_col,
+                    local_y: source_row,
+                    source_col,
+                    source_row,
+                    flip_h: true,
+                    generated_key: format!("slope_grass_30deg_4x2_l{cell_index}"),
+                });
+            }
+        }
+        ConversionRequest {
+            version: REQUEST_VERSION.to_string(),
+            source_image: source_path.to_string_lossy().into_owned(),
+            margins_px: PixelPoint {
+                x: margin_x_px,
+                y: margin_y_px,
+            },
+            cell_size_px: PixelPoint {
+                x: cell_width_px,
+                y: cell_height_px,
+            },
+            separation_px: PixelPoint {
+                x: separation_px,
+                y: separation_px,
+            },
+            width_px,
+            height_px,
+            cells: mut_cells,
+        }
+    }
+
+    /// Paint a 4x2 sheet with a diagonal air-to-ground seam. The seam makes a dropped flip
+    /// observable without introducing a third grey that could disturb cluster resolution.
+    fn fn_two_grey_sheet(
+        margin_x_px: u32,
+        margin_y_px: u32,
+        cell_width_px: u32,
+        cell_height_px: u32,
+        separation_px: u32,
+        ground_grey: u8,
+        air_grey: u8,
+    ) -> RgbaImage {
+        let pitch_x_px: u32 = cell_width_px + separation_px;
+        let pitch_y_px: u32 = cell_height_px + separation_px;
+        let sheet_width_px: u32 = 2 * margin_x_px
+            + FIXTURE_GRID_COLS as u32 * cell_width_px
+            + (FIXTURE_GRID_COLS as u32 - 1) * separation_px;
+        let sheet_height_px: u32 = 2 * margin_y_px
+            + FIXTURE_GRID_ROWS as u32 * cell_height_px
+            + (FIXTURE_GRID_ROWS as u32 - 1) * separation_px;
+        let mut mut_sheet: RgbaImage =
+            RgbaImage::from_fn(sheet_width_px, sheet_height_px, |_, _| Rgba([0, 0, 0, 255]));
+        for source_row in 0..FIXTURE_GRID_ROWS as u32 {
+            for source_col in 0..FIXTURE_GRID_COLS as u32 {
+                let origin_x_px: u32 = margin_x_px + source_col * pitch_x_px;
+                let origin_y_px: u32 = margin_y_px + source_row * pitch_y_px;
+                for pixel_y in 0..cell_height_px {
+                    for pixel_x in 0..cell_width_px {
+                        let seam_row: u32 = cell_height_px / 4 + pixel_x / 2;
+                        let grey: u8 = if pixel_y >= seam_row {
+                            ground_grey
+                        } else {
+                            air_grey
+                        };
+                        mut_sheet.put_pixel(
+                            origin_x_px + pixel_x,
+                            origin_y_px + pixel_y,
+                            Rgba([grey, grey, grey, 255]),
+                        );
+                    }
+                }
+            }
+        }
+        mut_sheet
+    }
+
+    /// Repaint one cell with a near-continuous grey ramp whose gap is below the classifier floor.
+    fn fn_paint_unresolved_cell(
+        sheet: &mut RgbaImage,
+        origin_x_px: u32,
+        origin_y_px: u32,
+        width_px: u32,
+        height_px: u32,
+    ) {
+        (0..height_px).for_each(|pixel_y| {
+            (0..width_px).for_each(|pixel_x| {
+                let grey: u8 = RAMP_START_GREY + ((pixel_x + pixel_y) % 5) as u8 * RAMP_STEP_GREY;
+                sheet.put_pixel(
+                    origin_x_px + pixel_x,
+                    origin_y_px + pixel_y,
+                    Rgba([grey, grey, grey, 255]),
+                );
+            });
+        });
+    }
+
+    /// Paint the separation strips with a colour no cell uses, so a leak into a resized cell
+    /// cannot hide behind the two-grey silhouette.
+    fn fn_paint_grid_lines(sheet: &mut RgbaImage, request: &ConversionRequest) {
+        let margin_x_px: i32 = request.margins_px.x;
+        let margin_y_px: i32 = request.margins_px.y;
+        let cell_width_px: i32 = request.cell_size_px.x;
+        let cell_height_px: i32 = request.cell_size_px.y;
+        let separation_px: i32 = request.separation_px.x;
+        let pitch_x_px: i32 = cell_width_px + separation_px;
+        let pitch_y_px: i32 = cell_height_px + separation_px;
+        let crop_width_px: i32 = FIXTURE_GRID_COLS * pitch_x_px - separation_px;
+        let crop_height_px: i32 = FIXTURE_GRID_ROWS * pitch_y_px - separation_px;
+        (0..FIXTURE_GRID_COLS - 1).for_each(|col| {
+            (0..crop_height_px).for_each(|row| {
+                (0..separation_px).for_each(|offset| {
+                    sheet.put_pixel(
+                        (margin_x_px + col * pitch_x_px + cell_width_px + offset) as u32,
+                        (margin_y_px + row) as u32,
+                        Rgba([255, 0, 0, 255]),
+                    );
+                });
+            });
+        });
+        (0..FIXTURE_GRID_ROWS - 1).for_each(|row| {
+            (0..crop_width_px).for_each(|col| {
+                (0..separation_px).for_each(|offset| {
+                    sheet.put_pixel(
+                        (margin_x_px + col) as u32,
+                        (margin_y_px + row * pitch_y_px + cell_height_px + offset) as u32,
+                        Rgba([255, 0, 0, 255]),
+                    );
+                });
+            });
+        });
+    }
+
+    /// Persist a fixture and return its path, so the tool's own file decode is exercised.
+    fn fn_write_source(sheet: &RgbaImage, dir: &Path) -> PathBuf {
+        let source_path: PathBuf = dir.join("source.png");
+        sheet.save(&source_path).expect("write fixture source PNG");
+        source_path
+    }
+
+    /// Fresh throwaway directory for one guard, never inside the committed asset tree.
+    fn fn_test_dir(name: &str) -> PathBuf {
+        let dir: PathBuf = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create guard temp dir");
+        dir
+    }
+
+    #[test]
+    fn conversion_expands_all_cells_at_configured_size() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_conversion_expand_test");
+        let sheet: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        let source_path: PathBuf = fn_write_source(&sheet, &work_dir);
+        let request: ConversionRequest = fn_fixture_request(&source_path, 2, 2, 16, 16, 1, 8, 8);
+        let result: ConversionResult =
+            fn_convert_resource(&request, &work_dir).expect("a resolvable fixture converts");
+
+        assert_eq!(
+            result.outputs.len(),
+            FIXTURE_GENERATED_KEYS,
+            "8 right + 8 left cells"
+        );
+        let keys: Vec<&str> = result
+            .outputs
+            .iter()
+            .map(|output| output.generated_key.as_str())
+            .collect();
+        (0..8).for_each(|cell_index| {
+            assert!(keys.contains(&format!("slope_grass_30deg_4x2_r{cell_index}").as_str()));
+            assert!(keys.contains(&format!("slope_grass_30deg_4x2_l{cell_index}").as_str()));
+        });
+        result.outputs.iter().for_each(|output| {
+            let tile = image::open(&output.image_path).expect("saved generated PNG");
+            assert_eq!(
+                tile.dimensions(),
+                (8, 8),
+                "{} uses configured W x H",
+                output.generated_key
+            );
+            assert_eq!(
+                output.solid_mask.len(),
+                (8 * 8 + 7) / 8,
+                "{} packed mask",
+                output.generated_key
+            );
+            assert!(output.resolved, "{} resolves", output.generated_key);
+        });
+    }
+
+    #[test]
+    fn alpha_matches_greyscale_mask_per_pixel() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_alpha_oracle_test");
+        let sheet: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        let source_path: PathBuf = fn_write_source(&sheet, &work_dir);
+        let request: ConversionRequest = fn_fixture_request(&source_path, 2, 2, 16, 16, 1, 8, 8);
+        let result: ConversionResult =
+            fn_convert_resource(&request, &work_dir).expect("a resolvable fixture converts");
+
+        // The oracle decodes the saved file itself; it never shares the tool's greyscale helper.
+        let fn_assert_alpha = |key: &str| {
+            let output = result
+                .outputs
+                .iter()
+                .find(|candidate| candidate.generated_key == key)
+                .expect("generated key exists");
+            let decoded = image::open(&output.image_path).expect("saved generated PNG");
+            let rgba = decoded.clone().to_rgba8();
+            let luma = decoded.to_luma8();
+            (0..8).for_each(|row| {
+                (0..8).for_each(|col| {
+                    let expected_solid: bool = luma.get_pixel(col, row).0[0] == GROUND_GREY;
+                    assert_eq!(
+                        rgba.get_pixel(col, row).0[3] == 255,
+                        expected_solid,
+                        "alpha at ({col},{row}) of {key} follows the independent grey oracle"
+                    );
+                    assert_eq!(
+                        mask_bit(&output.solid_mask, 8, col, row),
+                        expected_solid,
+                        "packed mask at ({col},{row}) of {key} follows the same oracle"
+                    );
+                });
+            });
+        };
+        fn_assert_alpha("slope_grass_30deg_4x2_r0");
+        fn_assert_alpha("slope_grass_30deg_4x2_l0");
+
+        // The left output is the mirror of the right output, so a missing flip is visible.
+        let fn_luma_of = |key: &str| -> image::GrayImage {
+            let output = result
+                .outputs
+                .iter()
+                .find(|candidate| candidate.generated_key == key)
+                .expect("generated key exists");
+            image::open(&output.image_path)
+                .expect("saved generated PNG")
+                .to_luma8()
+        };
+        let right_luma: image::GrayImage = fn_luma_of("slope_grass_30deg_4x2_r0");
+        let left_luma: image::GrayImage = fn_luma_of("slope_grass_30deg_4x2_l0");
+        (0..8).for_each(|row| {
+            (0..8).for_each(|col| {
+                assert_eq!(
+                    left_luma.get_pixel(col, row).0[0],
+                    right_luma.get_pixel(7 - col, row).0[0],
+                    "the left cell is flipped after resize at ({col},{row})"
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn derive_mask_flags_unresolved_without_emitting_collision() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_unresolved_test");
+        let mut mut_sheet: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        fn_paint_unresolved_cell(&mut mut_sheet, 2, 2, 16, 16);
+        let source_path: PathBuf = fn_write_source(&mut_sheet, &work_dir);
+        let request: ConversionRequest = fn_fixture_request(&source_path, 2, 2, 16, 16, 1, 8, 8);
+
+        let first_dir: PathBuf = work_dir.join("first");
+        std::fs::create_dir_all(&first_dir).expect("first run dir");
+        let failure: ConvertError = fn_convert_resource(&request, &first_dir)
+            .expect_err("a cell without a cluster gap must abort the commit");
+        assert!(
+            matches!(failure, ConvertError::UnresolvedCells(_)),
+            "failure names unresolved cells"
+        );
+        assert!(
+            !first_dir.join("terrain_types.json").exists(),
+            "a refused run emits no collision entry"
+        );
+
+        // Repeat-after-refusal: repair the SAME source file and keep the request unchanged.
+        let repaired: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        repaired
+            .save(&source_path)
+            .expect("repair fixture in place");
+        let retry_dir: PathBuf = work_dir.join("retry");
+        std::fs::create_dir_all(&retry_dir).expect("retry run dir");
+        let result: ConversionResult = fn_convert_resource(&request, &retry_dir)
+            .expect("corrected same-path fixture converts on the second run");
+        assert_eq!(result.outputs.len(), FIXTURE_GENERATED_KEYS);
+        assert!(result.outputs.iter().all(|output| output.resolved));
+    }
+
+    #[test]
+    fn two_conversion_runs_are_byte_identical() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_byte_identity_test");
+        let sheet: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        let source_path: PathBuf = fn_write_source(&sheet, &work_dir);
+        let request: ConversionRequest = fn_fixture_request(&source_path, 2, 2, 16, 16, 1, 8, 8);
+        let first_dir: PathBuf = work_dir.join("first");
+        let second_dir: PathBuf = work_dir.join("second");
+        std::fs::create_dir_all(&first_dir).expect("first run dir");
+        std::fs::create_dir_all(&second_dir).expect("second run dir");
+        let first: ConversionResult = fn_convert_resource(&request, &first_dir).expect("first run");
+        let second: ConversionResult =
+            fn_convert_resource(&request, &second_dir).expect("second run");
+
+        assert_eq!(
+            serde_json::to_vec(&first).expect("serialize first result"),
+            serde_json::to_vec(&second).expect("serialize second result"),
+            "result JSON is byte-identical"
+        );
+        first.outputs.iter().for_each(|output| {
+            let first_bytes: Vec<u8> = std::fs::read(&output.image_path).expect("first PNG bytes");
+            let second_path: PathBuf =
+                second_dir.join(output.image_path.file_name().expect("PNG file name"));
+            let second_bytes: Vec<u8> = std::fs::read(&second_path).expect("second PNG bytes");
+            assert_eq!(
+                first_bytes, second_bytes,
+                "{} PNG bytes match",
+                output.generated_key
+            );
+        });
+    }
+
+    #[test]
+    fn terrain_entries_register_all_sixteen_generated_keys() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_registration_test");
+        let sheet: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        let source_path: PathBuf = fn_write_source(&sheet, &work_dir);
+        let request: ConversionRequest = fn_fixture_request(&source_path, 2, 2, 16, 16, 1, 8, 8);
+        let result: ConversionResult =
+            fn_convert_resource(&request, &work_dir).expect("conversion");
+        let base: Vec<TerrainTypeDef> = (0..FIXTURE_BASE_ENTRIES)
+            .map(|index| {
+                terrain_entry_from_image(&format!("base_{index}"), &sheet, DEFAULT_MIN_CLUSTER_GAP)
+                    .0
+            })
+            .collect();
+        let merged: Vec<TerrainTypeDef> = fn_merge_terrain_entries(&base, &result.outputs);
+
+        assert_eq!(
+            merged.len(),
+            EXPECTED_TERRAIN_ENTRIES,
+            "14 existing + 16 generated"
+        );
+        let generated: Vec<&TerrainTypeDef> = merged
+            .iter()
+            .filter(|entry| entry.key.starts_with("slope_grass_30deg_4x2_"))
+            .collect();
+        assert_eq!(
+            generated.len(),
+            FIXTURE_GENERATED_KEYS,
+            "no generated key is lost"
+        );
+        let distinct_keys: std::collections::HashSet<&str> =
+            generated.iter().map(|entry| entry.key.as_str()).collect();
+        assert_eq!(
+            distinct_keys.len(),
+            FIXTURE_GENERATED_KEYS,
+            "no generated key is duplicated"
+        );
+        generated.iter().for_each(|entry| {
+            assert!(entry.is_walkable, "{} is walkable", entry.key);
+            assert_eq!(
+                entry.solid_mask.len(),
+                (8 * 8 + 7) / 8,
+                "{} packed mask",
+                entry.key
+            );
+        });
+        assert!(
+            (0..FIXTURE_BASE_ENTRIES).all(|index| merged
+                .iter()
+                .any(|entry| entry.key == format!("base_{index}"))),
+            "every pre-existing entry survives the merge"
+        );
+    }
+
+    #[test]
+    fn preprocess_crops_whole_grid_then_slices_eight_cells() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_preprocess_crop_test");
+        let sheet: RgbaImage = fn_two_grey_sheet(104, 65, 126, 126, 1, GROUND_GREY, AIR_GREY);
+        let source_path: PathBuf = fn_write_source(&sheet, &work_dir);
+        let request: ConversionRequest =
+            fn_fixture_request(&source_path, 104, 65, 126, 126, 1, 32, 32);
+        let result: PreprocessResult =
+            preprocess_source_sheet(&request, &work_dir).expect("Phase I succeeds");
+
+        assert_eq!(
+            result.crop_rect,
+            PixelRect {
+                x: 104,
+                y: 65,
+                width_px: 507,
+                height_px: 253
+            },
+            "the outer 4x2 grid rect is cropped once"
+        );
+        let cleaned = image::open(&result.cleaned_image_path).expect("cleaned PNG saved");
+        assert_eq!(
+            cleaned.dimensions(),
+            (128, 64),
+            "8 cells assembled at 4W x 2H, not 512x256"
+        );
+        assert_eq!(result.cells.len(), 8, "one cleaned cell per source region");
+        let expected_origins: [(u32, u32); 8] = [
+            (0, 0),
+            (32, 0),
+            (64, 0),
+            (96, 0),
+            (0, 32),
+            (32, 32),
+            (64, 32),
+            (96, 32),
+        ];
+        result.cells.iter().zip(expected_origins.iter()).for_each(
+            |(cell, (origin_x, origin_y))| {
+                assert_eq!(
+                    cell.pixel_rect,
+                    PixelRect {
+                        x: *origin_x,
+                        y: *origin_y,
+                        width_px: 32,
+                        height_px: 32
+                    },
+                    "cell [{},{}] keeps its own W x H pixel rect",
+                    cell.source_col,
+                    cell.source_row
+                );
+                assert_eq!(cell.dimensions.width_px, 32, "cell mask width is W, not 4W");
+                assert_eq!(
+                    cell.dimensions.height_px, 32,
+                    "cell mask height is H, not 2H"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn preprocess_clears_every_grid_line_pixel() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_grid_line_test");
+        let mut mut_sheet: RgbaImage =
+            fn_two_grey_sheet(104, 65, 126, 126, 1, GROUND_GREY, AIR_GREY);
+        let layout_request: ConversionRequest =
+            fn_fixture_request(&Path::new("unused.png"), 104, 65, 126, 126, 1, 32, 32);
+        fn_paint_grid_lines(&mut mut_sheet, &layout_request);
+        let source_path: PathBuf = fn_write_source(&mut_sheet, &work_dir);
+        let request: ConversionRequest =
+            fn_fixture_request(&source_path, 104, 65, 126, 126, 1, 32, 32);
+        let result: PreprocessResult =
+            preprocess_source_sheet(&request, &work_dir).expect("Phase I succeeds");
+
+        let vertical_pixels: u32 = 3 * result.crop_rect.height_px;
+        let horizontal_pixels: u32 = result.crop_rect.width_px;
+        assert_eq!(
+            result.cleared_grid_line_pixels,
+            vertical_pixels + horizontal_pixels,
+            "every vertical and horizontal separation pixel is cleared"
+        );
+        assert!(
+            result.cells.iter().all(|cell| cell.resolved),
+            "no painted grid-line colour leaks into a cell mask"
+        );
+        let cleaned = image::open(&result.cleaned_image_path)
+            .expect("cleaned PNG saved")
+            .to_rgba8();
+        (0..cleaned.height()).for_each(|row| {
+            (0..cleaned.width()).for_each(|col| {
+                let alpha: u8 = cleaned.get_pixel(col, row).0[3];
+                assert!(
+                    alpha == 0 || alpha == 255,
+                    "alpha at ({col},{row}) is air or ground"
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn preprocess_flags_unresolved_and_blocks_phase_ii() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_preprocess_gate_test");
+        let mut mut_sheet: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        fn_paint_unresolved_cell(&mut mut_sheet, 2, 2, 16, 16);
+        let source_path: PathBuf = fn_write_source(&mut_sheet, &work_dir);
+        let request: ConversionRequest = fn_fixture_request(&source_path, 2, 2, 16, 16, 1, 8, 8);
+        let sidecar_path: PathBuf = work_dir.join("slope.jsonc");
+
+        let flagged: PreprocessResult =
+            preprocess_source_sheet(&request, &work_dir).expect("Phase I flags but does not abort");
+        let unresolved: &CleanedCell = flagged
+            .cells
+            .iter()
+            .find(|cell| !cell.resolved)
+            .expect("the ramp cell is flagged");
+        assert!(
+            unresolved.solid_mask.is_empty(),
+            "no collision value is invented for a flagged cell"
+        );
+        assert!(
+            fn_phase_two_gate(&flagged, true, &sidecar_path).is_err(),
+            "Phase II refuses even when the human sign-off flag is set"
+        );
+        assert!(
+            !sidecar_path.exists(),
+            "the sidecar is not written before repair"
+        );
+
+        // Same request path and same config; only the offending source pixels are corrected.
+        let repaired: RgbaImage = fn_two_grey_sheet(2, 2, 16, 16, 1, GROUND_GREY, AIR_GREY);
+        repaired
+            .save(&source_path)
+            .expect("repair fixture in place");
+        let signed: PreprocessResult =
+            preprocess_source_sheet(&request, &work_dir).expect("corrected Phase I succeeds");
+        assert!(signed.cells.iter().all(|cell| cell.resolved));
+        let sidecar: ConversionSidecar = fn_phase_two_gate(&signed, true, &sidecar_path)
+            .expect("signed-off Phase II emits the sidecar");
+        assert_eq!(sidecar.tiles.len(), 8, "one sidecar row per cleaned cell");
+        assert!(
+            sidecar_path.exists(),
+            "the sidecar is on disk after sign-off"
+        );
+    }
+
+    #[test]
+    fn jsonc_sidecar_round_trips_after_human_signoff() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_sidecar_test");
+        let sheet: RgbaImage = fn_two_grey_sheet(104, 65, 126, 126, 1, GROUND_GREY, AIR_GREY);
+        let source_path: PathBuf = fn_write_source(&sheet, &work_dir);
+        let request: ConversionRequest =
+            fn_fixture_request(&source_path, 104, 65, 126, 126, 1, 32, 32);
+        let result: PreprocessResult =
+            preprocess_source_sheet(&request, &work_dir).expect("Phase I");
+        let sidecar_path: PathBuf = work_dir.join("slope.jsonc");
+        let emitted: ConversionSidecar =
+            fn_phase_two_gate(&result, true, &sidecar_path).expect("signed-off sidecar emitted");
+
+        // Inject a line comment after emission: the reader must strip it without recomputing
+        // any geometry from the source sheet.
+        let raw_text: String = std::fs::read_to_string(&sidecar_path).expect("sidecar text");
+        let commented_text: String = format!("// human inspected and signed off\n{raw_text}");
+        std::fs::write(&sidecar_path, commented_text).expect("write commented sidecar");
+        let decoded: ConversionSidecar =
+            read_sidecar(&sidecar_path).expect("JSONC comments stripped");
+
+        assert_eq!(
+            decoded.version, emitted.version,
+            "version survives the round trip"
+        );
+        assert_eq!(
+            decoded.tile_width_px, 32,
+            "tile width is read, not recomputed"
+        );
+        assert_eq!(
+            decoded.tile_height_px, 32,
+            "tile height is read, not recomputed"
+        );
+        assert_eq!(
+            decoded.mask_encoding, MASK_ENCODING_GREYSCALE,
+            "mask encoding token survives"
+        );
+        assert_eq!(
+            decoded.tiles.len(),
+            result.cells.len(),
+            "every cleaned cell has a sidecar row"
+        );
+        decoded
+            .tiles
+            .iter()
+            .zip(result.cells.iter())
+            .for_each(|(row, cell)| {
+                assert_eq!(row.source_col, cell.source_col, "source column survives");
+                assert_eq!(row.source_row, cell.source_row, "source row survives");
+                assert_eq!(
+                    row.pixel_rect, cell.pixel_rect,
+                    "pixel rect is read, not recomputed"
+                );
+                assert_eq!(row.dimensions, cell.dimensions, "cell dimensions survive");
+            });
     }
 }
