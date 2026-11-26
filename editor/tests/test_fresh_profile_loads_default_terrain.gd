@@ -7,6 +7,7 @@ extends SceneTree
 const TOOL_PATH: String = "res://scripts/slope_conversion_tool.gd"
 const PROFILE_DIR: String = "user://data/tools/sstd_fresh_profile_guard"
 const GENERATED_KEY_PREFIX: String = "slope_grass_30deg_4x2_"
+const CELLS_PER_GROUPING: int = 8
 const TILE_PATH_PATTERN: String = "res://assets/tiles/%s_32x32.png"
 const TILE_WIDTH_PX: int = 32
 const TILE_HEIGHT_PX: int = 32
@@ -28,7 +29,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _generated_keys() -> Array[String]:
     var keys: Array[String] = []
-    for cell_index in range(8):
+    for cell_index in range(CELLS_PER_GROUPING):
         keys.append(GENERATED_KEY_PREFIX + "r" + str(cell_index))
         keys.append(GENERATED_KEY_PREFIX + "l" + str(cell_index))
     return keys

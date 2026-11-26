@@ -12,6 +12,7 @@ const TILE_PATH_PATTERN: String = "res://assets/tiles/%s_32x32.png"
 const GENERATED_KEY_PREFIX: String = "slope_grass_30deg_4x2_"
 const CELLS_PER_GROUPING: int = 8
 const GENERATED_KEY_COUNT: int = 16
+const EXPECTED_TERRAIN_ENTRY_COUNT: int = 30
 
 var _failures: int = 0
 
@@ -67,7 +68,8 @@ func _run() -> void:
         var entry_keys: Array[String] = []
         for entry_variant in entries:
             entry_keys.append(String((entry_variant as Dictionary).get("key", "")))
-        _check(entry_keys.size() == 30, "framework terrain has 30 entries, got %d" % entry_keys.size())
+        _check(entry_keys.size() == EXPECTED_TERRAIN_ENTRY_COUNT,
+            "framework terrain has %d entries, got %d" % [EXPECTED_TERRAIN_ENTRY_COUNT, entry_keys.size()])
         for expected_key in expected_keys:
             _check(entry_keys.has(expected_key), "terrain entry exists for %s" % expected_key)
 

@@ -8,6 +8,7 @@ extends SceneTree
 const TERRAIN_PATH: String = "res://default_package/terrain_types.json"
 const TILE_PATH_PATTERN: String = "res://assets/tiles/%s_32x32.png"
 const GENERATED_KEY_PREFIX: String = "slope_grass_30deg_4x2_"
+const GENERATED_KEY_COUNT: int = 16
 const TILE_WIDTH_PX: int = 32
 const TILE_HEIGHT_PX: int = 32
 const GROUND_GREY: int = 155
@@ -99,7 +100,8 @@ func _run() -> void:
             continue
         checked_count += 1
         _check_key(key, entry)
-    _check(checked_count == 16, "all 16 generated slopes were checked, got %d" % checked_count)
+    _check(checked_count == GENERATED_KEY_COUNT,
+        "all %d generated slopes were checked, got %d" % [GENERATED_KEY_COUNT, checked_count])
     _finish()
 
 
