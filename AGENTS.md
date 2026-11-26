@@ -1066,6 +1066,15 @@ Ticketed as issue #178 on 2026-11-25; document the approach before code and conf
 "default terrain for distributions" means the committed `default_package/` or the user-data
 world bundle before choosing where to save.
 
+### Planning scope for issue #178 (2026-11-25)
+
+This ticket is a planning task only: document the implementation of the conversion tool, its
+data storage, its data retrieval, and both transformation directions (Rust -> Godot 4 and
+Godot 4 -> Rust). Do not add implementation code while planning.
+
+Godot 4 GDScript timing uses `Time.get_ticks_msec()`; `OS.get_ticks_msec()` was removed from
+the script API after Godot 3.
+
 ## Mini-step labels must never stand alone (2026-11-24)
 
 When briefing @me, never use a bare `S1`, `S2`, and so on as the name of the work. Name the work
