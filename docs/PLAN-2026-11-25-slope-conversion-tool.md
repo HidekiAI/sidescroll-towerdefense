@@ -528,11 +528,12 @@ Race, repeat, and non-determinism disposition:
 - Back-to-back repeat: `two_conversion_runs_are_byte_identical` runs the Rust conversion twice
   and compares bytes, and `second_full_conversion_run_is_byte_identical` does the same for the
   whole pipeline including the keyed upsert. Neither compares decoded pixels alone.
-- Preprocessing race and repeat: Phase I is pure over the source PNG and config, so a concurrent
-  race does not apply. Phase II gates on a sign-off marker in a single-process tool; there is no
-  second writer, and `preprocess_flags_unresolved_and_blocks_phase_ii` forces the refusal path.
-  Repeating Phase II after the human repairs the cleaned PNG and records sign-off is covered by
-  the same guard's second phase, with the source path and config unchanged.
+- Preprocessing race and repeat: Phase I is deterministic and single-process and writes one
+  cleaned PNG; no concurrent second writer exists. Phase II gates on a sign-off marker in the
+  same single-process tool, and `preprocess_flags_unresolved_and_blocks_phase_ii` forces the
+  refusal path. Repeating Phase II after the human repairs the cleaned PNG and records sign-off
+  is covered by `jsonc_sidecar_round_trips_after_human_signoff`, whose guard row pins the
+  signed-off PNG plus sidecar read with the source path and config unchanged.
 - Repeat after refusal: after an unresolved fixture causes a non-zero exit with no terrain
   entry, the SAME INPUT is corrected in place (the offending greys in that fixture change;
   the request path and config stay identical) and the run is repeated. The second run must
