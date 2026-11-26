@@ -596,7 +596,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP4 - Planning branch pushed by explicit remote. Resume was: `git -C sidescroll-towerdefense branch -m local/docs/plan-slope-conversion-tool docs/plan-slope-conversion-tool`, then `git -C sidescroll-towerdefense fetch`, then `git -C sidescroll-towerdefense push origin docs/plan-slope-conversion-tool`. The rename ran first: the `local/` namespace is never published and the target name did not exist until the rename landed. This host's configured push hooks are inert (git 2.47.3), so no hook would have refused a mistake. Evidence: `* [new branch] docs/plan-slope-conversion-tool -> docs/plan-slope-conversion-tool`, tip `6937b1743d606d44ad3cc623cf10158b26246c87`; raw output in `/tmp/user/1000/opencode/sstd-plan-push.log`. Recovery: a refused push is a STOP, never `--force`; if the remote is ahead, ask before any rebase.
 - [x] CP5 - Planning branch ff-only merged to `trunk` and `trunk` pushed. Resume was: `git -C sidescroll-towerdefense switch trunk`, `git -C sidescroll-towerdefense pull --ff-only origin trunk`, `git -C sidescroll-towerdefense merge --ff-only docs/plan-slope-conversion-tool`, `git -C sidescroll-towerdefense push origin trunk`. Evidence: `Updating be48c36..6937b17` / `Fast-forward`, then `be48c36..6937b17 trunk -> trunk`; at merge time `trunk`, `origin/trunk` and `origin/docs/plan-slope-conversion-tool` resolved to `6937b1743d606d44ad3cc623cf10158b26246c87`; raw output in `/tmp/user/1000/opencode/sstd-plan-push.log`. The independent pre-push self-review returned PUSH-READY at 100/100 after three full-diff passes, and its five findings were filed as #196 through #200 after @me approved the wording. Recovery: if `--ff-only` refuses, STOP and ask; never author a merge commit. The merged local branch `docs/plan-slope-conversion-tool` was deleted on 2026-11-25 with @me's approval; the remote-delete handover is `/tmp/user/1000/opencode/sstd-delete-remote-plan-branch.sh`, for @me to run only.
 - [x] CP6 - Separate implementation ticket opened (implementation gate). Evidence: https://github.com/HidekiAI/sidescroll-towerdefense/issues/239, opened 2026-11-26T16:07:19Z; its body names both phases, this plan, AC1-AC10, the sixteen RED-first tests and `Difficulty: L`. Recovery: an implementation branch is still required; no code may exist before that branch is cut.
-- [ ] CP7 - Sources and config measured (S1). Resume: read both `.tres` files, `grid.tile_width_in_pixels` and `grid.tile_height_in_pixels`, then write `## Step S1 result`. Evidence: measured W/H, both key lists, config values. Recovery: read-only; re-run from the cited `file:line`.
+- [x] CP7 - Sources and config measured (S1). Evidence: `## Step S1 result`, W/H 32/32, both eight-key lists, 16 resolved cells, 956 tracked tile files and 0 collision-key hits. Recovery: re-run `/tmp/user/1000/opencode/sstd-s1-measure.sh`.
 - [ ] CP8 - Sixteen tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result`, naming `preprocess_crops_whole_grid_then_slices_eight_cells`, `preprocess_clears_every_grid_line_pixel`, `preprocess_flags_unresolved_and_blocks_phase_ii` and `jsonc_sidecar_round_trips_after_human_signoff` alongside the original twelve. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
 - [ ] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, test count measured, mutation results. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours.
 - [ ] CP10 - GDScript orchestrator and both bridge directions written (S4). Resume: `godot4 --headless --check-only --script res://scripts/<name>.gd --quit`. Evidence: exit 0 and the request/result JSON shapes. Recovery: GDScript production logic is written directly; only its tests are assistant-written.
@@ -612,8 +612,8 @@ blocks are append-only; corrections go in a later block and name what was wrong.
 
 | step | status | evidence | fingerprints |
 | --- | --- | --- | --- |
-| S0 Plan gate and checkpoint pointer | NOT STARTED | - | path `docs/PLAN-2026-11-25-slope-conversion-tool.md`, branch `local/docs/plan-slope-conversion-tool` |
-| S1 Measure sources, config, and collision resolvability | NOT STARTED | - | 16 cells, 8 per resource, W/H from bridge, 0 or N unresolved |
+| S0 Plan gate and checkpoint pointer | DONE | `## Plan gate`, PASS 96/100 at bar 95 | path `docs/PLAN-2026-11-25-slope-conversion-tool.md`, branch `local/docs/plan-slope-conversion-tool` |
+| S1 Measure sources, config, and collision resolvability | DONE | `## Step S1 result`, 2026-11-26 | 16 cells, 8 per resource, W/H 32/32 from config DB, 0 unresolved |
 | S2 RED tests for request, expansion, alpha, registration, determinism and preprocessing | NOT STARTED | - | 9 Rust unit + 3 GDScript unit + 4 headless E2E tests, RED exit codes |
 | S3 Rust `convert-slope` subcommand | NOT STARTED | - | `tools/import-tiles/src/main.rs`, 128-byte mask at 32px |
 | S4 GDScript orchestrator and DAO coercion | NOT STARTED | - | `editor/scripts/slope_conversion_tool.gd`, request/result JSON |
@@ -821,3 +821,43 @@ The five findings from the independent pre-push self-review were likewise filed,
 #196 through #200 from `/tmp/user/1000/opencode/sstd-self-review-178-issue-drafts.md`; @me
 approved their wording. No separate scoring pass is claimed here.
 No implementation step may start on this branch.
+
+## Step S1 result
+
+MEASURED 2026-11-26 on implementation branch `local/feat/slope-preprocess` (base `trunk`
+`d2e0255`). Journal: `/tmp/user/1000/opencode/sstd-s1-measure.log`; throwaway inputs and outputs:
+`/tmp/user/1000/opencode/sstd-s1-work/`; replay scripts: `/tmp/user/1000/opencode/sstd-s1-measure.sh`
+and `/tmp/user/1000/opencode/sstd-s1-clusters.sh`. Nothing in this step wrote to the repo tree.
+
+- Both authoring resources are 4 columns by 2 rows and name the same source sheet
+  `res://assets/samples/tileset_2-2.png` with `src_margins = (104, 65)`,
+  `src_cell_size = (126, 126)` and `src_separation = (1, 1)`.
+  `editor/assets/tilesets/slope_grass_30deg_4x2.tres`, key `slope_grass_30deg_4x2`, lists
+  terrain keys in reading order: `slope_30deg_0_0`, `1_0`, `2_0`, `3_0`, `0_1`, `1_1`,
+  `2_1`, `3_1`. `editor/assets/tilesets/slope_grass_30deg_4x2_left.tres`, key
+  `slope_grass_30deg_4x2_left`, lists the same eight keys in reversed order per row with
+  `flip_h = true` on every entry. Both sets therefore consume the same eight source regions.
+- Config columns are `key` and `default_value` in `editor/config/sstd_config.sqlite3`; the
+  values are `grid.tile_width_in_pixels = 32` and `grid.tile_height_in_pixels = 32`. This
+  confirms the plan's W = H = 32 premise; expected mask length is 128 packed bytes per cell.
+- Source sheet `tileset_2-2.png` is `707x388`, 3-channel sRGB. Outer crop rect enclosing the
+  whole 4x2 grid is `(104, 65, 507, 253)`: width `4*127 - 1`, height `2*127 - 1`.
+- Eight cells were cropped at pitch 127 and nearest-resized to 32x32 in the throwaway directory:
+  source rects `126x126+104+65`, `+231+65`, `+358+65`, `+485+65`, `+104+192`, `+231+192`,
+  `+358+192`, `+485+192`. The shipped `scan_tile_directory` classifier was then run twice, once
+  per resource's eight cells: 8 entries each, 0 `UNRESOLVED` lines, `solid_mask` length 128 on
+  every entry. All 16 cells are RESOLVED; 0 flagged. AC7 therefore needs the synthetic
+  two-cluster fixture named in the test plan, never a real cell.
+- Independent grey-cluster cross-check (ImageMagick greyscale histogram, dominant grey and the
+  furthest present grey): cells `[0,0]` 209/8 gap 201, `[1,0]` 209/12 gap 197, `[2,0]` 209/13
+  gap 196, `[3,0]` 210/14 gap 196, `[0,1]` 209/30 gap 179, `[1,1]` 46/213 gap 167,
+  `[2,1]` 45/142 gap 97, `[3,1]` 45/211 gap 166. Every gap exceeds
+  `DEFAULT_MIN_CLUSTER_GAP = 32`, matching the classifier's 0 flagged.
+- Collision-key check: `git ls-files editor/assets/tiles | wc -l` = 956 tracked tile files;
+  `git grep -n -E 'slope_grass_30deg_4x2_[rl][0-7]' -- editor/assets/tiles editor/default_package`
+  returned no hits, so generated keys cannot overwrite committed art.
+- Measurement correction retained for the next reader: an initial pass sliced at 126x126 and
+  scanned without resizing, producing a 1985-byte packed mask. That is the unresized source
+  cell, not the contract. The classifier must see the 32x32 resized cell; the corrected run
+  above produces 128 bytes.
+- No premise in this plan proved wrong; no plan edit was needed beyond this result block.
