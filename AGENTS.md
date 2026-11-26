@@ -1119,10 +1119,11 @@ texture keeps RGB under transparent pixels (shared lesson `01M85D7FS36ZSVZB20AMH
 @me then said "update the TDD": the design of record for this tool belongs in the wiki
 `TechnicalDesign/` repo, not in code-repo `docs/` (TDD/GDD location rule). Ticket-First is
 satisfied by issue #178 (grass slope conversion tool), whose body was expanded on 2026-11-26
-with this two-phase scope and the three preprocessing acceptance criteria; no new issue was opened. A SEPARATE implementation
-ticket and branch are still required before any code, as the unchecked implementation gate in
-the plan says. Do not start it inside the parked preview question; start a new agent for it, or
-finish that question first.
+with this two-phase scope and the three preprocessing acceptance criteria. The separate
+implementation ticket #239 (two-phase preprocessing implementation) opened on 2026-11-26 with the
+same scope and all ten acceptance criteria; an implementation branch is still required before any
+code, as the implementation gate in the plan says. Do not start it inside the parked preview
+question; start a new agent for it, or finish that question first.
 
 ## Stateless-agent mini-checkpoint ledger (2026-11-25)
 
