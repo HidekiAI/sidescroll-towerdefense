@@ -188,7 +188,7 @@ An item with no anchor here is out of scope, whatever its forward section says (
 | `jsonc_sidecar_round_trips_after_human_signoff` | L69 "Rust reads the PNG plus sidecar without re-deriving tile positions."; L75 "A headless guard that a human-repaired cleaned PNG and its JSONC sidecar round-trip into Rust without re-deriving cell positions." |
 | PNG decode layer named for Rust and GDScript | L65 "Decode the PNG file itself with `Image.new().load(path)`, never `(load(path) as CompressedTexture2D).get_image()`"; the Rust-owned equivalent `image::open(path)` is a file decode, not an imported texture |
 | Per-cell mask dimension resolved | L61 "Phase I then guesses the air mask at the same dimensions as the alpha channel"; resolved as each resized cell's W x H, not the whole-grid 4W x 2H sheet |
-| Sixteen RED tests named in the ledger | L42-L43 (the original twelve) and L73-L75 (the four preprocessing guards) |
+| Sixteen RED tests named in the ledger | L42-L43 (the original twelve), L73-L75 (the three nice-to-have preprocessing tests) and L68 (AC9, the fourth guard `preprocess_flags_unresolved_and_blocks_phase_ii`) |
 | Named mask literals in Rust assisted samples | Lesson-driven guard `01M7QGRZ6X0NBYF41TW9VNGMAG`, not a new ticket deliverable: the `0x00`, `0x80` and `0xFF` mask encodings named at their use |
 | Race / repeat / non-determinism disposition and layer per test | L37 and L38; L42-L43 (unit versus headless editor layers) |
 
