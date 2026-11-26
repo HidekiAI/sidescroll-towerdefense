@@ -959,6 +959,12 @@ second_full_conversion failures=1
 EXIT=1
 ```
 
+Correction made while reviewing the guards: the headless walker oracle first hardcoded air `0`
+and ground `155`, which are the synthetic fixture's greys, not the generated art's. It now reads
+both clusters from the decoded file (darkest is air, lightest is ground, nearest anchor wins) and
+checks contact per column, matching the ticket's per-column criterion. No guard behaviour was
+weakened; the RED evidence above is unchanged.
+
 Race and back-to-back notes: the Rust conversion repeat guard covers byte identity across two
 runs; the GDScript merge guard merges the same generated set twice to pin upsert-not-append.
 No shared mutable state is introduced by any guard, so no forced-interleaving race test applies.
