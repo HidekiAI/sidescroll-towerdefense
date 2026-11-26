@@ -819,5 +819,5 @@ Gate finding numbers are recorded in `docs/SESSION-CHECKPOINT.md`: each finding 
 own issue, #179 through #195, from `/tmp/user/1000/opencode/sstd-gate-178-issue-drafts.md`.
 The five findings from the independent pre-push self-review were likewise filed, one each, as
 #196 through #200 from `/tmp/user/1000/opencode/sstd-self-review-178-issue-drafts.md`; @me
-approved their wording after a separate read-only scoring pass returned 97/100 against the 95 bar.
+approved their wording. No separate scoring pass is claimed here.
 No implementation step may start on this branch.
