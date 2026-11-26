@@ -1083,6 +1083,23 @@ reader.
 Godot 4 GDScript timing uses `Time.get_ticks_msec()`; `OS.get_ticks_msec()` was removed from
 the script API after Godot 3.
 
+## Stateless-agent mini-checkpoint ledger (2026-11-25)
+
+@me directive: every multi-step task in this repo must persist a LIVE-UPDATED mini-checklist.
+A fresh, stateless agent picks up the FIRST unchecked box. An agent that hung mid-step is
+resumed by re-running that box's recorded command from the persisted state. No agent may rely
+on chat memory or on a previous agent's intention.
+
+- The authoritative ledger is `docs/SESSION-CHECKPOINT.md` CURRENT STATE / NEXT MOVE. The
+  task in flight also carries a `## Mini-checkpoints` section in its plan document.
+- Every box carries the work name first, then the label in parentheses, a resume command, the
+  expected exit code or evidence, and a partial-state recovery line.
+- A box is checked ONLY when its evidence is persisted in the same commit that makes the
+  change. A checked box with no evidence is stale and must be reopened.
+- On a hang, the next agent re-runs the first unchecked box's command. If the tree is dirty
+  in a way that box does not name, STOP and record the finding as its own issue. Do not guess
+  which half of a step completed.
+
 ## Mini-step labels must never stand alone (2026-11-24)
 
 When briefing @me, never use a bare `S1`, `S2`, and so on as the name of the work. Name the work

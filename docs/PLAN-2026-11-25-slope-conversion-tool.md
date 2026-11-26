@@ -499,6 +499,31 @@ Read-only for every implementation step:
    not fix it inside this ticket.
 9. Explicit `git -C <repo>` for every repo action; this workspace has two repos.
 
+## Mini-checkpoints (live-updated ledger for stateless agents)
+
+Rule of use: a fresh or resumed agent reads the FIRST unchecked box and runs its resume
+command. The box is ticked in the SAME commit that writes its evidence. A box whose evidence
+lives only in chat is stale and must be reopened. If an agent hung mid-box, the next agent
+re-runs that box's resume command and follows its recovery line. If the tree is dirty in a way
+the box does not name, STOP and file a finding before continuing. This implements the
+`AGENTS.md` directive "Stateless-agent mini-checkpoint ledger".
+
+- [x] CP0 - Plan gate passed and recorded (gate record). Evidence: `## Plan gate`, 74 -> 87 -> 96 on 2026-11-25, bar 95. Recovery: read-only; nothing to clean.
+- [x] CP1 - Source, config and destination measured (preplanning). Evidence: `## Provenance` and `## Resolved open question`. Recovery: read-only; re-read the cited `file:line`.
+- [x] CP2 - All 17 gate findings fixed and filed as issues #179 through #195. Evidence: the issue map in `docs/SESSION-CHECKPOINT.md`. Recovery: `cat /tmp/user/1000/opencode/sstd-gate-178-issue-numbers.txt` lists every filed number; never re-file one already there.
+- [x] CP3 - Planning docs committed locally. Evidence: plan and `AGENTS.md` scope in `0326f70 docs(plan): record passing slope conversion plan gate (#178)`; this ledger and the checkpoint issue map are in the same commit that ticks this box. Recovery: `git -C sidescroll-towerdefense log --oneline -5`.
+- [ ] CP4 - Planning branch pushed by explicit remote. Resume: `git -C sidescroll-towerdefense fetch`, then `git -C sidescroll-towerdefense push origin docs/plan-slope-conversion-tool`. Evidence: the real ref range pasted into this box. Recovery: a refused push is a STOP, never `--force`; if the remote is ahead, ask before any rebase.
+- [ ] CP5 - Planning branch ff-only merged to `trunk` and `trunk` pushed. Resume: `git -C sidescroll-towerdefense switch trunk`, `git -C sidescroll-towerdefense pull --ff-only origin trunk`, `git -C sidescroll-towerdefense merge --ff-only docs/plan-slope-conversion-tool`. Evidence: `trunk` tip hash and both real ref ranges. Recovery: if `--ff-only` refuses, STOP and ask; never author a merge commit. Then offer to delete the local branch; hand the remote-delete line to @me.
+- [ ] CP6 - Separate implementation ticket opened (implementation gate). Resume: create the ticket before any code and point its body at this plan. Evidence: ticket URL in this box. Recovery: no code may exist until this box is ticked.
+- [ ] CP7 - Sources and config measured (S1). Resume: read both `.tres` files, `grid.tile_width_in_pixels` and `grid.tile_height_in_pixels`, then write `## Step S1 result`. Evidence: measured W/H, both key lists, config values. Recovery: read-only; re-run from the cited `file:line`.
+- [ ] CP8 - Twelve tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result`. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
+- [ ] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, test count measured, mutation results. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours.
+- [ ] CP10 - GDScript orchestrator and both bridge directions written (S4). Resume: `godot4 --headless --check-only --script res://scripts/<name>.gd --quit`. Evidence: exit 0 and the request/result JSON shapes. Recovery: GDScript production logic is written directly; only its tests are assistant-written.
+- [ ] CP11 - Artifacts and palette registration written (S5). Resume: temp-dir-then-rename check plus the 16-key registration unit test. Evidence: 30 entries, no duplicate keys, explicit staged paths. Recovery: never `git add -A` here; stage only named artifacts.
+- [ ] CP12 - Four headless guards run (S6). Resume: four `godot4 --headless` commands; `Image.new().load(path)` oracle and `Time.get_ticks_msec()`. Evidence: all four exit 0, worst contact error <= 1 px. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
+- [ ] CP13 - Full gate and mutation battery run (S7). Resume: Rust gates plus all relevant GDScript suites; every mutant FIRES, PARSES and reddens its named test. Evidence: counts, VOID and REFUTED lists, byte-identical restore. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture.
+- [ ] CP14 - Docs, issue close and checkpoint updated (S8). Resume: wiki page and index, issue #178 close only when all seven ACs are green, checkpoint pointer. Evidence: closing comment URL and terminal checkpoint block. Recovery: if AC4 exceeded 1 px, #178 stays OPEN with the measured error and the follow-up link.
+
 ## STEP LEDGER
 
 Statuses are `NOT STARTED` until a step writes its own `## Step N result` block below. Result
@@ -700,5 +725,6 @@ Removed or rewritten items: the literal `sub_tile_mask: 15`; the claim that tick
 ticket deliverable. Nothing was removed from the ticket's seven acceptance criteria or its
 out-of-scope list.
 
-Gate finding numbers are recorded in `docs/SESSION-CHECKPOINT.md` once @me approves the issue
-wording. No implementation step may start on this branch.
+Gate finding numbers are recorded in `docs/SESSION-CHECKPOINT.md`: each finding was filed as its
+own issue, #179 through #195, from `/tmp/user/1000/opencode/sstd-gate-178-issue-drafts.md`.
+No implementation step may start on this branch.
