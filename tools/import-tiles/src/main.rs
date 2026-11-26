@@ -27,6 +27,51 @@ const REC601_LUMA_RED_WEIGHT: f64 = 0.299;
 const REC601_LUMA_GREEN_WEIGHT: f64 = 0.587;
 const REC601_LUMA_BLUE_WEIGHT: f64 = 0.114;
 
+/// The legacy 4-bit mask value for a wholly solid sub-tile, used by the importer path that
+/// predates the per-pixel mask. Named so the coarse and fine paths cannot respell it apart.
+const SUB_TILE_MASK_ALL_SOLID: u8 = 0xF;
+
+/// The byte written for every pixel of a single-grey tile's packed solid mask.
+const PACKED_MASK_BYTE_ALL_SOLID: u8 = 0xFF;
+
+/// The file version stamped on every emitted JSON document; a persisted format token.
+const FILE_VERSION: &str = "0.1.0";
+
+/// A pixel is transparent enough to ignore when its alpha is below this byte value.
+const TRANSPARENT_ALPHA_CUTOFF: u8 = 128;
+
+/// The luminance checks that name a coarse terrain class from a tile's pixels.
+const DARK_LUMA_CUTOFF: f64 = 0.25;
+const TRANSPARENT_RATIO_CUTOFF: f64 = 0.6;
+const GRASS_MEAN_LUMA_CUTOFF: f64 = 0.45;
+const DARK_PIXEL_RATIO_CUTOFF: f64 = 0.4;
+
+/// The coarse content detector scans in fixed windows, requiring this much luma variation
+/// inside a window and allowing at most this pitch before it gives up.
+const CONTENT_WINDOW_PX: u32 = 32;
+const CONTENT_LUMA_VARIATION_THRESHOLD: i32 = 3;
+const MAX_DETECTED_PITCH_PX: u32 = 256;
+
+/// Neutral colour used when an empty image has no average to report.
+const AVERAGE_COLOR_FALLBACK_RGBA: (u8, u8, u8, u8) = (128, 128, 128, 255);
+
+/// Eight pixels share one packed mask byte.
+const BITS_PER_BYTE: usize = 8;
+
+/// Terrain keys and default field values written into the emitted catalog. These are
+/// persisted tokens, so they live in one place instead of being respelled at each site.
+const AIR_TERRAIN_KEY: &str = "air";
+const WALL_TERRAIN_KEY: &str = "wall";
+const WATER_TERRAIN_KEY: &str = "water";
+const LAVA_TERRAIN_KEY: &str = "lava";
+const GRASS_TERRAIN_KEY: &str = "grass";
+const STONE_TERRAIN_KEY: &str = "stone";
+const NORMAL_SURFACE: &str = "normal";
+const NO_HAZARD: &str = "none";
+
+/// A pixel contributes to the dark-pixel count only when it is this opaque or more.
+const DARK_PIXEL_ALPHA_CUTOFF: f64 = 0.5;
+
 #[derive(Deserialize, Debug, Clone)]
 struct ImportConfig {
     #[serde(default)]
@@ -208,22 +253,22 @@ struct ContentBounds {
 /// luma variation (i.e. is actual content, not a uniform border/background).
 fn window_has_content(
     gray: &image::GrayImage,
-    x0: u32,
-    y0: u32,
-    win_w: u32,
-    win_h: u32,
+    window_x0: u32,
+    window_y0: u32,
+    window_width: u32,
+    window_height: u32,
     threshold: i32,
 ) -> bool {
-    let (iw, ih) = (gray.width(), gray.height());
-    let x1 = (x0 + win_w).min(iw);
-    let y1 = (y0 + win_h).min(ih);
-    let (mut mn, mut mx) = (255u8, 0u8);
-    for y in y0..y1 {
-        for x in x0..x1 {
-            let l = gray.get_pixel(x, y).0[0];
-            mn = mn.min(l);
-            mx = mx.max(l);
-            if (mx as i32 - mn as i32) > threshold {
+    let window_x1: u32 = (window_x0 + window_width).min(gray.width());
+    let window_y1: u32 = (window_y0 + window_height).min(gray.height());
+    let (mut mut_min_luma, mut mut_max_luma) = (u8::MAX, 0u8);
+    // Leave as soon as any pixel pair clears the range, since more pixels can only widen it.
+    for pixel_y in window_y0..window_y1 {
+        for pixel_x in window_x0..window_x1 {
+            let pixel_luma: u8 = gray.get_pixel(pixel_x, pixel_y).0[0];
+            mut_min_luma = mut_min_luma.min(pixel_luma);
+            mut_max_luma = mut_max_luma.max(pixel_luma);
+            if i32::from(mut_max_luma) - i32::from(mut_min_luma) > threshold {
                 return true;
             }
         }
@@ -233,149 +278,238 @@ fn window_has_content(
 
 /// Scan a full row at pixel resolution (used for fine-grained bottom/right
 /// edge detection within the last content window).
-fn row_has_content(gray: &image::GrayImage, y: u32, x0: u32, x1: u32, threshold: i32) -> bool {
-    let (mut mn, mut mx) = (255u8, 0u8);
-    for x in x0..x1.min(gray.width()) {
-        let l = gray.get_pixel(x, y).0[0];
-        mn = mn.min(l);
-        mx = mx.max(l);
-        if (mx as i32 - mn as i32) > threshold {
+fn row_has_content(
+    gray: &image::GrayImage,
+    row_y: u32,
+    row_x0: u32,
+    row_x1: u32,
+    threshold: i32,
+) -> bool {
+    let (mut mut_min_luma, mut mut_max_luma) = (u8::MAX, 0u8);
+    for pixel_x in row_x0..row_x1.min(gray.width()) {
+        let pixel_luma: u8 = gray.get_pixel(pixel_x, row_y).0[0];
+        mut_min_luma = mut_min_luma.min(pixel_luma);
+        mut_max_luma = mut_max_luma.max(pixel_luma);
+        if i32::from(mut_max_luma) - i32::from(mut_min_luma) > threshold {
             return true;
         }
     }
     false
 }
 
-fn col_has_content(gray: &image::GrayImage, x: u32, y0: u32, y1: u32, threshold: i32) -> bool {
-    let (mut mn, mut mx) = (255u8, 0u8);
-    for y in y0..y1.min(gray.height()) {
-        let l = gray.get_pixel(x, y).0[0];
-        mn = mn.min(l);
-        mx = mx.max(l);
-        if (mx as i32 - mn as i32) > threshold {
+fn col_has_content(
+    gray: &image::GrayImage,
+    col_x: u32,
+    col_y0: u32,
+    col_y1: u32,
+    threshold: i32,
+) -> bool {
+    let (mut mut_min_luma, mut mut_max_luma) = (u8::MAX, 0u8);
+    for pixel_y in col_y0..col_y1.min(gray.height()) {
+        let pixel_luma: u8 = gray.get_pixel(col_x, pixel_y).0[0];
+        mut_min_luma = mut_min_luma.min(pixel_luma);
+        mut_max_luma = mut_max_luma.max(pixel_luma);
+        if i32::from(mut_max_luma) - i32::from(mut_min_luma) > threshold {
             return true;
         }
     }
     false
+}
+
+// Locate the top edge with a coarse window scan, then refine inside that window.
+fn fn_find_content_top_edge(gray: &image::GrayImage, image_width: u32, image_height: u32) -> u32 {
+    let content_window_y: u32 = (0..image_height)
+        .step_by(CONTENT_WINDOW_PX as usize)
+        .find(|&window_y| {
+            window_has_content(
+                gray,
+                0,
+                window_y,
+                image_width,
+                CONTENT_WINDOW_PX,
+                CONTENT_LUMA_VARIATION_THRESHOLD,
+            )
+        })
+        .unwrap_or(0);
+    (content_window_y..(content_window_y + CONTENT_WINDOW_PX).min(image_height))
+        .find(|&pixel_y| {
+            row_has_content(
+                gray,
+                pixel_y,
+                0,
+                image_width,
+                CONTENT_LUMA_VARIATION_THRESHOLD,
+            )
+        })
+        .unwrap_or(content_window_y)
+}
+
+// Walk windows up from the bottom, then refine downward to the first content row.
+fn fn_find_content_bottom_edge(
+    gray: &image::GrayImage,
+    image_width: u32,
+    image_height: u32,
+) -> u32 {
+    let mut mut_content_window_y: u32 = match image_height >= CONTENT_WINDOW_PX {
+        true => image_height - CONTENT_WINDOW_PX,
+        false => 0,
+    };
+    loop {
+        if window_has_content(
+            gray,
+            0,
+            mut_content_window_y,
+            image_width,
+            CONTENT_WINDOW_PX,
+            CONTENT_LUMA_VARIATION_THRESHOLD,
+        ) {
+            break;
+        }
+        if mut_content_window_y < CONTENT_WINDOW_PX {
+            break;
+        }
+        mut_content_window_y = mut_content_window_y.saturating_sub(CONTENT_WINDOW_PX);
+    }
+    let start_row: u32 = (mut_content_window_y + CONTENT_WINDOW_PX - 1).min(image_height - 1);
+    let mut mut_pixel_y: u32 = start_row;
+    loop {
+        if row_has_content(
+            gray,
+            mut_pixel_y,
+            0,
+            image_width,
+            CONTENT_LUMA_VARIATION_THRESHOLD,
+        ) {
+            break mut_pixel_y + 1;
+        }
+        if mut_pixel_y == mut_content_window_y {
+            break mut_content_window_y + 1;
+        }
+        mut_pixel_y -= 1;
+    }
+}
+
+// Locate the left edge with a coarse window scan, then refine inside that window.
+fn fn_find_content_left_edge(gray: &image::GrayImage, image_width: u32, image_height: u32) -> u32 {
+    let content_window_x: u32 = (0..image_width)
+        .step_by(CONTENT_WINDOW_PX as usize)
+        .find(|&window_x| {
+            window_has_content(
+                gray,
+                window_x,
+                0,
+                CONTENT_WINDOW_PX,
+                image_height,
+                CONTENT_LUMA_VARIATION_THRESHOLD,
+            )
+        })
+        .unwrap_or(0);
+    (content_window_x..(content_window_x + CONTENT_WINDOW_PX).min(image_width))
+        .find(|&pixel_x| {
+            col_has_content(
+                gray,
+                pixel_x,
+                0,
+                image_height,
+                CONTENT_LUMA_VARIATION_THRESHOLD,
+            )
+        })
+        .unwrap_or(content_window_x)
+}
+
+// Walk windows left from the right edge, then refine to the first content column.
+fn fn_find_content_right_edge(gray: &image::GrayImage, image_width: u32, image_height: u32) -> u32 {
+    let mut mut_content_window_x: u32 = match image_width >= CONTENT_WINDOW_PX {
+        true => image_width - CONTENT_WINDOW_PX,
+        false => 0,
+    };
+    loop {
+        if window_has_content(
+            gray,
+            mut_content_window_x,
+            0,
+            CONTENT_WINDOW_PX,
+            image_height,
+            CONTENT_LUMA_VARIATION_THRESHOLD,
+        ) {
+            break;
+        }
+        if mut_content_window_x < CONTENT_WINDOW_PX {
+            break;
+        }
+        mut_content_window_x = mut_content_window_x.saturating_sub(CONTENT_WINDOW_PX);
+    }
+    let start_col: u32 = (mut_content_window_x + CONTENT_WINDOW_PX - 1).min(image_width - 1);
+    let mut mut_pixel_x: u32 = start_col;
+    loop {
+        if col_has_content(
+            gray,
+            mut_pixel_x,
+            0,
+            image_height,
+            CONTENT_LUMA_VARIATION_THRESHOLD,
+        ) {
+            break mut_pixel_x + 1;
+        }
+        if mut_pixel_x == mut_content_window_x {
+            break mut_content_window_x + 1;
+        }
+        mut_pixel_x -= 1;
+    }
 }
 
 fn detect_content_bounds(img: &RgbaImage) -> ContentBounds {
-    let (w, h) = (img.width(), img.height());
-    if w == 0 || h == 0 {
+    let image_width: u32 = img.width();
+    let image_height: u32 = img.height();
+    if image_width == 0 || image_height == 0 {
         return ContentBounds {
             left: 0,
             top: 0,
-            right: w,
-            bottom: h,
+            right: image_width,
+            bottom: image_height,
             pitch_w: 0,
             pitch_h: 0,
         };
     }
+    let gray: image::GrayImage = image::imageops::grayscale(img);
 
-    let gray = image::imageops::grayscale(img);
-    let win = 32u32;
-    let threshold = 3i32;
+    // Four edge scans read one greyscale view and never mutate it.
+    let top_pixel: u32 = fn_find_content_top_edge(&gray, image_width, image_height);
+    let bottom_pixel: u32 = fn_find_content_bottom_edge(&gray, image_width, image_height);
+    let left_pixel: u32 = fn_find_content_left_edge(&gray, image_width, image_height);
+    let right_pixel: u32 = fn_find_content_right_edge(&gray, image_width, image_height);
 
-    // Top: scan windowed rows from top
-    let top_win = (0..h)
-        .step_by(win as usize)
-        .find(|&y| window_has_content(&gray, 0, y, w, win, threshold))
-        .unwrap_or(0);
-
-    // Refine top: pixel scan within the found window
-    let top_pixel = (top_win..(top_win + win).min(h))
-        .find(|&y| row_has_content(&gray, y, 0, w, threshold))
-        .unwrap_or(top_win);
-
-    // Bottom: scan windowed rows from bottom
-    let bottom_win = {
-        let mut y = if h >= win { h - win } else { 0 };
-        loop {
-            if window_has_content(&gray, 0, y, w, win, threshold) {
-                break;
-            }
-            if y < win {
-                break;
-            }
-            y = y.saturating_sub(win);
-        }
-        y
+    // The first empty column or row after the content start gives the cell pitch.
+    let max_pitch_px: u32 = MAX_DETECTED_PITCH_PX.min(image_width).min(image_height);
+    let pitch_w: u32 = match left_pixel + 1 < image_width {
+        true => ((left_pixel + 1)..image_width.min(left_pixel + max_pitch_px + 1))
+            .find(|&blank_col| {
+                !col_has_content(
+                    &gray,
+                    blank_col,
+                    top_pixel,
+                    bottom_pixel,
+                    CONTENT_LUMA_VARIATION_THRESHOLD,
+                )
+            })
+            .map(|blank_col| blank_col - left_pixel)
+            .unwrap_or(max_pitch_px),
+        false => 1,
     };
-
-    // Refine bottom: pixel scan within the found window (descending)
-    let bottom_pixel = {
-        let start = (bottom_win + win - 1).min(h - 1);
-        let mut by = start;
-        loop {
-            if row_has_content(&gray, by, 0, w, threshold) {
-                break by + 1;
-            }
-            if by == bottom_win {
-                break bottom_win + 1;
-            }
-            by -= 1;
-        }
-    };
-
-    // Left: scan windowed columns from left
-    let left_win = (0..w)
-        .step_by(win as usize)
-        .find(|&x| window_has_content(&gray, x, 0, win, h, threshold))
-        .unwrap_or(0);
-
-    // Refine left: pixel scan within the found window
-    let left_pixel = (left_win..(left_win + win).min(w))
-        .find(|&x| col_has_content(&gray, x, 0, h, threshold))
-        .unwrap_or(left_win);
-
-    // Right: scan windowed columns from right
-    let right_win = {
-        let mut x = if w >= win { w - win } else { 0 };
-        loop {
-            if window_has_content(&gray, x, 0, win, h, threshold) {
-                break;
-            }
-            if x < win {
-                break;
-            }
-            x = x.saturating_sub(win);
-        }
-        x
-    };
-
-    // Refine right: pixel scan within the found window (descending)
-    let right_pixel = {
-        let start = (right_win + win - 1).min(w - 1);
-        let mut rx = start;
-        loop {
-            if col_has_content(&gray, rx, 0, h, threshold) {
-                break rx + 1;
-            }
-            if rx == right_win {
-                break right_win + 1;
-            }
-            rx -= 1;
-        }
-    };
-
-    // Detect tile pitch by scanning for first blank column/row after content start
-    let max_pitch = 256u32.min(w).min(h);
-    let pitch_w = if left_pixel + 1 < w {
-        ((left_pixel + 1)..w.min(left_pixel + max_pitch + 1))
-            .find(|&x| !col_has_content(&gray, x, top_pixel, bottom_pixel, threshold))
-            .map(|blank_x| blank_x - left_pixel)
-            .unwrap_or(max_pitch)
-    } else {
-        1
-    };
-
-    let pitch_h = if top_pixel + 1 < h {
-        ((top_pixel + 1)..h.min(top_pixel + max_pitch + 1))
-            .find(|&y| !row_has_content(&gray, y, left_pixel, right_pixel, threshold))
-            .map(|blank_y| blank_y - top_pixel)
-            .unwrap_or(max_pitch)
-    } else {
-        1
+    let pitch_h: u32 = match top_pixel + 1 < image_height {
+        true => ((top_pixel + 1)..image_height.min(top_pixel + max_pitch_px + 1))
+            .find(|&blank_row| {
+                !row_has_content(
+                    &gray,
+                    blank_row,
+                    left_pixel,
+                    right_pixel,
+                    CONTENT_LUMA_VARIATION_THRESHOLD,
+                )
+            })
+            .map(|blank_row| blank_row - top_pixel)
+            .unwrap_or(max_pitch_px),
+        false => 1,
     };
 
     ContentBounds {
@@ -393,80 +527,195 @@ fn detect_content_bounds(img: &RgbaImage) -> ContentBounds {
 // =========================================================================
 
 fn auto_detect_sub_tile_mask(img: &RgbaImage, threshold: f64) -> u8 {
-    let w = img.width();
-    let h = img.height();
-    if w == 0 || h == 0 {
-        return 0xF;
+    let image_width: u32 = img.width();
+    let image_height: u32 = img.height();
+    if image_width == 0 || image_height == 0 {
+        return SUB_TILE_MASK_ALL_SOLID;
     }
-    let hw = w / 2;
-    let hh = h / 2;
+    let half_width: u32 = image_width / 2;
+    let half_height: u32 = image_height / 2;
 
+    // Each bit describes one quadrant of the finished tile, in reading order.
     let quadrants: [(u32, u32, u32, u32, u8); 4] = [
-        (0, 0, hw, hh, 0),
-        (hw, 0, w, hh, 1),
-        (0, hh, hw, h, 2),
-        (hw, hh, w, h, 3),
+        (0, 0, half_width, half_height, 0),
+        (half_width, 0, image_width, half_height, 1),
+        (0, half_height, half_width, image_height, 2),
+        (half_width, half_height, image_width, image_height, 3),
     ];
 
-    let mut mask: u8 = 0;
-    for (x0, y0, x1, y1, bit) in quadrants {
-        let (mut total, mut count) = (0.0, 0u32);
-        for y in y0..y1 {
-            for x in x0..x1 {
-                let px = img.get_pixel(x, y);
-                let lum = 0.299 * px[0] as f64 / 255.0
-                    + 0.587 * px[1] as f64 / 255.0
-                    + 0.114 * px[2] as f64 / 255.0;
-                total += lum;
-                count += 1;
+    let mut mut_mask: u8 = 0;
+    for (quad_x0, quad_y0, quad_x1, quad_y1, bit_index) in quadrants {
+        // Average Rec.601 luma over the quadrant; a bright quadrant is solid ground.
+        let mut mut_luma_sum: f64 = 0.0;
+        let mut mut_pixel_count: u32 = 0;
+        for pixel_y in quad_y0..quad_y1 {
+            for pixel_x in quad_x0..quad_x1 {
+                let pixel: &image::Rgba<u8> = img.get_pixel(pixel_x, pixel_y);
+                let pixel_luma: f64 = REC601_LUMA_RED_WEIGHT * f64::from(pixel[0]) / f64::from(u8::MAX)
+                    + REC601_LUMA_GREEN_WEIGHT * f64::from(pixel[1]) / f64::from(u8::MAX)
+                    + REC601_LUMA_BLUE_WEIGHT * f64::from(pixel[2]) / f64::from(u8::MAX);
+                mut_luma_sum += pixel_luma;
+                mut_pixel_count += 1;
             }
         }
-        let mean = if count > 0 { total / count as f64 } else { 0.0 };
-        if mean > threshold {
-            mask |= 1 << bit;
+        let mean_luma: f64 = match mut_pixel_count > 0 {
+            true => mut_luma_sum / f64::from(mut_pixel_count),
+            false => 0.0,
+        };
+        if mean_luma > threshold {
+            mut_mask |= 1 << bit_index;
         }
     }
-    mask
+    mut_mask
 }
 
 fn auto_detect_terrain_key(img: &RgbaImage) -> &'static str {
-    let w = img.width();
-    let h = img.height();
-    let (mut total, mut count) = (0.0, 0u32);
-    let mut dark_pixels = 0u32;
-    let total_pixels = w * h;
+    let image_width: u32 = img.width();
+    let image_height: u32 = img.height();
+    let total_pixels: u32 = image_width * image_height;
     if total_pixels == 0 {
-        return "air";
+        return AIR_TERRAIN_KEY;
     }
 
-    for y in 0..h {
-        for x in 0..w {
-            let px = img.get_pixel(x, y);
-            let alpha = px[3] as f64 / 255.0;
-            let lum = (0.299 * px[0] as f64 + 0.587 * px[1] as f64 + 0.114 * px[2] as f64) / 255.0;
-            total += lum * alpha;
-            if alpha > 0.5 && lum < 0.25 {
-                dark_pixels += 1;
+    // Accumulate alpha-weighted luma and count dark opaque pixels for the coarse classes.
+    let mut mut_weighted_luma_sum: f64 = 0.0;
+    let mut mut_dark_pixel_count: u32 = 0;
+    for pixel_y in 0..image_height {
+        for pixel_x in 0..image_width {
+            let pixel: &image::Rgba<u8> = img.get_pixel(pixel_x, pixel_y);
+            let pixel_alpha: f64 = f64::from(pixel[3]) / f64::from(u8::MAX);
+            let pixel_luma: f64 = (REC601_LUMA_RED_WEIGHT * f64::from(pixel[0])
+                + REC601_LUMA_GREEN_WEIGHT * f64::from(pixel[1])
+                + REC601_LUMA_BLUE_WEIGHT * f64::from(pixel[2]))
+                / f64::from(u8::MAX);
+            mut_weighted_luma_sum += pixel_luma * pixel_alpha;
+            if pixel_alpha > DARK_PIXEL_ALPHA_CUTOFF && pixel_luma < DARK_LUMA_CUTOFF {
+                mut_dark_pixel_count += 1;
             }
-            count += 1;
         }
     }
-    let mean = if count > 0 { total / count as f64 } else { 0.0 };
+    let mean_luma: f64 = mut_weighted_luma_sum / f64::from(total_pixels);
 
-    let trans = img.pixels().filter(|p| p[3] < 128).count() as f64;
-    let trans_ratio = trans / total_pixels as f64;
-
-    if trans_ratio > 0.6 {
-        return "air";
+    // A mostly transparent tile is air before any colour class is considered.
+    let transparent_pixel_count: u32 = img
+        .pixels()
+        .filter(|pixel| pixel[3] < TRANSPARENT_ALPHA_CUTOFF)
+        .count() as u32;
+    let transparent_ratio: f64 = f64::from(transparent_pixel_count) / f64::from(total_pixels);
+    match transparent_ratio > TRANSPARENT_RATIO_CUTOFF {
+        true => AIR_TERRAIN_KEY,
+        false => match mean_luma > GRASS_MEAN_LUMA_CUTOFF {
+            true => GRASS_TERRAIN_KEY,
+            false => match f64::from(mut_dark_pixel_count) / f64::from(total_pixels)
+                > DARK_PIXEL_RATIO_CUTOFF
+            {
+                true => WALL_TERRAIN_KEY,
+                false => STONE_TERRAIN_KEY,
+            },
+        },
     }
-    if mean > 0.45 {
-        return "grass";
-    }
-    if dark_pixels as f64 / total_pixels as f64 > 0.4 {
-        return "wall";
-    }
-    "stone"
 }
+
+// =========================================================================
+// Two-phase conversion contract (Rust side of the GDScript bridge)
+// =========================================================================
+
+// Every name below is the persisted bridge contract, declared once here and pinned by the guards
+// rather than duplicated in the GDScript orchestrator. Field units are carried in the name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+struct PixelPoint {
+    x: i32,
+    y: i32,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+struct PixelRect {
+    x: u32,
+    y: u32,
+    width_px: u32,
+    height_px: u32,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+struct CellDimensions {
+    width_px: u32,
+    height_px: u32,
+}
+#[derive(Deserialize, Debug, Clone)]
+struct ConversionRequest {
+    version: String,
+    source_image: String,
+    margins_px: PixelPoint,
+    cell_size_px: PixelPoint,
+    separation_px: PixelPoint,
+    width_px: u32,
+    height_px: u32,
+    cells: Vec<CellRequest>,
+}
+#[derive(Deserialize, Debug, Clone)]
+struct CellRequest {
+    local_x: i32,
+    local_y: i32,
+    source_col: i32,
+    source_row: i32,
+    flip_h: bool,
+    generated_key: String,
+}
+// The emitted image path is skipped on serialization: it is a runtime handle, not bridge data,
+// so two runs in different output directories serialize byte-identically.
+#[derive(Serialize, Debug, Clone)]
+struct ConversionOutput {
+    generated_key: String,
+    #[serde(skip)]
+    image_path: PathBuf,
+    solid_mask: Vec<u8>,
+    resolved: bool,
+}
+#[derive(Serialize, Debug, Clone)]
+struct ConversionResult {
+    version: String,
+    outputs: Vec<ConversionOutput>,
+}
+#[derive(Debug, Clone, PartialEq)]
+enum ConvertError {
+    Io(String),
+    Decode(String),
+    Version(String),
+    Unsigned,
+    UnresolvedCells(Vec<String>),
+}
+#[derive(Debug, Clone, PartialEq)]
+struct CleanedCell {
+    source_col: i32,
+    source_row: i32,
+    pixel_rect: PixelRect,
+    dimensions: CellDimensions,
+    solid_mask: Vec<u8>,
+    resolved: bool,
+}
+#[derive(Debug, Clone, PartialEq)]
+struct PreprocessResult {
+    crop_rect: PixelRect,
+    cleaned_image_path: PathBuf,
+    cells: Vec<CleanedCell>,
+    cleared_grid_line_pixels: u32,
+}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+struct SidecarRow {
+    source_col: i32,
+    source_row: i32,
+    pixel_rect: PixelRect,
+    dimensions: CellDimensions,
+}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+struct ConversionSidecar {
+    version: String,
+    tile_width_px: u32,
+    tile_height_px: u32,
+    mask_encoding: String,
+    tiles: Vec<SidecarRow>,
+}
+const REQUEST_VERSION: &str = "1.0.0";
+const RESULT_VERSION: &str = "1.0.0";
+const MASK_ENCODING_GREYSCALE: &str = "greyscale";
 
 // =========================================================================
 // solid-mask pipeline (ART -> DATA, step 1)
@@ -559,40 +808,52 @@ fn remove_floating_specks(binary: &mut [u8], width_px: u32, height_px: u32) {
     }
 }
 
-// Resolve one tile's pixels into a packed solid mask plus a `resolved` verdict. The two
-// clusters are the tile's dominant grey and the grey furthest from it; a gap under
-// `min_cluster_gap` means the art does not split into air and ground at all, so no heuristic
-// can anchor and the tile is returned unresolved. GROUND is the cluster the tile's bottom
-// row stands on (the bottom-row anchor); a bottom row carrying both clusters is settled by
-// the patch read, which is the best guess. A single-grey tile is all solid.
-fn derive_solid_mask(
-    greyscale: &[u8],
-    width_px: u32,
-    height_px: u32,
-    min_cluster_gap: u8,
-) -> (Vec<u8>, bool) {
-    let packed_len: usize = (greyscale.len() + 7) / 8;
+// Count how often each grey level occurs. The most frequent grey is the background and a
+// distant second grey is the art's other region; a histogram avoids comparing every pixel
+// against every candidate grey.
+fn fn_grey_histogram(greyscale: &[u8]) -> [u32; 256] {
     let mut mut_histogram: [u32; 256] = [0; 256];
     for grey in greyscale {
         mut_histogram[*grey as usize] += 1;
     }
-    let present: Vec<u8> = (0..=255u8)
-        .filter(|grey| mut_histogram[*grey as usize] > 0)
-        .collect();
-    if present.len() <= 1 {
-        return (vec![0xFFu8; packed_len], true);
-    }
+    mut_histogram
+}
+
+// List only the grey levels that occur, ascending. One level means there is nothing to split.
+fn fn_present_greys(histogram: &[u32; 256]) -> Vec<u8> {
+    (0..=255u8)
+        .filter(|grey| histogram[*grey as usize] > 0)
+        .collect()
+}
+
+// Pair the dominant grey with the grey furthest from it. A pair closer than the minimum gap
+// cannot be named air and ground, so the caller flags the tile instead of guessing a mask.
+fn fn_choose_cluster_greys(
+    present: &[u8],
+    histogram: &[u32; 256],
+    min_cluster_gap: u8,
+) -> Option<(u8, u8)> {
     let dominant_grey: u8 = *present
         .iter()
-        .max_by_key(|grey| mut_histogram[**grey as usize])
+        .max_by_key(|grey| histogram[**grey as usize])
         .unwrap();
     let opposite_grey: u8 = *present
         .iter()
         .max_by_key(|grey| (**grey as i32 - dominant_grey as i32).abs())
         .unwrap();
-    if (opposite_grey as i32 - dominant_grey as i32).abs() < min_cluster_gap as i32 {
-        return (vec![0xFFu8; packed_len], false);
-    }
+    ((opposite_grey as i32 - dominant_grey as i32).abs() >= min_cluster_gap as i32)
+        .then_some((dominant_grey, opposite_grey))
+}
+
+// The bottom row stands on ground, so the cluster its patch reads becomes solid and the other
+// cluster becomes air. A bottom row carrying both greys is settled by this one patch read.
+fn fn_anchor_ground_grey(
+    greyscale: &[u8],
+    width_px: u32,
+    height_px: u32,
+    dominant_grey: u8,
+    opposite_grey: u8,
+) -> (u8, u8) {
     let bottom_grey: u8 = uniform_patch_grey(
         greyscale,
         width_px,
@@ -601,28 +862,67 @@ fn derive_solid_mask(
         height_px - 1,
         PATCH_SIZE_PX,
     );
-    let (ground_grey, air_grey): (u8, u8) = if (bottom_grey as i32 - dominant_grey as i32).abs()
-        <= (bottom_grey as i32 - opposite_grey as i32).abs()
-    {
+    let bottom_is_dominant: bool = (bottom_grey as i32 - dominant_grey as i32).abs()
+        <= (bottom_grey as i32 - opposite_grey as i32).abs();
+    if bottom_is_dominant {
         (dominant_grey, opposite_grey)
     } else {
         (opposite_grey, dominant_grey)
-    };
-    let mut mut_binary: Vec<u8> = greyscale
+    }
+}
+
+// Classify each pixel by whichever cluster grey it is nearer to. Specks that never connect
+// back to the bottom-row ground mass are cleared by the caller.
+fn fn_classify_solid_pixels(greyscale: &[u8], ground_grey: u8, air_grey: u8) -> Vec<u8> {
+    greyscale
         .iter()
         .map(|grey| {
             ((*grey as i32 - ground_grey as i32).abs() <= (*grey as i32 - air_grey as i32).abs())
                 as u8
         })
-        .collect();
-    remove_floating_specks(&mut mut_binary, width_px, height_px);
-    let mut mut_mask: Vec<u8> = vec![0u8; packed_len];
-    for (index, solid) in mut_binary.iter().enumerate() {
+        .collect()
+}
+
+// Pack one bit per pixel, least significant bit first, so eight pixels share a byte.
+fn fn_pack_solid_bits(binary: &[u8]) -> Vec<u8> {
+    let mut mut_mask: Vec<u8> = vec![0u8; (binary.len() + BITS_PER_BYTE - 1) / BITS_PER_BYTE];
+    for (index, solid) in binary.iter().enumerate() {
         if *solid != 0 {
-            mut_mask[index / 8] |= 1 << (index % 8);
+            mut_mask[index / BITS_PER_BYTE] |= 1 << (index % BITS_PER_BYTE);
         }
     }
-    (mut_mask, true)
+    mut_mask
+}
+
+// Resolve one tile's pixels into a packed solid mask plus a `resolved` verdict. A single-grey
+// tile is all solid, and a pair closer than `min_cluster_gap` is flagged rather than guessed.
+// Otherwise the bottom row anchors the ground cluster and nearest-cluster classification does
+// the rest.
+fn derive_solid_mask(
+    greyscale: &[u8],
+    width_px: u32,
+    height_px: u32,
+    min_cluster_gap: u8,
+) -> (Vec<u8>, bool) {
+    let packed_len: usize = (greyscale.len() + BITS_PER_BYTE - 1) / BITS_PER_BYTE;
+    let histogram: [u32; 256] = fn_grey_histogram(greyscale);
+    let present: Vec<u8> = fn_present_greys(&histogram);
+    // One grey level offers no anchor, so the whole tile is emitted as solid.
+    if present.len() <= 1 {
+        return (vec![PACKED_MASK_BYTE_ALL_SOLID; packed_len], true);
+    }
+    // A pair failing the gap test is unresolved; refuse to emit a guessed mask.
+    let (dominant_grey, opposite_grey): (u8, u8) =
+        match fn_choose_cluster_greys(&present, &histogram, min_cluster_gap) {
+            Some(cluster_greys) => cluster_greys,
+            None => return (vec![PACKED_MASK_BYTE_ALL_SOLID; packed_len], false),
+        };
+    let (ground_grey, air_grey): (u8, u8) =
+        fn_anchor_ground_grey(greyscale, width_px, height_px, dominant_grey, opposite_grey);
+    let mut mut_binary: Vec<u8> = fn_classify_solid_pixels(greyscale, ground_grey, air_grey);
+    // Clear specks that never connect to the bottom-row ground mass.
+    remove_floating_specks(&mut mut_binary, width_px, height_px);
+    (fn_pack_solid_bits(&mut_binary), true)
 }
 
 // A tile no heuristic could resolve gets a red 1px border baked into the emitted PNG, so a
@@ -659,11 +959,11 @@ fn terrain_entry_from_image(
         display_name: key.replace('_', " "),
         is_walkable: true,
         is_buildable: true,
-        surface: "normal".into(),
-        hazard: "none".into(),
+        surface: NORMAL_SURFACE.into(),
+        hazard: NO_HAZARD.into(),
         elevation_tiles: 0,
         color_hex: format!("#{:02x}{:02x}{:02x}", red, green, blue),
-        sub_tile_mask: 0xF,
+        sub_tile_mask: SUB_TILE_MASK_ALL_SOLID,
         solid_mask: mask,
         hazard_damage_per_tick: 0,
         is_destructible: false,
@@ -711,6 +1011,452 @@ fn scan_tile_directory(
 }
 
 // =========================================================================
+// Two-phase conversion core (ART -> cleaned data -> collision -> alpha)
+// =========================================================================
+
+// A packed mask bit is only meaningful together with its alpha: air is transparent, ground solid.
+const ALPHA_AIR: u8 = 0x00;
+const ALPHA_SOLID: u8 = 0xFF;
+
+// Bake the packed mask into the image alpha channel. A flagged cell keeps its art, gets a red
+// border for the human, and emits no collision bytes at all -- not even the classifier's guess.
+fn fn_bake_alpha_or_flag(image: RgbaImage, solid_mask: &[u8], resolved: bool) -> RgbaImage {
+    if !resolved {
+        let mut mut_flagged: RgbaImage = image;
+        flag_unresolved(&mut mut_flagged);
+        return mut_flagged;
+    }
+    let mut mut_baked: RgbaImage = image;
+    (0..mut_baked.height()).for_each(|row| {
+        (0..mut_baked.width()).for_each(|col| {
+            // One bit per pixel in row-major order, so mask length is independent of pixel width.
+            let bit_index: usize = (row * mut_baked.width() + col) as usize;
+            let solid: bool = solid_mask[bit_index / 8] & (1 << (bit_index % 8)) != 0;
+            let pixel: image::Rgba<u8> = *mut_baked.get_pixel(col, row);
+            let alpha: u8 = match solid {
+                true => ALPHA_SOLID,
+                false => ALPHA_AIR,
+            };
+            mut_baked.put_pixel(col, row, image::Rgba([pixel[0], pixel[1], pixel[2], alpha]));
+        });
+    });
+    mut_baked
+}
+
+// Crop one authored cell at the grid pitch, resize it to the configured tile size, then apply the
+// authored flip. Collision is derived from this final art, so left and right sets cannot disagree.
+fn fn_crop_resize_flip_cell(
+    cell: &CellRequest,
+    request: &ConversionRequest,
+    sheet: &RgbaImage,
+) -> RgbaImage {
+    let pitch_x_px: i32 = request.cell_size_px.x + request.separation_px.x;
+    let pitch_y_px: i32 = request.cell_size_px.y + request.separation_px.y;
+    let origin_x_px: u32 = (request.margins_px.x + cell.source_col * pitch_x_px) as u32;
+    let origin_y_px: u32 = (request.margins_px.y + cell.source_row * pitch_y_px) as u32;
+    let cropped: RgbaImage = image::imageops::crop_imm(
+        sheet,
+        origin_x_px,
+        origin_y_px,
+        request.cell_size_px.x as u32,
+        request.cell_size_px.y as u32,
+    )
+    .to_image();
+    let resized: RgbaImage = image::imageops::resize(
+        &cropped,
+        request.width_px,
+        request.height_px,
+        image::imageops::FilterType::Nearest,
+    );
+    if cell.flip_h {
+        image::imageops::flip_horizontal(&resized)
+    } else {
+        resized
+    }
+}
+
+// Derive the mask from finished art and bake it into alpha. An inconclusive cell returns an empty
+// mask so no caller can mistake the classifier's best guess for a resolved collision value.
+fn fn_mask_and_bake_cell(
+    artwork: RgbaImage,
+    request: &ConversionRequest,
+) -> (RgbaImage, Vec<u8>, bool) {
+    let greyscale: Vec<u8> = to_greyscale(&artwork);
+    let (solid_mask, resolved): (Vec<u8>, bool) = derive_solid_mask(
+        &greyscale,
+        request.width_px,
+        request.height_px,
+        DEFAULT_MIN_CLUSTER_GAP,
+    );
+    let baked: RgbaImage = fn_bake_alpha_or_flag(artwork, &solid_mask, resolved);
+    let emitted_mask: Vec<u8> = match resolved {
+        true => solid_mask,
+        false => Vec::new(),
+    };
+    (baked, emitted_mask, resolved)
+}
+
+// Save each finished cell and collect its output plus any flagged key. A flagged key is recorded
+// so the whole commit can be refused before a caller trusts a half-converted set.
+fn fn_emit_cell_outputs(
+    request: &ConversionRequest,
+    sheet: &RgbaImage,
+    output_dir: &Path,
+) -> (Vec<ConversionOutput>, Vec<String>) {
+    let mut mut_outputs: Vec<ConversionOutput> = Vec::new();
+    let mut mut_unresolved: Vec<String> = Vec::new();
+    request.cells.iter().for_each(|cell| {
+        let artwork: RgbaImage = fn_crop_resize_flip_cell(cell, request, sheet);
+        let (cell_image, solid_mask, resolved): (RgbaImage, Vec<u8>, bool) =
+            fn_mask_and_bake_cell(artwork, request);
+        let image_path: PathBuf = output_dir.join(format!(
+            "{}_{}x{}.png",
+            cell.generated_key, request.width_px, request.height_px
+        ));
+        cell_image
+            .save(&image_path)
+            .unwrap_or_else(|e| panic!("Failed to save '{}': {}", image_path.display(), e));
+        eprintln!(
+            "CONVERT key={} path={} mask_bytes={} resolved={}",
+            cell.generated_key,
+            image_path.display(),
+            solid_mask.len(),
+            resolved
+        );
+        if !resolved {
+            mut_unresolved.push(cell.generated_key.clone());
+        }
+        mut_outputs.push(ConversionOutput {
+            generated_key: cell.generated_key.clone(),
+            image_path,
+            solid_mask,
+            resolved,
+        });
+    });
+    (mut_outputs, mut_unresolved)
+}
+
+// Convert every cell into its final PNG and mask. A stale request or one flagged cell refuses the
+// whole result; the outputs are sorted by key so two runs serialize byte-identically.
+fn fn_convert_resource(
+    request: &ConversionRequest,
+    output_dir: &Path,
+) -> Result<ConversionResult, ConvertError> {
+    if request.version != REQUEST_VERSION {
+        return Err(ConvertError::Version(request.version.clone()));
+    }
+    let sheet: RgbaImage = image::open(&request.source_image)
+        .map_err(|e| ConvertError::Io(format!("{}: {}", request.source_image, e)))?
+        .to_rgba8();
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| ConvertError::Io(format!("{}: {}", output_dir.display(), e)))?;
+    let (mut mut_outputs, unresolved): (Vec<ConversionOutput>, Vec<String>) =
+        fn_emit_cell_outputs(request, &sheet, output_dir);
+    if !unresolved.is_empty() {
+        return Err(ConvertError::UnresolvedCells(unresolved));
+    }
+    mut_outputs.sort_by(|left, right| left.generated_key.cmp(&right.generated_key));
+    Ok(ConversionResult {
+        version: RESULT_VERSION.to_string(),
+        outputs: mut_outputs,
+    })
+}
+
+fn fn_merge_terrain_entries(
+    base: &[TerrainTypeDef],
+    outputs: &[ConversionOutput],
+) -> Vec<TerrainTypeDef> {
+    let mut mut_by_key: std::collections::BTreeMap<String, TerrainTypeDef> = base
+        .iter()
+        .cloned()
+        .map(|entry| (entry.key.clone(), entry))
+        .collect();
+    outputs.iter().for_each(|output| {
+        let cell_image: RgbaImage = image::open(&output.image_path)
+            .unwrap_or_else(|e| panic!("Failed to open '{}': {}", output.image_path.display(), e))
+            .to_rgba8();
+        let entry: TerrainTypeDef = TerrainTypeDef {
+            solid_mask: output.solid_mask.clone(),
+            ..terrain_entry_from_image(&output.generated_key, &cell_image, DEFAULT_MIN_CLUSTER_GAP)
+                .0
+        };
+        mut_by_key.insert(entry.key.clone(), entry);
+        eprintln!(
+            "REGISTER key={} mask_bytes={}",
+            output.generated_key,
+            output.solid_mask.len()
+        );
+    });
+    mut_by_key.into_values().collect()
+}
+
+// One grid's measured geometry, carried between the crop, seam-clear and cell-assembly nodes.
+struct SheetGrid {
+    regions: Vec<(i32, i32)>,
+    cols: i32,
+    rows: i32,
+    pitch_x_px: i32,
+    pitch_y_px: i32,
+    crop_rect: PixelRect,
+}
+
+// The authored left and right cells share source art, so measure each distinct region once and
+// derive the whole-grid crop rectangle from the largest source column and row.
+fn fn_measure_grid(request: &ConversionRequest) -> SheetGrid {
+    let mut mut_seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let regions: Vec<(i32, i32)> = request
+        .cells
+        .iter()
+        .filter_map(|cell| {
+            mut_seen
+                .insert((cell.source_col, cell.source_row))
+                .then_some((cell.source_col, cell.source_row))
+        })
+        .collect();
+    let cols: i32 = regions
+        .iter()
+        .map(|(source_col, _)| *source_col)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let rows: i32 = regions
+        .iter()
+        .map(|(_, source_row)| *source_row)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let pitch_x_px: i32 = request.cell_size_px.x + request.separation_px.x;
+    let pitch_y_px: i32 = request.cell_size_px.y + request.separation_px.y;
+    let crop_rect: PixelRect = PixelRect {
+        x: request.margins_px.x as u32,
+        y: request.margins_px.y as u32,
+        width_px: (cols * request.cell_size_px.x + (cols - 1) * request.separation_px.x) as u32,
+        height_px: (rows * request.cell_size_px.y + (rows - 1) * request.separation_px.y) as u32,
+    };
+    SheetGrid {
+        regions,
+        cols,
+        rows,
+        pitch_x_px,
+        pitch_y_px,
+        crop_rect,
+    }
+}
+
+// Clear the authored separation strips to transparent air. Count from geometry, not pixels, so a
+// strip intersection is counted once per strip rather than once per cell it touches.
+fn fn_clear_grid_lines(crop: &mut RgbaImage, grid: &SheetGrid, request: &ConversionRequest) -> u32 {
+    let air_pixel: image::Rgba<u8> = image::Rgba([0, 0, 0, ALPHA_AIR]);
+    (0..grid.crop_rect.height_px).for_each(|row| {
+        (0..grid.crop_rect.width_px).for_each(|col| {
+            let in_vertical_seam: bool = (col as i32) % grid.pitch_x_px >= request.cell_size_px.x;
+            let in_horizontal_seam: bool = (row as i32) % grid.pitch_y_px >= request.cell_size_px.y;
+            if in_vertical_seam || in_horizontal_seam {
+                crop.put_pixel(col, row, air_pixel);
+            }
+        });
+    });
+    ((grid.cols - 1) * request.separation_px.x * grid.crop_rect.height_px as i32
+        + (grid.rows - 1) * request.separation_px.y * grid.crop_rect.width_px as i32) as u32
+}
+
+// Slice one cleaned region at the grid pitch and resize it to the configured tile size, then reuse
+// the conversion mask-and-bake node so Phase I and Phase II cannot derive different collisions.
+fn fn_clean_cell(
+    source_col: i32,
+    source_row: i32,
+    crop: &RgbaImage,
+    grid: &SheetGrid,
+    request: &ConversionRequest,
+) -> (RgbaImage, Vec<u8>, bool) {
+    let origin_x_px: u32 = (source_col * grid.pitch_x_px) as u32;
+    let origin_y_px: u32 = (source_row * grid.pitch_y_px) as u32;
+    let sliced: RgbaImage = image::imageops::crop_imm(
+        crop,
+        origin_x_px,
+        origin_y_px,
+        request.cell_size_px.x as u32,
+        request.cell_size_px.y as u32,
+    )
+    .to_image();
+    let resized: RgbaImage = image::imageops::resize(
+        &sliced,
+        request.width_px,
+        request.height_px,
+        image::imageops::FilterType::Nearest,
+    );
+    fn_mask_and_bake_cell(resized, request)
+}
+
+// Assemble the cleaned cells into one sheet at the configured tile size and attach the rect and
+// dimensions the sidecar needs. Placement follows region order, not the authored source order.
+fn fn_assemble_cells(
+    crop: &RgbaImage,
+    grid: &SheetGrid,
+    request: &ConversionRequest,
+) -> (RgbaImage, Vec<CleanedCell>) {
+    let mut mut_cleaned: RgbaImage = RgbaImage::from_pixel(
+        grid.cols as u32 * request.width_px,
+        grid.rows as u32 * request.height_px,
+        image::Rgba([0, 0, 0, ALPHA_AIR]),
+    );
+    let cells: Vec<CleanedCell> = grid
+        .regions
+        .iter()
+        .enumerate()
+        .map(|(index, (source_col, source_row))| {
+            let (cell_image, solid_mask, resolved): (RgbaImage, Vec<u8>, bool) =
+                fn_clean_cell(*source_col, *source_row, crop, grid, request);
+            let local_col: u32 = index as u32 % grid.cols as u32;
+            let local_row: u32 = index as u32 / grid.cols as u32;
+            image::imageops::overlay(
+                &mut mut_cleaned,
+                &cell_image,
+                (local_col * request.width_px) as i64,
+                (local_row * request.height_px) as i64,
+            );
+            eprintln!(
+                "CLEAN col={} row={} mask_bytes={} resolved={}",
+                source_col,
+                source_row,
+                solid_mask.len(),
+                resolved
+            );
+            CleanedCell {
+                source_col: *source_col,
+                source_row: *source_row,
+                pixel_rect: PixelRect {
+                    x: local_col * request.width_px,
+                    y: local_row * request.height_px,
+                    width_px: request.width_px,
+                    height_px: request.height_px,
+                },
+                dimensions: CellDimensions {
+                    width_px: request.width_px,
+                    height_px: request.height_px,
+                },
+                solid_mask,
+                resolved,
+            }
+        })
+        .collect();
+    (mut_cleaned, cells)
+}
+
+// Phase I crops the whole grid once, clears its separation lines, then slices each region into a
+// configured-size cell and assembles one cleaned sheet for a human to inspect before Phase II.
+fn preprocess_source_sheet(
+    request: &ConversionRequest,
+    output_dir: &Path,
+) -> Result<PreprocessResult, ConvertError> {
+    if request.version != REQUEST_VERSION {
+        return Err(ConvertError::Version(request.version.clone()));
+    }
+    let sheet: RgbaImage = image::open(&request.source_image)
+        .map_err(|e| ConvertError::Io(format!("{}: {}", request.source_image, e)))?
+        .to_rgba8();
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| ConvertError::Io(format!("{}: {}", output_dir.display(), e)))?;
+    let grid: SheetGrid = fn_measure_grid(request);
+    let mut mut_crop: RgbaImage = image::imageops::crop_imm(
+        &sheet,
+        grid.crop_rect.x,
+        grid.crop_rect.y,
+        grid.crop_rect.width_px,
+        grid.crop_rect.height_px,
+    )
+    .to_image();
+    let cleared_grid_line_pixels: u32 = fn_clear_grid_lines(&mut mut_crop, &grid, request);
+    let (mut_cleaned, cells): (RgbaImage, Vec<CleanedCell>) =
+        fn_assemble_cells(&mut_crop, &grid, request);
+    let cleaned_image_path: PathBuf = output_dir.join("slope_cleaned.png");
+    mut_cleaned
+        .save(&cleaned_image_path)
+        .unwrap_or_else(|e| panic!("Failed to save '{}': {}", cleaned_image_path.display(), e));
+    Ok(PreprocessResult {
+        crop_rect: grid.crop_rect,
+        cleaned_image_path,
+        cells,
+        cleared_grid_line_pixels,
+    })
+}
+
+// Phase II is a human gate, not a timer. Without sign-off, or with a flagged cell, it refuses and
+// writes no sidecar, so an approved annotation can never be mistaken for an unresolved conversion.
+fn fn_phase_two_gate(
+    preprocessed: &PreprocessResult,
+    signed_off: bool,
+    sidecar_path: &Path,
+) -> Result<ConversionSidecar, ConvertError> {
+    if !signed_off {
+        return Err(ConvertError::Unsigned);
+    }
+    let unresolved: Vec<String> = preprocessed
+        .cells
+        .iter()
+        .filter(|cell| !cell.resolved)
+        .map(|cell| format!("({}, {})", cell.source_col, cell.source_row))
+        .collect();
+    if !unresolved.is_empty() {
+        return Err(ConvertError::UnresolvedCells(unresolved));
+    }
+    let sidecar: ConversionSidecar = ConversionSidecar {
+        version: REQUEST_VERSION.to_string(),
+        tile_width_px: preprocessed
+            .cells
+            .first()
+            .map(|cell| cell.dimensions.width_px)
+            .unwrap_or(0),
+        tile_height_px: preprocessed
+            .cells
+            .first()
+            .map(|cell| cell.dimensions.height_px)
+            .unwrap_or(0),
+        mask_encoding: MASK_ENCODING_GREYSCALE.to_string(),
+        tiles: preprocessed
+            .cells
+            .iter()
+            .map(|cell| SidecarRow {
+                source_col: cell.source_col,
+                source_row: cell.source_row,
+                pixel_rect: cell.pixel_rect,
+                dimensions: cell.dimensions,
+            })
+            .collect(),
+    };
+    let text: String =
+        serde_json::to_string_pretty(&sidecar).map_err(|e| ConvertError::Decode(e.to_string()))?;
+    std::fs::write(sidecar_path, text)
+        .map_err(|e| ConvertError::Io(format!("{}: {}", sidecar_path.display(), e)))?;
+    eprintln!(
+        "SIDECAR path={} rows={}",
+        sidecar_path.display(),
+        sidecar.tiles.len()
+    );
+    Ok(sidecar)
+}
+
+// Read the human-edited JSONC sidecar: strip line comments so an annotation never breaks the Rust
+// consumer, and never recompute geometry from the source art.
+fn read_sidecar(path: &Path) -> Result<ConversionSidecar, ConvertError> {
+    let raw_text: String = std::fs::read_to_string(path)
+        .map_err(|e| ConvertError::Io(format!("{}: {}", path.display(), e)))?;
+    let json_text: String = raw_text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<&str>>()
+        .join("\n");
+    let sidecar: ConversionSidecar = serde_json::from_str(&json_text)
+        .map_err(|e| ConvertError::Decode(format!("{}: {}", path.display(), e)))?;
+    eprintln!(
+        "SIDECAR-READ path={} rows={}",
+        path.display(),
+        sidecar.tiles.len()
+    );
+    Ok(sidecar)
+}
+
+// =========================================================================
 // CLI
 // =========================================================================
 
@@ -731,45 +1477,478 @@ fn print_usage() {
 
 fn parse_args() -> (String, Option<String>, Option<String>) {
     let args: Vec<String> = std::env::args().collect();
-    let mut config_path = None;
-    let mut input_override = None;
-    let mut out_override = None;
+    let mut mut_config_path: Option<String> = None;
+    let mut mut_input_override: Option<String> = None;
+    let mut mut_out_override: Option<String> = None;
 
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
+    // Walk argv once, pairing each value-taking flag with the token immediately after it.
+    let mut mut_arg_index: usize = 1;
+    while mut_arg_index < args.len() {
+        match args[mut_arg_index].as_str() {
+            // The config names every default the other two flags can replace.
             "--config" => {
-                i += 1;
-                config_path = Some(args[i].clone());
+                mut_arg_index += 1;
+                mut_config_path = Some(args[mut_arg_index].clone());
             }
             "--input" => {
-                i += 1;
-                input_override = Some(args[i].clone());
+                mut_arg_index += 1;
+                mut_input_override = Some(args[mut_arg_index].clone());
             }
             "--out-dir" => {
-                i += 1;
-                out_override = Some(args[i].clone());
+                mut_arg_index += 1;
+                mut_out_override = Some(args[mut_arg_index].clone());
             }
+            // Help is the only flag that can succeed without a config.
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
             }
+            // An unrecognised flag is a usage error, so fail before any file is opened.
             _ => {
-                eprintln!("Unknown argument: {}", args[i]);
+                eprintln!("Unknown argument: {}", args[mut_arg_index]);
                 print_usage();
                 std::process::exit(1);
             }
         }
-        i += 1;
+        mut_arg_index += 1;
     }
 
-    let config_path = config_path.unwrap_or_else(|| {
+    // A missing config is fatal; absent overrides simply keep the config's own values.
+    let config_path: String = mut_config_path.unwrap_or_else(|| {
         eprintln!("Error: --config is required");
         print_usage();
         std::process::exit(1);
     });
 
-    (config_path, input_override, out_override)
+    (config_path, mut_input_override, mut_out_override)
+}
+
+// Derived grid geometry shared by both importer emitters. Inferred offsets and dimensions
+// are copied here instead of being written back into the parsed config.
+struct ImportSheetGrid {
+    sheet_width_px: u32,
+    sheet_height_px: u32,
+    tile_size_px: u32,
+    source_pitch_w: u32,
+    source_pitch_h: u32,
+    grid_cols: u32,
+    grid_rows: u32,
+    offset_x_px: u32,
+    offset_y_px: u32,
+}
+
+// Read the config once and let the two command-line overrides replace its defaults.
+fn fn_load_import_config(
+    config_path: &str,
+    input_override: Option<String>,
+    out_override: Option<String>,
+) -> ImportConfig {
+    let config_text: String = std::fs::read_to_string(config_path)
+        .unwrap_or_else(|e| panic!("Failed to read config '{}': {}", config_path, e));
+    let mut mut_config: ImportConfig = serde_json::from_str(&config_text)
+        .unwrap_or_else(|e| panic!("Failed to parse config '{}': {}", config_path, e));
+    if let Some(ref path) = input_override {
+        mut_config.input = Some(path.clone());
+    }
+    if let Some(ref path) = out_override {
+        mut_config.output_dir = path.clone();
+    }
+    mut_config
+}
+
+// Tile-scan mode writes the catalog and reports whether it handled this run; it needs no sheet.
+fn fn_run_tile_scan(config: &ImportConfig) -> bool {
+    let scan_dir: &String = match config.scan_tiles.as_ref() {
+        Some(scan_dir) => scan_dir,
+        None => return false,
+    };
+    let key_prefix: &str = config.scan_prefix.as_deref().unwrap_or("");
+    std::fs::create_dir_all(&config.output_dir)
+        .unwrap_or_else(|e| panic!("Failed to create '{}': {}", config.output_dir, e));
+    let entries: Vec<TerrainTypeDef> = scan_tile_directory(
+        Path::new(scan_dir),
+        key_prefix,
+        config.min_cluster_gap,
+        Path::new(&config.output_dir),
+    );
+    let terrain_file: TerrainTypesFile = TerrainTypesFile {
+        version: FILE_VERSION.into(),
+        tiles: entries,
+    };
+    let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
+        .expect("Failed to serialize terrain_types.json");
+    let terrain_json_path: PathBuf = PathBuf::from(&config.output_dir).join("terrain_types.json");
+    std::fs::write(&terrain_json_path, &terrain_json)
+        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+    println!(
+        "\nWrote {} ({} tiles)",
+        terrain_json_path.display(),
+        terrain_file.tiles.len()
+    );
+    true
+}
+
+// Coarse content bounds and explicit grid settings resolve to one read-only grid description.
+fn fn_build_grid(config: &ImportConfig, sheet: &image::DynamicImage) -> ImportSheetGrid {
+    let sheet_width_px: u32 = sheet.width();
+    let sheet_height_px: u32 = sheet.height();
+    let tile_size_px: u32 = config.tile_size_px;
+
+    // Auto-bounding reads a greyscale view only when it is enabled; explicit grids skip it.
+    let bounds: Option<ContentBounds> = match config.auto_bounding {
+        true => {
+            let detected: ContentBounds = detect_content_bounds(&sheet.to_rgba8());
+            eprintln!(
+                "Auto-bounding: content_area=({},{})->({},{})  pitch=({},{})",
+                detected.left,
+                detected.top,
+                detected.right,
+                detected.bottom,
+                detected.pitch_w,
+                detected.pitch_h,
+            );
+            Some(detected)
+        }
+        false => None,
+    };
+
+    // An authored grid fixes the pitch; otherwise the blank-space scan supplies it.
+    let source_pitch_w: u32 = match (config.grid_cols.is_some(), bounds.as_ref()) {
+        (true, _) => tile_size_px + config.margin,
+        (false, Some(detected)) => detected.pitch_w.max(1),
+        (false, None) => tile_size_px + config.margin,
+    };
+    let source_pitch_h: u32 = match (config.grid_rows.is_some(), bounds.as_ref()) {
+        (true, _) => tile_size_px + config.margin,
+        (false, Some(detected)) => detected.pitch_h.max(1),
+        (false, None) => tile_size_px + config.margin,
+    };
+
+    let (mut mut_offset_x_px, mut mut_offset_y_px) = (config.offset_x, config.offset_y);
+    let (mut mut_grid_cols, mut mut_grid_rows) = (config.grid_cols, config.grid_rows);
+    // Without an authored grid, snap the detected content area out to whole cells.
+    if config.auto_bounding && mut_grid_cols.is_none() && mut_grid_rows.is_none() {
+        if let Some(detected) = bounds.as_ref() {
+            mut_offset_x_px = (detected.left / source_pitch_w) * source_pitch_w;
+            mut_offset_y_px = (detected.top / source_pitch_h) * source_pitch_h;
+            mut_grid_cols = Some(
+                ((detected.right - mut_offset_x_px + source_pitch_w - 1) / source_pitch_w).max(1),
+            );
+            mut_grid_rows = Some(
+                ((detected.bottom - mut_offset_y_px + source_pitch_h - 1) / source_pitch_h).max(1),
+            );
+        }
+    }
+    let grid_cols: u32 = mut_grid_cols.expect("Either set grid dims or enable auto-bounding");
+    let grid_rows: u32 = mut_grid_rows.expect("Either set grid dims or enable auto-bounding");
+
+    // Report the resolved geometry, then warn rather than fail on an undersized sheet.
+    if config.auto_bounding {
+        eprintln!(
+            "Auto-bounding: pitch={}x{}, offset=({},{}), grid={}x{}",
+            source_pitch_w, source_pitch_h, mut_offset_x_px, mut_offset_y_px, grid_cols, grid_rows,
+        );
+    }
+    let expected_width_px: u32 = mut_offset_x_px + grid_cols * source_pitch_w;
+    let expected_height_px: u32 = mut_offset_y_px + grid_rows * source_pitch_h;
+    if sheet_width_px < expected_width_px || sheet_height_px < expected_height_px {
+        eprintln!(
+            "Warning: spritesheet {}x{} is smaller than expected {}x{} \
+             (grid {}x{} at source pitch {}x{} with offset {}, {})",
+            sheet_width_px,
+            sheet_height_px,
+            expected_width_px,
+            expected_height_px,
+            grid_cols,
+            grid_rows,
+            source_pitch_w,
+            source_pitch_h,
+            mut_offset_x_px,
+            mut_offset_y_px,
+        );
+    }
+
+    ImportSheetGrid {
+        sheet_width_px,
+        sheet_height_px,
+        tile_size_px,
+        source_pitch_w,
+        source_pitch_h,
+        grid_cols,
+        grid_rows,
+        offset_x_px: mut_offset_x_px,
+        offset_y_px: mut_offset_y_px,
+    }
+}
+
+// Reverse index lets each grid cell resolve an authored terrain entry in one lookup.
+fn fn_build_terrain_index(config: &ImportConfig) -> HashMap<usize, TerrainMapEntry> {
+    let mut mut_index: HashMap<usize, TerrainMapEntry> = HashMap::new();
+    for entry in config.terrain_map.values() {
+        for &grid_index in &entry.indices {
+            mut_index.insert(grid_index, entry.clone());
+        }
+    }
+    mut_index
+}
+
+// Walk one grid cell: crop at pitch, scale the shipped art, then save PNG and catalog entry.
+fn fn_emit_tiles(
+    sheet: &image::DynamicImage,
+    config: &ImportConfig,
+    grid: &ImportSheetGrid,
+    index_to_terrain: &HashMap<usize, TerrainMapEntry>,
+    tiles_dir: &Path,
+) -> (HashMap<String, TerrainTypeDef>, u32) {
+    let mut mut_terrain_defs: HashMap<String, TerrainTypeDef> = HashMap::new();
+    let mut mut_total_tiles: u32 = 0;
+
+    for grid_row in 0..grid.grid_rows {
+        for grid_col in 0..grid.grid_cols {
+            // Cells sit at pitch intervals from the content origin, not from authoring metadata.
+            let cell_origin_x_px: u32 = grid.offset_x_px + grid_col * grid.source_pitch_w;
+            let cell_origin_y_px: u32 = grid.offset_y_px + grid_row * grid.source_pitch_h;
+            let mut mut_cell_image = sheet.crop_imm(
+                cell_origin_x_px,
+                cell_origin_y_px,
+                grid.source_pitch_w,
+                grid.source_pitch_h,
+            );
+
+            // Scale before collision detection so the mask describes the art that ships.
+            if config.auto_scale
+                && (mut_cell_image.width() != grid.tile_size_px
+                    || mut_cell_image.height() != grid.tile_size_px)
+            {
+                mut_cell_image = mut_cell_image.resize_exact(
+                    grid.tile_size_px,
+                    grid.tile_size_px,
+                    image::imageops::FilterType::Nearest,
+                );
+            }
+
+            // Both the key lookup and the mask detector read the final RGBA view.
+            let cell_rgba: image::RgbaImage = mut_cell_image.to_rgba8();
+            let grid_index: usize = (grid_row * grid.grid_cols + grid_col) as usize;
+            let terrain_key: String = match index_to_terrain.get(&grid_index) {
+                Some(entry) => entry.key.clone(),
+                None => auto_detect_terrain_key(&cell_rgba).to_string(),
+            };
+
+            // Collision follows the final art; cells without detection stay fully solid.
+            let mask: u8 = match config.auto_detect_collision {
+                true => auto_detect_sub_tile_mask(&cell_rgba, config.luminance_threshold),
+                false => SUB_TILE_MASK_ALL_SOLID,
+            };
+
+            // The key is the catalog identity, so filename and JSON entry share it.
+            let tile_key: String = format!("{}_{}_{}", terrain_key, grid_row, grid_col);
+            let tile_path: PathBuf = tiles_dir.join(format!("{}_32x32.png", tile_key));
+            mut_cell_image.save(&tile_path).unwrap_or_else(|error| {
+                panic!("Failed to save tile '{}': {}", tile_path.display(), error)
+            });
+
+            // Register each key once; later cells of the same key only add their PNG.
+            if !mut_terrain_defs.contains_key(&terrain_key) {
+                let entry: Option<&TerrainMapEntry> = index_to_terrain.get(&grid_index);
+                let terrain_def: TerrainTypeDef = TerrainTypeDef {
+                    key: terrain_key.clone(),
+                    display_name: entry
+                        .map(|authored| authored.display_name.clone())
+                        .unwrap_or_else(|| terrain_key.clone()),
+                    is_walkable: entry
+                        .map(|authored| authored.is_walkable)
+                        .unwrap_or_else(|| {
+                            mask != 0
+                                && terrain_key != AIR_TERRAIN_KEY
+                                && terrain_key != WALL_TERRAIN_KEY
+                        }),
+                    is_buildable: entry.map(|authored| authored.is_buildable).unwrap_or_else(
+                        || {
+                            mask != 0
+                                && terrain_key != AIR_TERRAIN_KEY
+                                && terrain_key != WALL_TERRAIN_KEY
+                                && terrain_key != WATER_TERRAIN_KEY
+                                && terrain_key != LAVA_TERRAIN_KEY
+                        },
+                    ),
+                    surface: entry
+                        .map(|authored| authored.surface.clone())
+                        .unwrap_or_else(|| NORMAL_SURFACE.into()),
+                    hazard: entry
+                        .map(|authored| authored.hazard.clone())
+                        .unwrap_or_else(|| NO_HAZARD.into()),
+                    elevation_tiles: 0,
+                    color_hex: entry
+                        .map(|authored| authored.color_hex.clone())
+                        .unwrap_or_else(|| {
+                            let (red, green, blue, _) = average_color(&cell_rgba);
+                            format!("#{:02x}{:02x}{:02x}", red, green, blue)
+                        }),
+                    sub_tile_mask: mask,
+                    solid_mask: Vec::new(),
+                    hazard_damage_per_tick: 0,
+                    is_destructible: false,
+                    destructible_hp: 0,
+                    on_destroy_terrain_key: String::new(),
+                };
+                mut_terrain_defs.insert(terrain_key.clone(), terrain_def);
+            }
+
+            // Log key, path and mask so a finished run can be traced from the console.
+            mut_total_tiles += 1;
+            println!(
+                "  [{:3}] {} -> {}  mask=0x{:X}",
+                grid_index,
+                tile_key,
+                tile_path.file_name().unwrap().to_string_lossy(),
+                mask
+            );
+        }
+    }
+    (mut_terrain_defs, mut_total_tiles)
+}
+
+// Sort by key and write the catalog the framework merges into its palette.
+fn fn_write_terrain_types(config: &ImportConfig, terrain_defs: HashMap<String, TerrainTypeDef>) {
+    let mut mut_tiles_sorted: Vec<TerrainTypeDef> = terrain_defs.into_values().collect();
+    mut_tiles_sorted.sort_by(|left, right| left.key.cmp(&right.key));
+    let terrain_file: TerrainTypesFile = TerrainTypesFile {
+        version: FILE_VERSION.into(),
+        tiles: mut_tiles_sorted,
+    };
+    let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
+        .expect("Failed to serialize terrain_types.json");
+    let terrain_json_path: PathBuf = PathBuf::from(&config.output_dir).join("terrain_types.json");
+    std::fs::write(&terrain_json_path, &terrain_json)
+        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+    println!("\nWrote {}", terrain_json_path.display());
+}
+
+// Classify a cell's own art only when neither an override nor an authored index names it.
+fn fn_terrain_key_at_cell(
+    sheet: &image::DynamicImage,
+    grid: &ImportSheetGrid,
+    grid_col: u32,
+    grid_row: u32,
+) -> String {
+    let cell_origin_x_px: u32 = grid.offset_x_px + grid_col * grid.source_pitch_w;
+    let cell_origin_y_px: u32 = grid.offset_y_px + grid_row * grid.source_pitch_h;
+    let cell_within_sheet: bool = cell_origin_x_px + grid.source_pitch_w <= grid.sheet_width_px
+        && cell_origin_y_px + grid.source_pitch_h <= grid.sheet_height_px;
+    match cell_within_sheet {
+        true => {
+            let cell_image = sheet.crop_imm(
+                cell_origin_x_px,
+                cell_origin_y_px,
+                grid.source_pitch_w,
+                grid.source_pitch_h,
+            );
+            auto_detect_terrain_key(&cell_image.to_rgba8()).to_string()
+        }
+        false => AIR_TERRAIN_KEY.into(),
+    }
+}
+
+// Collision for tile-set cells reads the unscaled sheet art; outside it, the cell is solid.
+fn fn_cell_sub_tile_mask(
+    sheet: &image::DynamicImage,
+    config: &ImportConfig,
+    grid: &ImportSheetGrid,
+    grid_col: u32,
+    grid_row: u32,
+) -> u8 {
+    let cell_origin_x_px: u32 = grid.offset_x_px + grid_col * grid.source_pitch_w;
+    let cell_origin_y_px: u32 = grid.offset_y_px + grid_row * grid.source_pitch_h;
+    let collision_in_bounds: bool = config.auto_detect_collision
+        && cell_origin_x_px + grid.source_pitch_w <= grid.sheet_width_px
+        && cell_origin_y_px + grid.source_pitch_h <= grid.sheet_height_px;
+    match collision_in_bounds {
+        true => {
+            let cell_image = sheet.crop_imm(
+                cell_origin_x_px,
+                cell_origin_y_px,
+                grid.source_pitch_w,
+                grid.source_pitch_h,
+            );
+            auto_detect_sub_tile_mask(&cell_image.to_rgba8(), config.luminance_threshold)
+        }
+        false => SUB_TILE_MASK_ALL_SOLID,
+    }
+}
+
+// Emit one tile set in local row-major order: override, authored index, then visual guess.
+fn fn_emit_tile_set(
+    tile_set_def: &TileSetDef,
+    config: &ImportConfig,
+    sheet: &image::DynamicImage,
+    grid: &ImportSheetGrid,
+    index_to_terrain: &HashMap<usize, TerrainMapEntry>,
+) -> TileSetOutput {
+    let mut mut_entries: Vec<TileSetEntry> = Vec::new();
+    for local_y in 0..tile_set_def.height {
+        for local_x in 0..tile_set_def.width {
+            let grid_row: u32 = tile_set_def.row_start + local_y;
+            let grid_col: u32 = tile_set_def.col_start + local_x;
+            let grid_index: usize = (grid_row * grid.grid_cols + grid_col) as usize;
+            let cell_key: String = format!("{},{}", local_x, local_y);
+            let terrain_key: String = match tile_set_def.cell_overrides.get(&cell_key) {
+                Some(override_key) => override_key.clone(),
+                None => match index_to_terrain.get(&grid_index) {
+                    Some(entry) => entry.key.clone(),
+                    None => fn_terrain_key_at_cell(sheet, grid, grid_col, grid_row),
+                },
+            };
+            mut_entries.push(TileSetEntry {
+                local_x: local_x as i32,
+                local_y: local_y as i32,
+                terrain_key,
+                elevation_tiles: 0,
+                z_depth: 0,
+                sub_tile_mask: fn_cell_sub_tile_mask(sheet, config, grid, grid_col, grid_row),
+            });
+        }
+    }
+    TileSetOutput {
+        key: tile_set_def.key.clone(),
+        display_name: tile_set_def.display_name.clone(),
+        width_tiles: tile_set_def.width as i32,
+        height_tiles: tile_set_def.height as i32,
+        tiles: mut_entries,
+        tags: tile_set_def.tags.clone(),
+    }
+}
+
+// Write tile_sets.json only when the config authored at least one grouped tile set.
+fn fn_emit_tile_sets(
+    config: &ImportConfig,
+    sheet: &image::DynamicImage,
+    grid: &ImportSheetGrid,
+    index_to_terrain: &HashMap<usize, TerrainMapEntry>,
+) {
+    if config.tile_sets.is_empty() {
+        return;
+    }
+    let mut mut_sets_out: Vec<TileSetOutput> = Vec::new();
+    for tile_set_def in &config.tile_sets {
+        mut_sets_out.push(fn_emit_tile_set(
+            tile_set_def,
+            config,
+            sheet,
+            grid,
+            index_to_terrain,
+        ));
+    }
+    let tile_sets_file: TileSetsFile = TileSetsFile {
+        version: FILE_VERSION.into(),
+        tile_sets: mut_sets_out,
+    };
+    let sets_json: String =
+        serde_json::to_string_pretty(&tile_sets_file).expect("Failed to serialize tile_sets.json");
+    let sets_json_path: PathBuf = PathBuf::from(&config.output_dir).join("tile_sets.json");
+    std::fs::write(&sets_json_path, &sets_json)
+        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", sets_json_path.display(), e));
+    println!("Wrote {}", sets_json_path.display());
 }
 
 // =========================================================================
@@ -777,146 +1956,79 @@ fn parse_args() -> (String, Option<String>, Option<String>) {
 // =========================================================================
 
 fn main() {
-    let (config_path, input_override, out_override) = parse_args();
-
-    let config_text = std::fs::read_to_string(&config_path)
-        .unwrap_or_else(|e| panic!("Failed to read config '{}': {}", config_path, e));
-    let mut config: ImportConfig = serde_json::from_str(&config_text)
-        .unwrap_or_else(|e| panic!("Failed to parse config '{}': {}", config_path, e));
-
-    if let Some(ref path) = input_override {
-        config.input = Some(path.clone());
-    }
-    if let Some(ref path) = out_override {
-        config.output_dir = path.clone();
-    }
-
-    // The spritesheet-slice path below needs an `input` sheet; the tile-scan path does not
-    // (it reads committed `{key}_32x32.png` tiles), so it runs first and returns. Its
-    // `terrain_types.json` lands in `output_dir` for the framework merge, and an unresolved
-    // tile's flagged PNG lands there too.
-    if let Some(scan_dir) = &config.scan_tiles {
-        let key_prefix: &str = config.scan_prefix.as_deref().unwrap_or("");
-        std::fs::create_dir_all(&config.output_dir)
-            .unwrap_or_else(|e| panic!("Failed to create '{}': {}", config.output_dir, e));
-        let entries: Vec<TerrainTypeDef> = scan_tile_directory(
-            Path::new(scan_dir),
-            key_prefix,
-            config.min_cluster_gap,
-            Path::new(&config.output_dir),
-        );
-        let terrain_file: TerrainTypesFile = TerrainTypesFile {
-            version: "0.1.0".into(),
-            tiles: entries,
-        };
-        let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
-            .expect("Failed to serialize terrain_types.json");
-        let terrain_json_path: PathBuf =
-            PathBuf::from(&config.output_dir).join("terrain_types.json");
-        std::fs::write(&terrain_json_path, &terrain_json)
-            .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+    // The orchestrator invokes `convert-slope` with a request path, an output directory and an
+    // explicit sign-off flag. It is the only entry that runs both phases and prints the result.
+    fn fn_run_convert_slope(
+        request_path: &Path,
+        output_dir: &Path,
+        signed_off: bool,
+    ) -> Result<(), ConvertError> {
+        let request_text: String = std::fs::read_to_string(request_path)
+            .map_err(|e| ConvertError::Io(format!("{}: {}", request_path.display(), e)))?;
+        let request: ConversionRequest = serde_json::from_str(&request_text)
+            .map_err(|e| ConvertError::Decode(format!("{}: {}", request_path.display(), e)))?;
+        let preprocessed: PreprocessResult = preprocess_source_sheet(&request, output_dir)?;
+        let sidecar_path: PathBuf = output_dir.join("slope.jsonc");
+        let _sidecar: ConversionSidecar =
+            fn_phase_two_gate(&preprocessed, signed_off, &sidecar_path)?;
+        let result: ConversionResult = fn_convert_resource(&request, output_dir)?;
         println!(
-            "\nWrote {} ({} tiles)",
-            terrain_json_path.display(),
-            terrain_file.tiles.len()
+            "{}",
+            serde_json::to_string(&result).map_err(|e| ConvertError::Decode(e.to_string()))?
         );
+        Ok(())
+    }
+    // One binary serves two argv contracts: the config-driven importer and the slope
+    // conversion request. Conversion prints JSON to stdout, so it must return here;
+    // falling through makes parse_args reject the positional request path.
+    if std::env::args().nth(1).as_deref() == Some("convert-slope") {
+        // The request path is positional; the importer's --config parser would reject it.
+        let request_path: PathBuf = PathBuf::from(
+            std::env::args()
+                .nth(2)
+                .expect("convert-slope needs a request JSON path"),
+        );
+        // Tiles and the sidecar both land under this directory.
+        let output_dir: PathBuf = PathBuf::from(
+            std::env::args()
+                .nth(3)
+                .expect("convert-slope needs an output directory"),
+        );
+        // Phase II refuses without this explicit sign-off, so a missing flag fails the
+        // command instead of emitting a converted set nobody reviewed.
+        let signed_off: bool = std::env::args().nth(4).as_deref() == Some("--signed-off");
+        // Fail loudly on stderr with a non-zero exit so no partial result is read from stdout.
+        fn_run_convert_slope(&request_path, &output_dir, signed_off).unwrap_or_else(|error| {
+            eprintln!("CONVERT-SLOPE FAILED: {:?}", error);
+            std::process::exit(1);
+        });
+        // Never fall through to the importer's parse_args in conversion mode.
         return;
     }
 
+    // Parse argv, then resolve config defaults against the two command-line overrides.
+    let (config_path, input_override, out_override) = parse_args();
+    let config: ImportConfig = fn_load_import_config(&config_path, input_override, out_override);
+
+    // The tile-scan path reads committed PNGs and needs no sheet, so it handles the run first.
+    if fn_run_tile_scan(&config) {
+        return;
+    }
+
+    // The spritesheet-slice path needs an explicit source sheet.
     let input_path = config
         .input
         .as_ref()
         .expect("Either set 'input' in config or pass --input");
-
     let sheet = image::open(input_path)
         .unwrap_or_else(|e| panic!("Failed to load spritesheet '{}': {}", input_path, e));
 
-    let sheet_w = sheet.width();
-    let sheet_h = sheet.height();
-    let ts = config.tile_size_px;
+    // Resolve bounds, pitch and grid once so both emitters read the same geometry.
+    let grid: ImportSheetGrid = fn_build_grid(&config, &sheet);
+    let index_to_terrain: HashMap<usize, TerrainMapEntry> = fn_build_terrain_index(&config);
 
-    // Auto-detect content bounding box
-    let bounds = if config.auto_bounding {
-        let sheet_rgba = sheet.to_rgba8();
-        let b = detect_content_bounds(&sheet_rgba);
-        eprintln!(
-            "Auto-bounding: content_area=({},{})->({},{})  pitch=({},{})",
-            b.left, b.top, b.right, b.bottom, b.pitch_w, b.pitch_h,
-        );
-        Some(b)
-    } else {
-        None
-    };
-
-    // Determine source pitch (native tile size in the sheet).
-    // When grid dims are provided, pitch = tile_size + margin (most common).
-    // When absent, fall back to blank-space scanning for pitch detection.
-    let source_pitch_w = if config.grid_cols.is_some() {
-        ts + config.margin
-    } else if let Some(ref b) = bounds {
-        b.pitch_w.max(1)
-    } else {
-        ts + config.margin
-    };
-
-    let source_pitch_h = if config.grid_rows.is_some() {
-        ts + config.margin
-    } else if let Some(ref b) = bounds {
-        b.pitch_h.max(1)
-    } else {
-        ts + config.margin
-    };
-
-    // Infer grid and offset from content bounds (only when grid dims are absent)
-    if config.auto_bounding && config.grid_cols.is_none() && config.grid_rows.is_none() {
-        if let Some(ref b) = bounds {
-            config.offset_x = (b.left / source_pitch_w) * source_pitch_w;
-            config.offset_y = (b.top / source_pitch_h) * source_pitch_h;
-            config.grid_cols =
-                Some(((b.right - config.offset_x + source_pitch_w - 1) / source_pitch_w).max(1));
-            config.grid_rows =
-                Some(((b.bottom - config.offset_y + source_pitch_h - 1) / source_pitch_h).max(1));
-        }
-    }
-
-    let grid_cols = config.grid_cols.unwrap();
-    let grid_rows = config.grid_rows.unwrap();
-
-    if config.auto_bounding {
-        eprintln!(
-            "Auto-bounding: pitch={}x{}, offset=({},{}), grid={}x{}",
-            source_pitch_w, source_pitch_h, config.offset_x, config.offset_y, grid_cols, grid_rows,
-        );
-    }
-
-    let expected_w = config.offset_x + grid_cols * source_pitch_w;
-    let expected_h = config.offset_y + grid_rows * source_pitch_h;
-    if sheet_w < expected_w || sheet_h < expected_h {
-        eprintln!(
-            "Warning: spritesheet {}x{} is smaller than expected {}x{} \
-             (grid {}x{} at source pitch {}x{} with offset {}, {})",
-            sheet_w,
-            sheet_h,
-            expected_w,
-            expected_h,
-            grid_cols,
-            grid_rows,
-            source_pitch_w,
-            source_pitch_h,
-            config.offset_x,
-            config.offset_y,
-        );
-    }
-
-    // Build reverse index: grid index -> terrain map key
-    let mut index_to_terrain: HashMap<usize, TerrainMapEntry> = HashMap::new();
-    for entry in config.terrain_map.values() {
-        for &idx in &entry.indices {
-            index_to_terrain.insert(idx, entry.clone());
-        }
-    }
-
-    let tiles_dir = PathBuf::from(&config.output_dir).join("tiles");
+    // Every extracted PNG lands in one directory, created before the first cell is emitted.
+    let tiles_dir: PathBuf = PathBuf::from(&config.output_dir).join("tiles");
     std::fs::create_dir_all(&tiles_dir).unwrap_or_else(|e| {
         panic!(
             "Failed to create tiles dir '{}': {}",
@@ -925,176 +2037,13 @@ fn main() {
         )
     });
 
-    let mut terrain_defs: HashMap<String, TerrainTypeDef> = HashMap::new();
-    let mut total_tiles = 0;
+    // Walk the grid once: one PNG per cell, one catalog entry per distinct terrain key.
+    let (terrain_defs, total_tiles): (HashMap<String, TerrainTypeDef>, u32) =
+        fn_emit_tiles(&sheet, &config, &grid, &index_to_terrain, &tiles_dir);
 
-    for row in 0..grid_rows {
-        for col in 0..grid_cols {
-            let x = config.offset_x + col * source_pitch_w;
-            let y = config.offset_y + row * source_pitch_h;
-            let mut tile_dyn = sheet.crop_imm(x, y, source_pitch_w, source_pitch_h);
-
-            // Auto-scale to target tile size if needed
-            if config.auto_scale && (tile_dyn.width() != ts || tile_dyn.height() != ts) {
-                tile_dyn = tile_dyn.resize_exact(ts, ts, image::imageops::FilterType::Nearest);
-            }
-
-            let tile_rgba = tile_dyn.to_rgba8();
-            let idx = (row * grid_cols + col) as usize;
-
-            let terrain_key = if let Some(entry) = index_to_terrain.get(&idx) {
-                entry.key.clone()
-            } else {
-                auto_detect_terrain_key(&tile_rgba).to_string()
-            };
-
-            let mask = if config.auto_detect_collision {
-                auto_detect_sub_tile_mask(&tile_rgba, config.luminance_threshold)
-            } else {
-                0xF
-            };
-
-            let tile_key = format!("{}_{}_{}", terrain_key, row, col);
-            let tile_path = tiles_dir.join(format!("{}_32x32.png", tile_key));
-            tile_dyn
-                .save(&tile_path)
-                .unwrap_or_else(|e| panic!("Failed to save tile '{}': {}", tile_path.display(), e));
-
-            if !terrain_defs.contains_key(&terrain_key) {
-                let entry = index_to_terrain.get(&idx);
-                let td = TerrainTypeDef {
-                    key: terrain_key.clone(),
-                    display_name: entry
-                        .map(|e| e.display_name.clone())
-                        .unwrap_or_else(|| terrain_key.clone()),
-                    is_walkable: entry.map(|e| e.is_walkable).unwrap_or_else(|| {
-                        mask != 0 && terrain_key != "air" && terrain_key != "wall"
-                    }),
-                    is_buildable: entry.map(|e| e.is_buildable).unwrap_or_else(|| {
-                        mask != 0
-                            && terrain_key != "air"
-                            && terrain_key != "wall"
-                            && terrain_key != "water"
-                            && terrain_key != "lava"
-                    }),
-                    surface: entry
-                        .map(|e| e.surface.clone())
-                        .unwrap_or_else(|| "normal".into()),
-                    hazard: entry
-                        .map(|e| e.hazard.clone())
-                        .unwrap_or_else(|| "none".into()),
-                    elevation_tiles: 0,
-                    color_hex: entry.map(|e| e.color_hex.clone()).unwrap_or_else(|| {
-                        let (r, g, b, _) = average_color(&tile_rgba);
-                        format!("#{:02x}{:02x}{:02x}", r, g, b)
-                    }),
-                    sub_tile_mask: mask,
-                    solid_mask: Vec::new(),
-                    hazard_damage_per_tick: 0,
-                    is_destructible: false,
-                    destructible_hp: 0,
-                    on_destroy_terrain_key: String::new(),
-                };
-                terrain_defs.insert(terrain_key.clone(), td);
-            }
-
-            total_tiles += 1;
-            println!(
-                "  [{:3}] {} -> {}  mask=0x{:X}",
-                idx,
-                tile_key,
-                tile_path.file_name().unwrap().to_string_lossy(),
-                mask
-            );
-        }
-    }
-
-    // Write terrain_types.json
-    let mut tiles_sorted: Vec<TerrainTypeDef> = terrain_defs.into_values().collect();
-    tiles_sorted.sort_by(|a, b| a.key.cmp(&b.key));
-    let terrain_file = TerrainTypesFile {
-        version: "0.1.0".into(),
-        tiles: tiles_sorted,
-    };
-    let terrain_json = serde_json::to_string_pretty(&terrain_file)
-        .expect("Failed to serialize terrain_types.json");
-    let terrain_json_path = PathBuf::from(&config.output_dir).join("terrain_types.json");
-    std::fs::write(&terrain_json_path, &terrain_json)
-        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
-    println!("\nWrote {}", terrain_json_path.display());
-
-    // Write tile_sets.json
-    if !config.tile_sets.is_empty() {
-        let mut sets_out = Vec::new();
-        for ts_def in &config.tile_sets {
-            let mut entries = Vec::new();
-            for local_y in 0..ts_def.height {
-                for local_x in 0..ts_def.width {
-                    let grid_row = ts_def.row_start + local_y;
-                    let grid_col = ts_def.col_start + local_x;
-                    let idx = (grid_row * grid_cols + grid_col) as usize;
-
-                    let cell_key = format!("{},{}", local_x, local_y);
-                    let terrain_key =
-                        if let Some(override_key) = ts_def.cell_overrides.get(&cell_key) {
-                            override_key.clone()
-                        } else if let Some(entry) = index_to_terrain.get(&idx) {
-                            entry.key.clone()
-                        } else {
-                            let x = config.offset_x + grid_col * source_pitch_w;
-                            let y = config.offset_y + grid_row * source_pitch_h;
-                            if x + source_pitch_w <= sheet_w && y + source_pitch_h <= sheet_h {
-                                let tile_dyn = sheet.crop_imm(x, y, source_pitch_w, source_pitch_h);
-                                auto_detect_terrain_key(&tile_dyn.to_rgba8()).to_string()
-                            } else {
-                                "air".into()
-                            }
-                        };
-
-                    let x = config.offset_x + grid_col * source_pitch_w;
-                    let y = config.offset_y + grid_row * source_pitch_h;
-                    let mask = if config.auto_detect_collision
-                        && x + source_pitch_w <= sheet_w
-                        && y + source_pitch_h <= sheet_h
-                    {
-                        let tile_dyn = sheet.crop_imm(x, y, source_pitch_w, source_pitch_h);
-                        auto_detect_sub_tile_mask(&tile_dyn.to_rgba8(), config.luminance_threshold)
-                    } else {
-                        0xF
-                    };
-
-                    entries.push(TileSetEntry {
-                        local_x: local_x as i32,
-                        local_y: local_y as i32,
-                        terrain_key,
-                        elevation_tiles: 0,
-                        z_depth: 0,
-                        sub_tile_mask: mask,
-                    });
-                }
-            }
-
-            sets_out.push(TileSetOutput {
-                key: ts_def.key.clone(),
-                display_name: ts_def.display_name.clone(),
-                width_tiles: ts_def.width as i32,
-                height_tiles: ts_def.height as i32,
-                tiles: entries,
-                tags: ts_def.tags.clone(),
-            });
-        }
-
-        let tile_sets_file = TileSetsFile {
-            version: "0.1.0".into(),
-            tile_sets: sets_out,
-        };
-        let sets_json = serde_json::to_string_pretty(&tile_sets_file)
-            .expect("Failed to serialize tile_sets.json");
-        let sets_json_path = PathBuf::from(&config.output_dir).join("tile_sets.json");
-        std::fs::write(&sets_json_path, &sets_json)
-            .unwrap_or_else(|e| panic!("Failed to write '{}': {}", sets_json_path.display(), e));
-        println!("Wrote {}", sets_json_path.display());
-    }
+    // Persist the catalog, then any authored tile sets, against the same grid geometry.
+    fn_write_terrain_types(&config, terrain_defs);
+    fn_emit_tile_sets(&config, &sheet, &grid, &index_to_terrain);
 
     println!(
         "\nDone. {} tiles extracted to {}",
@@ -1104,23 +2053,25 @@ fn main() {
 }
 
 fn average_color(img: &RgbaImage) -> (u8, u8, u8, u8) {
-    let (mut r, mut g, mut b, mut a, mut count) = (0u64, 0u64, 0u64, 0u64, 0u64);
-    for px in img.pixels() {
-        r += px[0] as u64;
-        g += px[1] as u64;
-        b += px[2] as u64;
-        a += px[3] as u64;
-        count += 1;
+    let (mut mut_red_sum, mut mut_green_sum, mut mut_blue_sum, mut mut_alpha_sum, mut mut_count) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
+    // Sum each channel once so an empty image needs only one fallback branch.
+    for pixel in img.pixels() {
+        mut_red_sum += u64::from(pixel[0]);
+        mut_green_sum += u64::from(pixel[1]);
+        mut_blue_sum += u64::from(pixel[2]);
+        mut_alpha_sum += u64::from(pixel[3]);
+        mut_count += 1;
     }
-    if count == 0 {
-        return (128, 128, 128, 255);
+    match mut_count == 0 {
+        true => AVERAGE_COLOR_FALLBACK_RGBA,
+        false => (
+            (mut_red_sum / mut_count) as u8,
+            (mut_green_sum / mut_count) as u8,
+            (mut_blue_sum / mut_count) as u8,
+            (mut_alpha_sum / mut_count) as u8,
+        ),
     }
-    (
-        (r / count) as u8,
-        (g / count) as u8,
-        (b / count) as u8,
-        (a / count) as u8,
-    )
 }
 
 // =========================================================================
@@ -1148,18 +2099,17 @@ mod tests {
     /// An opaque tile whose bottom `ground_rows` rows are ground and the rest air.
     fn tile_with_ground_rows(width_px: u32, height_px: u32, ground_rows: u32) -> RgbaImage {
         RgbaImage::from_fn(width_px, height_px, |_, row| {
-            let grey = if row >= height_px - ground_rows {
-                GROUND_GREY
-            } else {
-                AIR_GREY
+            let grey = match row >= height_px - ground_rows {
+                true => GROUND_GREY,
+                false => AIR_GREY,
             };
-            Rgba([grey, grey, grey, 255])
+            Rgba([grey, grey, grey, ALPHA_SOLID])
         })
     }
 
     /// Overwrite one pixel with a grey, keeping it opaque.
     fn paint_grey(img: &mut RgbaImage, col: u32, row: u32, grey: u8) {
-        img.put_pixel(col, row, Rgba([grey, grey, grey, 255]));
+        img.put_pixel(col, row, Rgba([grey, grey, grey, ALPHA_SOLID]));
     }
 
     /// Read one bit of the packed mask `derive_solid_mask` returns.
@@ -1197,9 +2147,9 @@ mod tests {
 
     #[test]
     fn mask_removes_floating_solid_specks() {
-        let mut img = tile_with_ground_rows(8, 8, 4);
-        paint_grey(&mut img, 5, 1, GROUND_GREY); // a speck of ground floating in the air
-        let greyscale = to_greyscale(&img);
+        let mut mut_img = tile_with_ground_rows(8, 8, 4);
+        paint_grey(&mut mut_img, 5, 1, GROUND_GREY); // a speck of ground floating in the air
+        let greyscale = to_greyscale(&mut_img);
         let (mask, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
 
         assert!(resolved);
@@ -1219,9 +2169,9 @@ mod tests {
     fn mask_best_guess_resolves_ambiguous_sample() {
         // The bottom row carries BOTH clusters, so the anchor is ambiguous; the best guess
         // (the bottom-centre patch read) resolves it instead of flagging the tile.
-        let mut img = tile_with_ground_rows(8, 8, 4);
-        paint_grey(&mut img, 0, 7, AIR_GREY);
-        let greyscale = to_greyscale(&img);
+        let mut mut_img = tile_with_ground_rows(8, 8, 4);
+        paint_grey(&mut mut_img, 0, 7, AIR_GREY);
+        let greyscale = to_greyscale(&mut_img);
         let (_, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
 
         assert!(
@@ -1229,12 +2179,12 @@ mod tests {
             "an ambiguous bottom row is guessed, never flagged"
         );
 
-        let mut emitted = img.clone();
+        let mut mut_emitted = mut_img.clone();
         if !resolved {
-            flag_unresolved(&mut emitted);
+            flag_unresolved(&mut mut_emitted);
         }
         assert_ne!(
-            emitted.get_pixel(0, 0),
+            mut_emitted.get_pixel(0, 0),
             &Rgba(UNRESOLVED_BORDER_RGBA),
             "a resolved tile carries no red border"
         );
@@ -1246,22 +2196,22 @@ mod tests {
         // two-cluster split exists for any heuristic to anchor on: the tile is flagged.
         let img = RgbaImage::from_fn(8, 8, |_, row| {
             let grey = RAMP_START_GREY + (row as u8) * RAMP_STEP_GREY;
-            Rgba([grey, grey, grey, 255])
+            Rgba([grey, grey, grey, ALPHA_SOLID])
         });
         let greyscale = to_greyscale(&img);
         let (_, resolved) = derive_solid_mask(&greyscale, 8, 8, DEFAULT_MIN_CLUSTER_GAP);
 
         assert!(!resolved, "a tile with no cluster split is flagged");
 
-        let mut emitted = img.clone();
-        flag_unresolved(&mut emitted);
+        let mut mut_emitted = img.clone();
+        flag_unresolved(&mut mut_emitted);
         assert_eq!(
-            emitted.get_pixel(0, 0),
+            mut_emitted.get_pixel(0, 0),
             &Rgba(UNRESOLVED_BORDER_RGBA),
             "the emitted PNG carries the red 1px border"
         );
         assert_eq!(
-            emitted.get_pixel(4, 4)[0],
+            mut_emitted.get_pixel(4, 4)[0],
             greyscale[(4 * 8 + 4) as usize],
             "the border never repaints the tile interior"
         );
@@ -1271,9 +2221,9 @@ mod tests {
     fn mask_uniform_patch_ignores_edge_pixel() {
         // One anti-aliased pixel sits inside an otherwise uniform air patch: reading that
         // single pixel gives the edge grey, reading the patch gives the region's air grey.
-        let mut img = tile_with_ground_rows(8, 8, 4);
-        paint_grey(&mut img, 2, 2, EDGE_GREY);
-        let greyscale = to_greyscale(&img);
+        let mut mut_img = tile_with_ground_rows(8, 8, 4);
+        paint_grey(&mut mut_img, 2, 2, EDGE_GREY);
+        let greyscale = to_greyscale(&mut_img);
 
         assert_ne!(
             greyscale[(2 * 8 + 2) as usize],
@@ -1455,7 +2405,9 @@ mod tests {
             + FIXTURE_GRID_ROWS as u32 * cell_height_px
             + (FIXTURE_GRID_ROWS as u32 - 1) * separation_px;
         let mut mut_sheet: RgbaImage =
-            RgbaImage::from_fn(sheet_width_px, sheet_height_px, |_, _| Rgba([0, 0, 0, 255]));
+            RgbaImage::from_fn(sheet_width_px, sheet_height_px, |_, _| {
+                Rgba([0, 0, 0, ALPHA_SOLID])
+            });
         for source_row in 0..FIXTURE_GRID_ROWS as u32 {
             for source_col in 0..FIXTURE_GRID_COLS as u32 {
                 let origin_x_px: u32 = margin_x_px + source_col * pitch_x_px;
@@ -1463,15 +2415,14 @@ mod tests {
                 for pixel_y in 0..cell_height_px {
                     for pixel_x in 0..cell_width_px {
                         let seam_row: u32 = cell_height_px / 4 + pixel_x / 2;
-                        let grey: u8 = if pixel_y >= seam_row {
-                            ground_grey
-                        } else {
-                            air_grey
+                        let grey: u8 = match pixel_y >= seam_row {
+                            true => ground_grey,
+                            false => air_grey,
                         };
                         mut_sheet.put_pixel(
                             origin_x_px + pixel_x,
                             origin_y_px + pixel_y,
-                            Rgba([grey, grey, grey, 255]),
+                            Rgba([grey, grey, grey, ALPHA_SOLID]),
                         );
                     }
                 }
@@ -1494,7 +2445,7 @@ mod tests {
                 sheet.put_pixel(
                     origin_x_px + pixel_x,
                     origin_y_px + pixel_y,
-                    Rgba([grey, grey, grey, 255]),
+                    Rgba([grey, grey, grey, ALPHA_SOLID]),
                 );
             });
         });
@@ -1518,7 +2469,7 @@ mod tests {
                     sheet.put_pixel(
                         (margin_x_px + col * pitch_x_px + cell_width_px + offset) as u32,
                         (margin_y_px + row) as u32,
-                        Rgba([255, 0, 0, 255]),
+                        Rgba(UNRESOLVED_BORDER_RGBA),
                     );
                 });
             });
@@ -1529,7 +2480,7 @@ mod tests {
                     sheet.put_pixel(
                         (margin_x_px + col) as u32,
                         (margin_y_px + row * pitch_y_px + cell_height_px + offset) as u32,
-                        Rgba([255, 0, 0, 255]),
+                        Rgba(UNRESOLVED_BORDER_RGBA),
                     );
                 });
             });
@@ -1615,7 +2566,7 @@ mod tests {
                 (0..8).for_each(|col| {
                     let expected_solid: bool = luma.get_pixel(col, row).0[0] == GROUND_GREY;
                     assert_eq!(
-                        rgba.get_pixel(col, row).0[3] == 255,
+                        rgba.get_pixel(col, row).0[3] == ALPHA_SOLID,
                         expected_solid,
                         "alpha at ({col},{row}) of {key} follows the independent grey oracle"
                     );
@@ -1866,7 +2817,7 @@ mod tests {
             (0..cleaned.width()).for_each(|col| {
                 let alpha: u8 = cleaned.get_pixel(col, row).0[3];
                 assert!(
-                    alpha == 0 || alpha == 255,
+                    alpha == ALPHA_AIR || alpha == ALPHA_SOLID,
                     "alpha at ({col},{row}) is air or ground"
                 );
             });

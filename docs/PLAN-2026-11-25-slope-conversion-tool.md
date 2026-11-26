@@ -616,7 +616,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP6 - Separate implementation ticket opened (implementation gate). Evidence: https://github.com/HidekiAI/sidescroll-towerdefense/issues/239, opened 2026-11-26T16:07:19Z; its body names both phases, this plan, AC1-AC10, the sixteen RED-first tests and `Difficulty: L`. Recovery: an implementation branch is still required; no code may exist before that branch is cut.
 - [x] CP7 - Sources and config measured (S1). Evidence: `## Step S1 result`, W/H 32/32, both eight-key lists, 16 resolved cells, 956 tracked tile files and 0 collision-key hits. Recovery: re-run `/tmp/user/1000/opencode/sstd-s1-measure.sh`.
 - [x] CP8 - Sixteen tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result` -- Rust exit 101 with 57 missing-symbol errors, five GDScript suites exit 1 with named failures; the four preprocessing guards are named there alongside the original twelve. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
-- [ ] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, test count measured, mutation results. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours.
+- [ ] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, test count measured, mutation results. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours. PARTIAL on 2026-11-26: the scaffold is uncommented, all 9 Rust guards are green (17 passed / 0 failed), and the whole-file legibility pass is applied, but CP9 stays OPEN until the mutation battery and the two-run byte compare are run; see `## Step S3 result (partial)`.
 - [ ] CP10 - GDScript orchestrator and both bridge directions written (S4). Resume: `godot4 --headless --check-only --script res://scripts/<name>.gd --quit`. Evidence: exit 0 and the request/result JSON shapes. Recovery: GDScript production logic is written directly; only its tests are assistant-written.
 - [ ] CP11 - Artifacts and palette registration written (S5). Resume: temp-dir-then-rename check plus the 16-key registration unit test. Evidence: 30 entries, no duplicate keys, explicit staged paths. Recovery: never `git add -A` here; stage only named artifacts.
 - [ ] CP12 - Four headless guards run (S6). Resume: four `godot4 --headless` commands; `Image.new().load(path)` oracle and `Time.get_ticks_msec()`. Evidence: all four exit 0, worst contact error <= 1 px. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
@@ -633,7 +633,7 @@ blocks are append-only; corrections go in a later block and name what was wrong.
 | S0 Plan gate and checkpoint pointer | DONE | `## Plan gate`, PASS 96/100 at bar 95 | path `docs/PLAN-2026-11-25-slope-conversion-tool.md`, branch `local/docs/plan-slope-conversion-tool` |
 | S1 Measure sources, config, and collision resolvability | DONE | `## Step S1 result`, 2026-11-26 | 16 cells, 8 per resource, W/H 32/32 from config DB, 0 unresolved |
 | S2 RED tests for request, expansion, alpha, registration, determinism and preprocessing | DONE | `## Step S2 result`, 2026-11-26 | 9 Rust unit + 3 GDScript unit + 4 headless E2E tests, RED exit 101 / 1 |
-| S3 Rust `convert-slope` subcommand | NOT STARTED | - | `tools/import-tiles/src/main.rs`, 128-byte mask at 32px |
+| S3 Rust `convert-slope` subcommand | IN PROGRESS | `## Step S3 result (partial)`, 2026-11-26 | `tools/import-tiles/src/main.rs`, 128-byte mask at 32px, gates exit 0 |
 | S4 GDScript orchestrator and DAO coercion | NOT STARTED | - | `editor/scripts/slope_conversion_tool.gd`, request/result JSON |
 | S5 Commit generated artifacts and palette registration | NOT STARTED | - | 2 `.tres`, 16 PNGs + `.import`, 14 -> 30 terrain entries |
 | S6 E2E palette, fresh-load, and walker-contact guards | NOT STARTED | - | 4 headless suites, exit 0 each |
@@ -701,6 +701,19 @@ to "nothing in flight" and names the shipped artifacts.
 - Expected numbers: 16 generated keys; 128-byte masks at 32x32; 0 unresolved on resolvable
   fixtures; test count recorded from the run.
 - STOP if: a new dependency is needed, or an emitted file contains a timestamp.
+
+## Step S3 result (partial)
+
+2026-11-26, on implementation branch `local/feat/slope-preprocess`: the assisted Rust scaffold in
+`tools/import-tiles/src/main.rs` is uncommented; the oversized conversion and original import
+blocks were split into named helpers, the whole-file illegibility ledger was applied in one pass,
+and no dependency or emitted timestamp was added. Measured gates: `cargo check -p import-tiles
+--tests` exit 0; `cargo test -p import-tiles` exit 0 with 17 passed / 0 failed. One pre-existing
+warning remains: `CellRequest.local_x` / `local_y` are never read. Scans report zero `let =
+if` bindings, zero unprefixed `let mut`, zero banned short locals, and no function over one
+screen. The final diff was reviewed in `/tmp/user/1000/opencode/sstd-legibility-final.diff`.
+Still to finish CP9: the mutation battery and the two-run byte compare; no claim is made that
+either has run.
 
 ### Step S4 -- GDScript orchestrator and DAO coercion
 

@@ -1149,3 +1149,50 @@ itself first, then put the label in parentheses as a cross-reference only, for e
 "expose a public ground-profile snapshot from `physics.rs` (aka S2)". @me cannot scroll back to
 the ledger to resolve a bare label. This restates the global "never cite plan or ticket shorthand
 labels" rule after a slip on 2026-11-24.
+
+## Interrupted instruction 2026-11-26: clippy and prettier wiring
+
+@me interrupted the assisted Rust scaffold handoff with "I'm not sure clippy and|or prettier is
+working?" Recorded here so it survives a session switch. Neither tool was changed before this
+note, and the conversion scaffold was not branched into a lint/format investigation. Resolve it
+in a new agent, or after the scaffold handoff and its documentation are complete.
+
+## Interrupted instruction 2026-11-26: block legibility is not a follow-up
+
+@me, on seeing the filled Rust conversion blocks: "yes, bump the counter on having block of logic
+that are illegible because of 1) it's long wall of text; 2) each sub-blocks are uncommented on its
+intention (these two rules should already exist)". Recorded verbatim so it survives a session
+switch. Both rules are already global (the PRIME DIRECTIVE on intent comments and the
+oversized-function review check); the slip was deferring them to a later review instead of doing
+them in the fill. Lesson `01M8CXM1DBRVTJRDS4752F1QQQ` added to `shared.db` and its bypass counter
+bumped; the scaffold-comment lesson `01M790F2SJ62FH48NNXRN4ZXSF` was bumped too. Apply the split
+and the intent comments inside the in-flight fill, not as a separate task.
+
+@me then pointed at two more illegible loops in the same file, still inside `main()` (the original
+import path, before the two-phase conversion core): the tile-extraction double loop at line 1513
+(about 80 lines, only one interior comment) and the `tile_sets.json` emission loop at line 1609
+(about 70 lines, no interior comments). Request: "it should (ideally) be refactored to lambda
+functions, or some way to make it a bit more legible". This is the same legibility pass as the
+conversion-core split, not a new task; the next agent must apply intent comments to every
+flow-chart node in both loops and extract named helpers, using the same rules as the rest of the
+in-flight fill.
+
+@me then stopped all forward motion on the file: "not moving forward until this entire file is
+audited for illegible code!" Recorded verbatim. The gate is now: audit the WHOLE of
+`tools/import-tiles/src/main.rs` (all ~2560 lines, not just the conversion core and the two loops
+already named) for illegible blocks, missing intent comments on flow-chart nodes, banned bare/short
+identifiers, magic numbers, and if/else ladders that should be `match`. Report the complete ledger
+before making any further code change in that file. Do not resume the walkthrough or the refactor
+until that audit is delivered.
+
+@me then accepted the early-return `if` at line 1343 for now and narrowed the ask: "in that case,
+at least comment each sub-blocks". Scope of that one change: a WHY comment above the mode dispatch
+and a gist comment above every sub-block (request path, output dir, sign-off flag, run/failure,
+early return), with no restructuring of `main()` and no `match` conversion. The rest of the audit
+ledger is still pending; do not resume the other fixes until it is delivered.
+
+@me rejected the block-by-block walkthrough on 2026-11-26: "just audit the whole g'dmaned file ...
+rather than having me look at each blocks of illegible code blocks!" Recorded verbatim. Work rule:
+finish the WHOLE-file ledger (every oversized or uncommented flow-chart block, banned identifier,
+magic number, if/else ladder), then apply ALL fixes in one coherent pass and gate once. Do not
+present one loop at a time and ask for "next"; the walkthrough is for the single final diff.
