@@ -1070,7 +1070,8 @@ world bundle before choosing where to save.
 
 This ticket is a planning task only: document the implementation of the conversion tool, its
 data storage, its data retrieval, and both transformation directions (Rust -> Godot 4 and
-Godot 4 -> Rust). Do not add implementation code while planning.
+Godot 4 -> Rust). Do not add implementation code while planning. No implementation starts until
+the plan is complete and passes the user-set 95/100 bar in the independent plan-to-ticket gate.
 
 Godot 4 GDScript timing uses `Time.get_ticks_msec()`; `OS.get_ticks_msec()` was removed from
 the script API after Godot 3.
