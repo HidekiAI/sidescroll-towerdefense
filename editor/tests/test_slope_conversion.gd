@@ -144,6 +144,13 @@ func _guard_terrain_merge_upserts_existing_keys_without_duplication() -> void:
         _check(seen_keys.has("base_%d" % base_index), "framework entry base_%d survives" % base_index)
     for generated_key in _generated_keys():
         _check(seen_keys.has(generated_key), "generated key %s is registered" % generated_key)
+    # A keyed upsert must leave the framework entries where they were; sorting them rewrites the
+    # committed catalog even though no framework value changed.
+    var framework_order_kept: bool = true
+    for base_index in range(EXISTING_ENTRY_COUNT):
+        var entry: Dictionary = merged_again[base_index]
+        framework_order_kept = framework_order_kept and String(entry.get("key", "")) == "base_%d" % base_index
+    _check(framework_order_kept, "framework entries keep their original order after keyed upsert")
     _completed.append("terrain_merge_upserts_existing_keys_without_duplication")
 
 
@@ -175,6 +182,12 @@ func _guard_terrain_json_resaves_integral_float_as_integer() -> void:
             "%s is an integer literal in canonical JSON" % field_name)
     _check(not _has_fractional_number(json_text),
         "solid_mask bytes serialize without a decimal point")
+    # Canonicalization must not invent an optional field on pre-existing framework entries.
+    var without_mask: Array = [{"key": "no_mask", "elevation_tiles": 0.0}]
+    var without_mask_text: String = String(tool.call("canonical_terrain_json", without_mask))
+    var without_mask_decoded: Variant = JSON.parse_string(without_mask_text)
+    var preserved: bool = without_mask_decoded is Array and not (without_mask_decoded as Array)[0].has("solid_mask")
+    _check(preserved, "canonical JSON preserves an entry with no solid_mask")
     _completed.append("terrain_json_resaves_integral_float_as_integer")
 
 

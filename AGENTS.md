@@ -29,6 +29,17 @@ An early-return guard and a single plain `if` on one boolean may stay when `matc
 This is not licence to restyle untouched files; finish the current step to a documented state
 first, then apply it inside the same branch.
 
+## Ideal block shape: opt out early plus nested `match` (user directive 2026-11-26)
+
+@me named `editor/scripts/slope_conversion_tool.gd::_run_converter()` as a close-to-ideal pattern:
+many early opt-out guards followed by nested `match`, which reads cleanly. Use that shape for new
+blocks and for any block this task already has to touch; do not restyle untouched code for it.
+
+The `Dictionary` result with `"ok": false` is acceptable there. @me's own read: GDScript is the
+target, and Godot's idiomatic result is a key/value `Dictionary`, so a Rust-style `Result<T, E>` or
+`Option<T>` would fight the platform even though it is less bug-prone. Do not "improve" that return
+into a discriminated union without being asked; keep the early-return guards and `match` narrative.
+
 ## Coding-assist scope (user directive 2026-11-25)
 
 Use the assisted `TODO(human)` path only for Rust code. Write GDScript production logic directly.

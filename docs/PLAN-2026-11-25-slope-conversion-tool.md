@@ -618,7 +618,8 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP8 - Sixteen tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result` -- Rust exit 101 with 57 missing-symbol errors, five GDScript suites exit 1 with named failures; the four preprocessing guards are named there alongside the original twelve. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
 - [x] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, 17 passed / 0 failed, and the nine-mutant battery in `## Step S3 result (partial)` with 9 FIRED / 0 VOID / 0 REFUTED and a byte-identical restore after each; the two-run byte compare is the in-source `two_conversion_runs_are_byte_identical` guard, reddened by the TIMESTAMP mutant. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours.
 - [x] CP10 - GDScript orchestrator and both bridge directions written (S4). Evidence: `## Step S4 result`, both `--check-only` exit 0, `test_model_gateway` 17 ok / exit 0, `test_slope_conversion` failures=0 completed=3 / exit 0, no ternary remains in either script. Recovery: GDScript production logic is written directly; only its tests are assistant-written. The completed count is now 5 after the CP10b seam guards.
-- [x] CP10b - Wire version, headless grid size and stdout capture seams fixed (S5 prerequisite). Resume: `godot4 --headless --path editor --script res://tests/test_slope_conversion.gd`, then `bash /tmp/user/1000/opencode/sstd-s5-mutations.sh`. Evidence: `## Step S5 seam fix result`, RED 3 then 2 failures, green failures=0 completed=6, `--check-only` exit 0, VERSION / CONFIG / CAPTURE-TYPE / FLATTEN mutants all FIRED with byte-identical restores. Recovery: a fresh bridge without `init_config_db` answers 64 px, and `OS.execute` into a PackedStringArray captures nothing.
+- [x] CP10b - Wire version, headless grid size and stdout capture seams fixed (S5 prerequisite). Resume: `godot4 --headless --path editor --script res://tests/test_slope_conversion.gd`, then `bash /tmp/user/1000/opencode/sstd-s5-mutations.sh`. Evidence: `## Step S5 seam fix result`, RED 3 then 2 then 1 failures, green failures=0 completed=6, `--check-only` exit 0, VERSION / CONFIG / CAPTURE-TYPE / FLATTEN / INVENT-MASK / NO-COERCE / ORDER mutants all FIRED with byte-identical restores. Recovery: a fresh bridge without `init_config_db` answers 64 px, `OS.execute` into a PackedStringArray captures nothing, and `JSON.parse_string` turns canonical integer literals back into floats.
+- [x] CP10c - Throwaway publisher produces a framework-safe catalog (S5 prerequisite). Resume: `godot4 --headless --path editor --script /tmp/user/1000/opencode/sstd-s5-publish.gd`, then compare `jq -S '.tiles | map(select(.key | startswith("slope_grass_30deg_4x2_") | not))'` of the run dir against `editor/default_package/terrain_types.json`. Evidence: `## Step S5 publisher verification`, publisher rc=0, 30 entries / 16 generated keys / 16 PNGs, base entries identical, both `.tres` carry all 16 terrain keys. Recovery: the publisher writes only `user://`; never point it at `res://`.
 - [ ] CP11 - Artifacts and palette registration written (S5). Resume: temp-dir-then-rename check plus the 16-key registration unit test. Evidence: 30 entries, no duplicate keys, explicit staged paths. Recovery: never `git add -A` here; stage only named artifacts.
 - [ ] CP12 - Four headless guards run (S6). Resume: four `godot4 --headless` commands; `Image.new().load(path)` oracle and `Time.get_ticks_msec()`. Evidence: all four exit 0, worst contact error <= 1 px. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
 - [ ] CP13 - Full gate and mutation battery run (S7). Resume: Rust gates plus all relevant GDScript suites; every mutant FIRES, PARSES and reddens its named test. Evidence: counts, VOID and REFUTED lists, byte-identical restore. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture.
@@ -1065,3 +1066,34 @@ completed=6` exit 0, logs `/tmp/user/1000/opencode/sstd-s5-capture-red.log` and
 `sstd-s5-capture-green2.log`. The four-mutant battery now includes CAPTURE-TYPE and FLATTEN; all
 four FIRED rc=1, restores byte-identical at hash
 `c6d42b895b326e32ab3e0643a7c32d7dd93f159c81f8bfdacf0d76fad361d31c`, baseline rc=0.
+
+## Step S5 publisher verification
+
+2026-11-26, after the capture fix, the throwaway publisher reached `PUBLISH-READY` but its first
+catalog wrote a bare array instead of the framework's `{version, description, tiles}` wrapper; the
+publisher was corrected to splice the merged array back into the framework object. Two further
+defects then surfaced before any committed artifact was touched:
+
+- `canonical_terrain_json` enumerated four integer fields and always added `solid_mask: []`.
+  Framework entries lack that optional field and carry other integer fields (for example
+  `elevation_tiles`), so the catalog drifted and invented data. It now walks the whole decoded tree
+  and restores integral floats to integers without adding missing keys. A RED-first guard
+  `_guard_terrain_json_resaves_integral_float_as_integer` pins the preserved optional field.
+- The publisher then parsed that canonical string with `JSON.parse_string`, which makes EVERY JSON
+  number a float again, so `JSON.stringify` rewrote 3065 integer fields as `0.0`. The publisher now
+  keeps the canonicalized Variants (ints stay ints) and passes them straight to `JSON.stringify`.
+- `merge_terrain_entries` sorted every key, rearranging the 14 framework entries although their
+  values never changed. A RED-first assertion in the merge guard pins authored order; the merge now
+  replaces values in place and appends only new keys.
+
+Seven mutants fire with byte-identical restores at hash
+`8fdb4204431c5b9289ad39763483d917f6042067a2645d0e2c093408ac8cf27a`, baseline rc=0. Final
+throwaway verification: publisher rc=0, `description,tiles,version`, 30 entries, 16 generated keys,
+16 PNGs, 16 keys in each grouping resource, framework entries byte-identical under `jq -S`, and a
+single fractional-text line (`"version": "1.0.0"`, a string). Logs:
+`/tmp/user/1000/opencode/sstd-s5-canonical-red.log`, `sstd-s5-canonical-green.log`,
+`sstd-s5-order-red.log`, `sstd-s5-order-green.log`, `sstd-s5-publish6.log`.
+Per @me's 2026-11-26 directive, `_run_converter()` is the preferred block shape here: early opt-out
+guards plus nested `match`; the GDScript `Dictionary` result with `"ok": false` stays because Godot's
+idiomatic return is a key/value dictionary. Recorded in project `AGENTS.md` and lessons DB
+`01M8D5T2CM33GKA1YQTPP4JXH6`.

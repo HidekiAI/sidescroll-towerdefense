@@ -22,9 +22,6 @@ const CLEANED_FILE_NAME: String = "slope_cleaned.png"
 # when a headless run has no booted Main to expose the bridge.
 const FALLBACK_TILE_WIDTH_PX: int = 32
 const FALLBACK_TILE_HEIGHT_PX: int = 32
-const INTEGER_TERRAIN_FIELDS: Array[String] = [
-    "elevation_tiles", "hazard_damage_per_tick", "destructible_hp", "sub_tile_mask"
-]
 
 
 # Resolve the gateway by script path so a headless --script run needs no Main node.
@@ -205,35 +202,56 @@ func _write_text(path: String, text: String) -> bool:
     return true
 
 
-# Keyed upsert: generated keys replace their own prior value and never append a second entry.
+# Keyed upsert: generated values replace their own prior entry in place, new keys append. Keeping
+# the framework order matters because sorting rewrites committed entries whose values never moved.
 func merge_terrain_entries(existing: Array, generated: Array) -> Array:
-    var by_key: Dictionary = {}
+    var merged: Array = []
+    var index_by_key: Dictionary = {}
     for entry_variant in existing:
         var entry: Dictionary = entry_variant
-        by_key[String(entry.get("key", ""))] = entry.duplicate(true)
+        merged.append(entry.duplicate(true))
+        index_by_key[String(entry.get("key", ""))] = merged.size() - 1
     for entry_variant in generated:
         var entry: Dictionary = entry_variant
-        by_key[String(entry.get("key", ""))] = entry.duplicate(true)
-    var sorted_keys: Array[String] = []
-    for key_variant in by_key.keys():
-        sorted_keys.append(String(key_variant))
-    sorted_keys.sort()
-    var fn_entry: Callable = func(entry_key: String) -> Dictionary:
-        return by_key[entry_key]
-    return sorted_keys.map(fn_entry)
+        var entry_key: String = String(entry.get("key", ""))
+        match index_by_key.has(entry_key):
+            true:
+                merged[int(index_by_key[entry_key])] = entry.duplicate(true)
+            _:
+                index_by_key[entry_key] = merged.size()
+                merged.append(entry.duplicate(true))
+    return merged
+
+
+# Walk the decoded catalog and turn whole-number floats back into integers. JSON.parse_string
+# makes EVERY JSON number a float, so naming only known integer fields leaves framework fields
+# such as elevation_tiles serialized as 0.0; keeping unknown fields untouched also avoids
+# inventing an optional solid_mask on entries that never had one.
+func _canonicalize_numbers(value: Variant) -> Variant:
+    match typeof(value):
+        TYPE_ARRAY:
+            var canonical_array: Array = []
+            for element in value:
+                canonical_array.append(_canonicalize_numbers(element))
+            return canonical_array
+        TYPE_DICTIONARY:
+            var canonical_dict: Dictionary = {}
+            var source_dict: Dictionary = value
+            for field_name in source_dict.keys():
+                canonical_dict[field_name] = _canonicalize_numbers(source_dict[field_name])
+            return canonical_dict
+        TYPE_FLOAT:
+            var number: float = value
+            var whole_number: int = int(number)
+            # GDScript has no match expression, so this single narrowing ternary is the shape.
+            return whole_number if float(whole_number) == number else number
+        _:
+            return value
 
 
 # Re-save the terrain catalog with integer numeric fields; serde refuses integral floats.
 func canonical_terrain_json(entries: Array) -> String:
-    var fn_coerce_entry: Callable = func(entry_variant: Variant) -> Dictionary:
-        var entry: Dictionary = entry_variant
-        var coerced: Dictionary = entry.duplicate(true)
-        for field_name in INTEGER_TERRAIN_FIELDS:
-            coerced[field_name] = int(coerced.get(field_name, 0))
-        var mask_bytes: Array = coerced.get("solid_mask", [])
-        coerced["solid_mask"] = mask_bytes.map(func(byte_variant: Variant) -> int: return int(byte_variant))
-        return coerced
-    return JSON.stringify(entries.map(fn_coerce_entry), "\t")
+    return JSON.stringify(_canonicalize_numbers(entries), "\t")
 
 
 # Build a framework-shaped terrain entry for one converted cell; masks and flags stay integers.
