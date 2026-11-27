@@ -3018,4 +3018,314 @@ mod tests {
                 assert_eq!(row.dimensions, cell.dimensions, "cell dimensions survive");
             });
     }
+
+    // ---- Cleaned-reference refinement guards (#239) ----
+
+    const REFERENCE_TEST_MARGIN_PX: u32 = 2;
+    const REFERENCE_TEST_CELL_PX: u32 = 8;
+    const REFERENCE_TEST_SEPARATION_PX: u32 = 1;
+    const REFERENCE_TEST_TILE_PX: u32 = 32;
+    const REFERENCE_TEST_PACKED_TILE_BYTES: usize = 128;
+    const REFERENCE_TEST_ALL_SOLID_BITS: usize = 1024;
+    const REFERENCE_TEST_ONE_SOURCE_ROW_BITS: usize = 128;
+    const REFERENCE_TEST_SIX_SOURCE_ROWS_BITS: usize = 768;
+
+    /// Build a reference sheet whose RGB is stale art under every transparent pixel. A greedy
+    /// greyscale reader would see all eight cells as solid; only alpha carries the human verdict.
+    fn fn_reference_alpha_sheet(
+        solid_rows_by_cell: [u32; FIXTURE_GENERATED_KEYS / 2],
+    ) -> RgbaImage {
+        let pitch_x_px: u32 = REFERENCE_TEST_CELL_PX + REFERENCE_TEST_SEPARATION_PX;
+        let pitch_y_px: u32 = REFERENCE_TEST_CELL_PX + REFERENCE_TEST_SEPARATION_PX;
+        let sheet_width_px: u32 = 2 * REFERENCE_TEST_MARGIN_PX
+            + FIXTURE_GRID_COLS as u32 * REFERENCE_TEST_CELL_PX
+            + (FIXTURE_GRID_COLS as u32 - 1) * REFERENCE_TEST_SEPARATION_PX;
+        let sheet_height_px: u32 = 2 * REFERENCE_TEST_MARGIN_PX
+            + FIXTURE_GRID_ROWS as u32 * REFERENCE_TEST_CELL_PX
+            + (FIXTURE_GRID_ROWS as u32 - 1) * REFERENCE_TEST_SEPARATION_PX;
+        let mut mut_sheet: RgbaImage =
+            RgbaImage::from_fn(sheet_width_px, sheet_height_px, |_, _| {
+                Rgba([GROUND_GREY, GROUND_GREY, GROUND_GREY, ALPHA_AIR])
+            });
+        solid_rows_by_cell
+            .iter()
+            .enumerate()
+            .for_each(|(cell_index, solid_rows)| {
+                let source_col: u32 = (cell_index % FIXTURE_GRID_COLS as usize) as u32;
+                let source_row: u32 = (cell_index / FIXTURE_GRID_COLS as usize) as u32;
+                let origin_x_px: u32 = REFERENCE_TEST_MARGIN_PX + source_col * pitch_x_px;
+                let origin_y_px: u32 = REFERENCE_TEST_MARGIN_PX + source_row * pitch_y_px;
+                (0..REFERENCE_TEST_CELL_PX).for_each(|pixel_y| {
+                    let alpha: u8 = match pixel_y >= REFERENCE_TEST_CELL_PX - solid_rows {
+                        true => ALPHA_SOLID,
+                        false => ALPHA_AIR,
+                    };
+                    (0..REFERENCE_TEST_CELL_PX).for_each(|pixel_x| {
+                        mut_sheet.put_pixel(
+                            origin_x_px + pixel_x,
+                            origin_y_px + pixel_y,
+                            Rgba([GROUND_GREY, GROUND_GREY, GROUND_GREY, alpha]),
+                        );
+                    });
+                });
+            });
+        mut_sheet
+    }
+
+    /// Alternate left-half and right-half alpha by source cell, so a wrong crop pitch or a dropped
+    /// horizontal flip lands on the opposite half and reddens the geometry guard.
+    fn fn_reference_side_sheet() -> RgbaImage {
+        let mut mut_sheet: RgbaImage = fn_reference_alpha_sheet([0; FIXTURE_GENERATED_KEYS / 2]);
+        (0..FIXTURE_GRID_ROWS as u32).for_each(|source_row| {
+            (0..FIXTURE_GRID_COLS as u32).for_each(|source_col| {
+                let cell_index: usize =
+                    (source_row * FIXTURE_GRID_COLS as u32 + source_col) as usize;
+                let solid_on_left: bool = cell_index % 2 == 0;
+                let origin_x_px: u32 = REFERENCE_TEST_MARGIN_PX
+                    + source_col * (REFERENCE_TEST_CELL_PX + REFERENCE_TEST_SEPARATION_PX);
+                let origin_y_px: u32 = REFERENCE_TEST_MARGIN_PX
+                    + source_row * (REFERENCE_TEST_CELL_PX + REFERENCE_TEST_SEPARATION_PX);
+                (0..REFERENCE_TEST_CELL_PX).for_each(|pixel_y| {
+                    (0..REFERENCE_TEST_CELL_PX).for_each(|pixel_x| {
+                        let solid: bool = match solid_on_left {
+                            true => pixel_x < REFERENCE_TEST_CELL_PX / 2,
+                            false => pixel_x >= REFERENCE_TEST_CELL_PX / 2,
+                        };
+                        let alpha: u8 = match solid {
+                            true => ALPHA_SOLID,
+                            false => ALPHA_AIR,
+                        };
+                        mut_sheet.put_pixel(
+                            origin_x_px + pixel_x,
+                            origin_y_px + pixel_y,
+                            Rgba([GROUND_GREY, GROUND_GREY, GROUND_GREY, alpha]),
+                        );
+                    });
+                });
+            });
+        });
+        mut_sheet
+    }
+
+    /// Save the reference fixture beside the source, so the request uses a real decodable path.
+    fn fn_write_reference(sheet: &RgbaImage, dir: &Path) -> PathBuf {
+        let reference_path: PathBuf = dir.join("cleaned_reference.png");
+        sheet.save(&reference_path).expect("write reference PNG");
+        reference_path
+    }
+
+    /// Count packed solid bits independently of the production comparison helper.
+    fn fn_count_solid_bits(mask: &[u8]) -> usize {
+        mask.iter().map(|byte| byte.count_ones() as usize).sum()
+    }
+
+    /// Ask for one source cell at the fixture's measured geometry, with the requested flip.
+    fn fn_reference_cell_request(source_col: i32, source_row: i32, flip_h: bool) -> CellRequest {
+        CellRequest {
+            source_col,
+            source_row,
+            flip_h,
+            generated_key: format!("reference_probe_{source_col}_{source_row}"),
+        }
+    }
+
+    #[test]
+    fn reference_crop_uses_request_geometry_and_flip() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_reference_geometry_test");
+        let reference: RgbaImage = fn_reference_side_sheet();
+        let request: ConversionRequest = fn_fixture_request(
+            &work_dir.join("unused_source.png"),
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_SEPARATION_PX as i32,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_CELL_PX,
+        );
+
+        // Source cell (1,0) has right-half alpha; its flipped twin must have left-half alpha.
+        let right_cell: CellRequest = fn_reference_cell_request(1, 0, false);
+        let flipped_cell: CellRequest = fn_reference_cell_request(1, 0, true);
+        let right_mask: Vec<u8> = fn_reference_mask_for_cell(&right_cell, &request, &reference);
+        let flipped_mask: Vec<u8> = fn_reference_mask_for_cell(&flipped_cell, &request, &reference);
+
+        assert_eq!(
+            right_mask,
+            vec![0xF0; REFERENCE_TEST_CELL_PX as usize],
+            "crop uses margins, cell size, separation and source cell (1,0)"
+        );
+        assert_eq!(
+            flipped_mask,
+            vec![0x0F; REFERENCE_TEST_CELL_PX as usize],
+            "the reference is flipped on the same path as the source art"
+        );
+    }
+
+    #[test]
+    fn reference_pass_reclassifies_all_eight_source_cells() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_reference_eight_cells_test");
+        let source_sheet: RgbaImage = fn_two_grey_sheet(
+            REFERENCE_TEST_MARGIN_PX,
+            REFERENCE_TEST_MARGIN_PX,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_SEPARATION_PX,
+            GROUND_GREY,
+            GROUND_GREY,
+        );
+        let source_path: PathBuf = fn_write_source(&source_sheet, &work_dir);
+        let reference_path: PathBuf = fn_write_reference(&fn_reference_side_sheet(), &work_dir);
+        let mut mut_request: ConversionRequest = fn_fixture_request(
+            &source_path,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_SEPARATION_PX as i32,
+            REFERENCE_TEST_TILE_PX,
+            REFERENCE_TEST_TILE_PX,
+        );
+        mut_request.cleaned_reference_image = Some(reference_path.to_string_lossy().into_owned());
+        let result: ConversionResult =
+            fn_convert_resource(&mut_request, &work_dir).expect("reference conversion succeeds");
+
+        (0..FIXTURE_GENERATED_KEYS / 2).for_each(|cell_index| {
+            let generated_key: String = format!("slope_grass_30deg_4x2_r{cell_index}");
+            let output: &ConversionOutput = result
+                .outputs
+                .iter()
+                .find(|candidate| candidate.generated_key == generated_key)
+                .unwrap_or_else(|| panic!("{generated_key} exists"));
+            let expected_byte: u8 = match cell_index % 2 {
+                0 => 0x0F,
+                _ => 0xF0,
+            };
+            assert_eq!(
+                output.solid_mask,
+                vec![expected_byte; REFERENCE_TEST_PACKED_TILE_BYTES],
+                "{generated_key} follows the reference, not the all-solid Pass I mask"
+            );
+        });
+    }
+
+    #[test]
+    fn reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_reference_obvious_cells_test");
+        let source_sheet: RgbaImage = fn_two_grey_sheet(
+            REFERENCE_TEST_MARGIN_PX,
+            REFERENCE_TEST_MARGIN_PX,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_SEPARATION_PX,
+            GROUND_GREY,
+            GROUND_GREY,
+        );
+        let source_path: PathBuf = fn_write_source(&source_sheet, &work_dir);
+        let reference_path: PathBuf = fn_write_reference(
+            &fn_reference_alpha_sheet([
+                1,
+                6,
+                REFERENCE_TEST_CELL_PX,
+                REFERENCE_TEST_CELL_PX,
+                REFERENCE_TEST_CELL_PX,
+                REFERENCE_TEST_CELL_PX,
+                REFERENCE_TEST_CELL_PX,
+                REFERENCE_TEST_CELL_PX,
+            ]),
+            &work_dir,
+        );
+        let mut mut_request: ConversionRequest = fn_fixture_request(
+            &source_path,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_SEPARATION_PX as i32,
+            REFERENCE_TEST_TILE_PX,
+            REFERENCE_TEST_TILE_PX,
+        );
+        mut_request.cleaned_reference_image = Some(reference_path.to_string_lossy().into_owned());
+        let result: ConversionResult =
+            fn_convert_resource(&mut_request, &work_dir).expect("reference conversion succeeds");
+        let fn_mask_for = |generated_key: &str| -> Vec<u8> {
+            result
+                .outputs
+                .iter()
+                .find(|candidate| candidate.generated_key == generated_key)
+                .unwrap_or_else(|| panic!("{generated_key} exists"))
+                .solid_mask
+                .clone()
+        };
+        let cell_zero_mask: Vec<u8> = fn_mask_for("slope_grass_30deg_4x2_r0");
+        let cell_one_mask: Vec<u8> = fn_mask_for("slope_grass_30deg_4x2_r1");
+
+        assert_eq!(
+            fn_count_solid_bits(&cell_zero_mask),
+            REFERENCE_TEST_ONE_SOURCE_ROW_BITS,
+            "cell (0,0) is almost all air, not the all-solid grey guess"
+        );
+        assert_eq!(
+            fn_count_solid_bits(&cell_one_mask),
+            REFERENCE_TEST_SIX_SOURCE_ROWS_BITS,
+            "cell (1,0) follows its mostly-solid alpha reference"
+        );
+        assert!(
+            fn_count_solid_bits(&cell_zero_mask) < REFERENCE_TEST_ALL_SOLID_BITS
+                && fn_count_solid_bits(&cell_one_mask) < REFERENCE_TEST_ALL_SOLID_BITS,
+            "both obvious cells were reclassified away from all solid"
+        );
+    }
+
+    #[test]
+    fn without_cleaned_reference_pass_one_mask_is_unchanged() {
+        let work_dir: PathBuf = fn_test_dir("import_tiles_reference_absent_test");
+        let source_sheet: RgbaImage = fn_two_grey_sheet(
+            REFERENCE_TEST_MARGIN_PX,
+            REFERENCE_TEST_MARGIN_PX,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_CELL_PX,
+            REFERENCE_TEST_SEPARATION_PX,
+            GROUND_GREY,
+            GROUND_GREY,
+        );
+        let source_path: PathBuf = fn_write_source(&source_sheet, &work_dir);
+        let plain_request: ConversionRequest = fn_fixture_request(
+            &source_path,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_MARGIN_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_CELL_PX as i32,
+            REFERENCE_TEST_SEPARATION_PX as i32,
+            REFERENCE_TEST_TILE_PX,
+            REFERENCE_TEST_TILE_PX,
+        );
+        let plain_dir: PathBuf = work_dir.join("plain");
+        std::fs::create_dir_all(&plain_dir).expect("plain run dir");
+        let plain_result: ConversionResult =
+            fn_convert_resource(&plain_request, &plain_dir).expect("plain conversion succeeds");
+
+        let reference_path: PathBuf = fn_write_reference(
+            &fn_reference_alpha_sheet([1, 6, 8, 8, 8, 8, 8, 8]),
+            &work_dir,
+        );
+        let mut mut_request: ConversionRequest = plain_request.clone();
+        mut_request.cleaned_reference_image = Some(reference_path.to_string_lossy().into_owned());
+        let reference_dir: PathBuf = work_dir.join("reference");
+        std::fs::create_dir_all(&reference_dir).expect("reference run dir");
+        let reference_result: ConversionResult = fn_convert_resource(&mut_request, &reference_dir)
+            .expect("reference conversion succeeds");
+
+        let plain_mask: &[u8] = &plain_result.outputs[0].solid_mask;
+        let reference_mask: &[u8] = &reference_result.outputs[0].solid_mask;
+        assert_eq!(
+            fn_count_solid_bits(plain_mask),
+            REFERENCE_TEST_ALL_SOLID_BITS,
+            "no reference field means Pass I alone emits the all-solid mask"
+        );
+        assert!(
+            fn_count_solid_bits(plain_mask) > fn_count_solid_bits(reference_mask),
+            "the reference field is the only thing that changes the verdict"
+        );
+    }
 }
