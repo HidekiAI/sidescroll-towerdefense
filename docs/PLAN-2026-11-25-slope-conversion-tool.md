@@ -598,6 +598,66 @@ Read-only for every implementation step:
    not fix it inside this ticket.
 9. Explicit `git -C <repo>` for every repo action; this workspace has two repos.
 
+## Cleaned-reference mask refinement pass (2026-11-27, issue #239)
+
+Problem: the shipped Phase I masks do not match the hand-edited
+`editor/assets/samples/tileset_2-2-cleaned.png`. The first comparison used RGB brightness and
+reported 5435 of 8192 bits differing, but that oracle was wrong: Godot's imported texture keeps
+art RGB under transparent pixels. Re-reading the cleaned sheet's **alpha** channel through the
+request geometry gives 3128 of 8192 differing bits (38.2%) between the tool's masks and the human
+verdict. The obvious cells confirm it: source cell (0,0) is 15682 transparent / 194 opaque alpha
+pixels, while cell (1,0) is 12222 opaque / 3654 transparent. The tool reads both as almost all
+solid.
+
+Root cause: `fn_anchor_ground_grey` reads a bottom-centre patch. On diagonal cells that patch is
+dark or mid-grey (bottom-centre greys 68 and 78 for source columns 2 and 3), so the anchor flips
+the two-cluster assignment; the bright bottom-centre patch on columns 0, 1 and the bottom row
+(182, 180, 193) makes those cells all solid. Pass I stays in place; the fix adds a later pass that
+uses the human's cleaned PNG as a coarse reference, not as art to repaint.
+
+Design:
+
+- `ConversionRequest` gains optional `cleaned_reference_image: Option<String>` with `serde(default)`.
+  An absent field means the old behaviour, so the GDScript request stays byte-compatible and no
+  GDScript file changes in this fix.
+- `fn_convert_resource` loads that reference once, logs its path and dimensions, and hands it to
+  `fn_emit_cell_outputs`. A missing or unreadable file is a `ConvertError::Decode` before any cell
+  is emitted.
+- Pass I is untouched: `fn_crop_resize_flip_cell` plus `fn_mask_and_bake_cell` still derive from
+  the source art through `derive_solid_mask`, `fn_choose_cluster_greys` and
+  `fn_anchor_ground_grey`.
+- Pass II crops the reference with the **same** `fn_crop_resize_flip_cell` call, so margins, cell
+  size, separation, resize and horizontal flip cannot drift from the source path. It converts the
+  cropped reference's alpha channel to a packed mask with `fn_pack_solid_bits`; alpha above
+  `REFERENCE_ALPHA_SOLID_THRESHOLD` is solid. RGB under transparent pixels is deliberately ignored.
+- `fn_refine_mask_with_reference` counts differing bits with `u8::count_ones`. More than
+  `REFERENCE_MASK_MISMATCH_LIMIT` differing bits replaces the Pass I mask with the reference mask;
+  otherwise Pass I wins. The limit is 64 of 1024 bits (6.25% of a 32x32 tile), chosen from the
+  measured per-cell gaps: 990, 220, 647, 218, 713, 212, 83 and 45. It reclassifies cells whose
+  mask is materially wrong and leaves cell (3,1) alone because its 45-bit gap is already close
+  enough. A journal line records key, reference path, differing bits, limit and decision.
+- The chosen mask is baked into the emitted PNG by the existing `fn_bake_alpha_or_flag`, and the
+  emit/gate order after the passes is unchanged. No cell art is repainted by the tool; in-cell
+  cleanup remains human work.
+
+Complexity is O(cells x tile_pixels) with no allocation beyond the existing images and masks.
+No new Rust dependency is needed; `image` already loads the PNG and `serde` already parses the
+optional field.
+
+Assistant-written RED guards, in this order:
+
+1. `reference_crop_uses_request_geometry_and_flip` pins the shared crop and flip path.
+2. `reference_pass_reclassifies_all_eight_source_cells` checks r0-r7, not just the two obvious
+   cells.
+3. `reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero` pins the reported
+   defect: mostly-air (0,0) and mostly-solid (1,0) follow the reference, not the grey anchor.
+4. `without_cleaned_reference_pass_one_mask_is_unchanged` pins the no-reference branch.
+
+Mutation battery: wrong reference pitch, disabled reclassification, undeleted alpha threshold and
+a no-reference branch that invents a reference must each turn the named guard red. Restore from a
+verified-green copy and compare bytes after each mutation; never trust a blank grep, a `tee` exit
+code or a mutation that also changes the test.
+
 ## Mini-checkpoints (live-updated ledger for stateless agents)
 
 Rule of use: a fresh or resumed agent reads the FIRST unchecked box and runs its resume
@@ -623,7 +683,12 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP11 - Artifacts and palette registration written (S5). Evidence: 16 generated PNGs copied from the throwaway publisher, two regenerated `.tres` groupings, a 30-entry `terrain_types.json`, `artifact_mismatch=0` against the publisher output, and `framework_cmp=0` against the 14 pre-existing entries under `jq -S`. Recovery: never `git add -A` here; stage only named artifacts; never stage `.uid` files.
 - [x] CP12 - Headless guards run (S6). Resume: the five `godot4 --headless` slope suites; `Image.new().load(path)` alpha oracle. Evidence: `test_slope_conversion`, `test_both_slope_sets_appear_in_palette`, `test_fresh_profile_loads_default_terrain`, `test_second_full_conversion_run_is_byte_identical` and `test_walker_contact_tracks_drawn_edge` all exit 0; the walker guard reports `passing_keys=16/16`. All-air columns are exempt from the contact assertion because no walker can stand there, and are asserted collision-free instead. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
 - [x] CP13 - Full gate and mutation battery run (S7). Evidence: `cargo check -p import-tiles --tests` exit 0; `cargo test -p import-tiles` 18 passed / 0 failed; `cargo test -p sstd-core` 160 passed / 0 failed; `test_screen_store`, `test_image_to_map`, `test_override_merge` all exit 0. The converter fix was mutation-verified red (exit 101) by restoring bottom-row seeding and then restored green. The walker guard's new assertion fired when a collision bit was set in an all-air column and returned green after restoring the publisher output. The override-merge guard's generated-key filter fired when its prefix was mutated and returned green after restore via an EXIT trap. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture; confirm a green baseline before copying any backup.
-- [x] CP14 - Issue close, push and checkpoint terminal update (S8). Evidence: code branch `feat/slope-preprocess` and wiki branch `docs/slope-preprocess-section10` were pushed by explicit remote, ff-only merged into their defaults and pushed; local `trunk` and `master` match their remote tips. Issues #178 and #239 were closed 2026-11-27 with comments citing wiki `TDD_Collision-Map-Tooling` section 10.5. All merged local branches were deleted; the five published working branches were then deleted from both remotes on 2026-11-27, each only after it was verified merged into its default. The terminal record is `docs/SESSION-CHECKPOINT.md` CURRENT STATE. All CP boxes are ticked and nothing is in flight.
+- [x] CP14 - Issue close, push and checkpoint terminal update (S8). Evidence: code branch `feat/slope-preprocess` and wiki branch `docs/slope-preprocess-section10` were pushed by explicit remote, ff-only merged into their defaults and pushed; local `trunk` and `master` match their remote tips. Issues #178 and #239 were closed 2026-11-27 with comments citing wiki `TDD_Collision-Map-Tooling` section 10.5. All merged local branches were deleted; the five published working branches were then deleted from both remotes on 2026-11-27, each only after it was verified merged into its default. The terminal record is `docs/SESSION-CHECKPOINT.md` CURRENT STATE. All original CP boxes are ticked; the refined-mask pass below reopens work on #239.
+- [ ] CP15 - Refinement design and checkpoint pointer written. Resume: `sed -n '/Cleaned-reference mask refinement pass/,/## Mini-checkpoints/p' docs/PLAN-2026-11-25-slope-conversion-tool.md` then read `## CURRENT STATE / NEXT MOVE` in `docs/SESSION-CHECKPOINT.md`. Evidence: this design section names the functions, optional request field, 64-bit limit and four guards; the checkpoint names the active step. Recovery: read-only; if either document is half-written, rewrite that section from this box's resume command before touching Rust.
+- [ ] CP16 - Four refinement guards written RED. Resume: `cargo test -p import-tiles` from the code repo. Evidence: exit 101 with `reference_crop_uses_request_geometry_and_flip`, `reference_pass_reclassifies_all_eight_source_cells`, `reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero` and `without_cleaned_reference_pass_one_mask_is_unchanged` failing for the named missing symbols or behaviour; raw output in `## Cleaned-reference pass RED result`. Recovery: the guards are in-source; repair only those four test bodies if a partial write broke parsing, and never revert production code to make them green.
+- [ ] CP17 - Optional reference pass implemented and gates green. Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`. Evidence: both exit 0; the 64-bit decision and no-reference branch are exercised by the four guards. Recovery: a half-edited block shows as a compile error in `tools/import-tiles/src/main.rs`; finish that block, do not rewrite unrelated functions.
+- [ ] CP18 - Four-mutant battery confirmed. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-mutations.sh`. Evidence: 4 FIRED, 0 VOID, 0 REFUTED and byte-identical restores after each mutant; raw output in `## Cleaned-reference pass mutation result`. Recovery: restore from the verified-green backup with `cp`, never `git checkout` a never-committed state; confirm the unmutated baseline is green before copying a backup.
+- [ ] CP19 - Real cleaned PNG run, evidence, commit and handover. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-run.sh`, then `git -C sidescroll-towerdefense diff --check` and `git -C sidescroll-towerdefense status --short`. Evidence: converter exit 0, eight measured mismatch counts, plan and checkpoint updated, explicit-path commit made, and no push or merge performed without asking. Recovery: never stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file; stage only the named plan, checkpoint and `tools/import-tiles/src/main.rs`.
 
 ## STEP LEDGER
 
