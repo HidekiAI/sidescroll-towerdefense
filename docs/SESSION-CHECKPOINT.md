@@ -16,7 +16,9 @@ Design of record: keep Phase I. Add optional `cleaned_reference_image` to `Conve
 
 Current step: optional reference pass is implemented and green. `cargo check -p import-tiles --tests` exited 0 and `cargo test -p import-tiles` exited 0 with 22 passed / 0 failed; raw output is `/tmp/user/1000/opencode/sstd-reference-green.log`. The four guards were RED first (`/tmp/user/1000/opencode/sstd-reference-red.log`, exit 101). Phase I `fn_clean_cell` passes `None`, so it never refines its own output; Phase II `fn_convert_resource` loads the optional sheet once and `fn_mask_and_bake_cell` refines only resolved cells.
 
-Next move in runnable order: (1) run the four-mutant battery from scratch, restoring from a verified-green copy and checking bytes; (2) run the real cleaned PNG with the existing request geometry and record all eight measured mismatch counts; (3) update the plan's mini-checkpoint boxes and this block with evidence, then commit explicit paths only. Do not stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file, do not use `git add -A` / `git add .`, and ask before any push or merge.
+The four-mutant battery also passed: `/tmp/user/1000/opencode/sstd-reference-pass-mutations.sh` exited 0 with `fired=4 void=0 refuted=0`, byte-identical restores after each mutant, and the unmutated suite back to 22 passed / 0 failed. Mutant names and guards are recorded in the plan's cleaned-reference mutation section.
+
+Next move in runnable order: (1) run the real cleaned PNG with the existing request geometry and record all eight measured mismatch counts; (2) update the plan's mini-checkpoint boxes and this block with evidence, then commit explicit paths only. Do not stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file, do not use `git add -A` / `git add .`, and ask before any push or merge.
 
 **2026-11-26 FINAL IMPLEMENTATION STATE (superseded by the terminal paragraph above; retained as history).**
 Objective: implement #178 (grass slope conversion tool) and #239 (two-phase slope source-art

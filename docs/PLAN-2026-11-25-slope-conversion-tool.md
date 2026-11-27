@@ -680,6 +680,20 @@ cleans is never refined by its own cleaned sheet. One guard expectation was corr
 step: a 32px tile's half-solid row packs as `[FF,FF,00,00]`, not the 8px fixture's `0x0F`, because
 `fn_pack_solid_bits` is LSB-first per row. No production behaviour was changed by that correction.
 
+## Cleaned-reference pass mutation result
+
+2026-11-27: `bash /tmp/user/1000/opencode/sstd-reference-pass-mutations.sh` exited **0** with
+`fired=4 void=0 refuted=0`. A first run was discarded because the harness counted Cargo's normal
+`error: test failed, to rerun pass ...` line as a parse failure; the detector now matches only
+`error[E...]` and `error: could not compile`. Results: shifting the reference crop one column right
+reddens `reference_crop_uses_request_geometry_and_flip`; forcing `use_reference = false` reddens
+`reference_pass_reclassifies_all_eight_source_cells`; making alpha never solid reddens
+`reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero`; and making the absent-field
+branch invent a transparent sheet reddens `without_cleaned_reference_pass_one_mask_is_unchanged`.
+Every restore was byte-identical to the verified-green backup and the unmutated suite returned to
+22 passed / 0 failed. Raw output: `/tmp/user/1000/opencode/sstd-reference-pass-mutations.log`,
+`.results` and the per-mutant `.REF-*` logs.
+
 ## Mini-checkpoints (live-updated ledger for stateless agents)
 
 Rule of use: a fresh or resumed agent reads the FIRST unchecked box and runs its resume
@@ -709,7 +723,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [ ] CP15 - Refinement design and checkpoint pointer written. Resume: `sed -n '/Cleaned-reference mask refinement pass/,/## Mini-checkpoints/p' docs/PLAN-2026-11-25-slope-conversion-tool.md` then read `## CURRENT STATE / NEXT MOVE` in `docs/SESSION-CHECKPOINT.md`. Evidence: this design section names the functions, optional request field, 64-bit limit and four guards; the checkpoint names the active step. Recovery: read-only; if either document is half-written, rewrite that section from this box's resume command before touching Rust.
 - [x] CP16 - Four refinement guards written RED. Resume: `cargo test -p import-tiles` from the code repo. Evidence: exit 101 with `reference_crop_uses_request_geometry_and_flip`, `reference_pass_reclassifies_all_eight_source_cells`, `reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero` and `without_cleaned_reference_pass_one_mask_is_unchanged` failing for the named missing symbols or behaviour; raw output in `## Cleaned-reference pass RED result`. Recovery: the guards are in-source; repair only those four test bodies if a partial write broke parsing, and never revert production code to make them green.
 - [x] CP17 - Optional reference pass implemented and gates green. Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`. Evidence: both exit 0; 22 passed; the 64-bit decision and no-reference branch are exercised by the four guards; raw output in `## Cleaned-reference pass GREEN result`. Recovery: a half-edited block shows as a compile error in `tools/import-tiles/src/main.rs`; finish that block, do not rewrite unrelated functions.
-- [ ] CP18 - Four-mutant battery confirmed. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-mutations.sh`. Evidence: 4 FIRED, 0 VOID, 0 REFUTED and byte-identical restores after each mutant; raw output in `## Cleaned-reference pass mutation result`. Recovery: restore from the verified-green backup with `cp`, never `git checkout` a never-committed state; confirm the unmutated baseline is green before copying a backup.
+- [x] CP18 - Four-mutant battery confirmed. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-mutations.sh`. Evidence: 4 FIRED, 0 VOID, 0 REFUTED and byte-identical restores after each mutant; raw output in `## Cleaned-reference pass mutation result`. Recovery: restore from the verified-green backup with `cp`, never `git checkout` a never-committed state; confirm the unmutated baseline is green before copying a backup.
 - [ ] CP19 - Real cleaned PNG run, evidence, commit and handover. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-run.sh`, then `git -C sidescroll-towerdefense diff --check` and `git -C sidescroll-towerdefense status --short`. Evidence: converter exit 0, eight measured mismatch counts, plan and checkpoint updated, explicit-path commit made, and no push or merge performed without asking. Recovery: never stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file; stage only the named plan, checkpoint and `tools/import-tiles/src/main.rs`.
 
 ## STEP LEDGER
