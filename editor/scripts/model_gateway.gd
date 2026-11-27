@@ -21,15 +21,33 @@ func _resolve_bridge() -> Object:
     if _bridge != null and is_instance_valid(_bridge) and _bridge.has_method("build_ground_profile"):
         return _bridge
     var main_loop: MainLoop = Engine.get_main_loop()
-    var scene_root: Node = main_loop.root if main_loop != null else null
-    var main_node: Node = scene_root.get_node_or_null("Main") if scene_root != null else null
-    var candidate: Object = main_node.get("_bridge") if main_node != null else null
-    _bridge = candidate if candidate != null and is_instance_valid(candidate) and candidate.has_method("build_ground_profile") else null
+    # Walk the Main lookup one guard at a time; each fallback is the initializer's null.
+    var scene_root: Node = null
+    match main_loop != null:
+        true:
+            scene_root = main_loop.root
+    var main_node: Node = null
+    match scene_root != null:
+        true:
+            main_node = scene_root.get_node_or_null("Main")
+    var candidate: Object = null
+    match main_node != null:
+        true:
+            candidate = main_node.get("_bridge")
+    var resolved_bridge: Object = null
+    match candidate != null and is_instance_valid(candidate) and candidate.has_method("build_ground_profile"):
+        true:
+            resolved_bridge = candidate
+    _bridge = resolved_bridge
     # Headless --script runs have no Main node; instantiate the registered extension so a test
     # never silently receives an empty snapshot instead of the Rust model.
     if _bridge == null and ClassDB.class_exists("SstdBridge"):
         var extension_bridge: Object = ClassDB.instantiate("SstdBridge")
-        _bridge = extension_bridge if extension_bridge != null and extension_bridge.has_method("build_ground_profile") else null
+        var valid_extension: Object = null
+        match extension_bridge != null and extension_bridge.has_method("build_ground_profile"):
+            true:
+                valid_extension = extension_bridge
+        _bridge = valid_extension
     return _bridge
 
 # Coerce tile integers at the wire boundary; the grid stays float because the bridge declares f64.
@@ -54,7 +72,11 @@ func build_profile(tiles: Array, grid: Dictionary) -> Dictionary:
     var decoded: Variant = JSON.parse_string(bridge.build_ground_profile(request_text))
     if not decoded is Dictionary:
         _log_bridge_failure("build_ground_profile", request_text, "response is not a JSON object")
-    return decoded if decoded is Dictionary else {}
+    var profile: Dictionary = {}
+    match decoded is Dictionary:
+        true:
+            profile = decoded
+    return profile
 
 # Decode the bridge's null sample to NAN at this boundary; solid columns keep their surface Y.
 func ground_y(profile: Dictionary, pos_x: float) -> float:
@@ -66,9 +88,16 @@ func ground_y(profile: Dictionary, pos_x: float) -> float:
     var decoded: Variant = JSON.parse_string(bridge.ground_y_at(request_text))
     if not decoded is Dictionary:
         _log_bridge_failure("ground_y_at", request_text, "response is not a JSON object")
-    var response: Dictionary = decoded if decoded is Dictionary else {}
+    var response: Dictionary = {}
+    match decoded is Dictionary:
+        true:
+            response = decoded
     var sample_y: Variant = response.get("y", null)
-    return NAN if sample_y == null else float(sample_y)
+    var surface_y: float = NAN
+    match sample_y == null:
+        false:
+            surface_y = float(sample_y)
+    return surface_y
 
 # Route the walker through walk_step and unwrap the single walker field from the response.
 func step_walker(state: Dictionary, input: Dictionary, tiles: Array, grid: Dictionary, dt: float) -> Dictionary:
@@ -106,9 +135,16 @@ func step_walker(state: Dictionary, input: Dictionary, tiles: Array, grid: Dicti
     var decoded: Variant = JSON.parse_string(bridge.walk_step(request_text))
     if not decoded is Dictionary:
         _log_bridge_failure("walk_step", request_text, "response is not a JSON object")
-    var response: Dictionary = decoded if decoded is Dictionary else {}
+    var response: Dictionary = {}
+    match decoded is Dictionary:
+        true:
+            response = decoded
     var walker: Variant = response.get("walker", null)
-    return walker if walker is Dictionary else {}
+    var walker_result: Dictionary = {}
+    match walker is Dictionary:
+        true:
+            walker_result = walker
+    return walker_result
 
 # Coerce terrain integers before stringify; the bridge's TerrainTypeDef rejects float i32/u8.
 func import_terrain_types(terrain_file: Dictionary) -> Dictionary:
@@ -132,4 +168,34 @@ func import_terrain_types(terrain_file: Dictionary) -> Dictionary:
     var decoded: Variant = JSON.parse_string(bridge.import_terrain_types(request_text))
     if not decoded is Dictionary:
         _log_bridge_failure("import_terrain_types", request_text, "response is not a JSON object")
-    return decoded if decoded is Dictionary else {}
+    var imported: Dictionary = {}
+    match decoded is Dictionary:
+        true:
+            imported = decoded
+    return imported
+
+# Coerce every integer field of a slope conversion request before stringify; serde rejects an
+# integral float for i32/u32, and one uncoerced cell index refuses the whole conversion.
+func build_slope_conversion_request(request: Dictionary) -> String:
+    # Point geometry comes from the grouping's pixel-space fields, not from a coordinate name.
+    var fn_coerce_point: Callable = func(point: Dictionary) -> Dictionary:
+        return {
+            "x": int(point.get("x", 0)),
+            "y": int(point.get("y", 0)),
+        }
+    # Cells keep their authored order; only typed indices and the flip flag are rewritten.
+    var fn_coerce_cell: Callable = func(cell: Dictionary) -> Dictionary:
+        var coerced: Dictionary = cell.duplicate()
+        for field_name in ["local_x", "local_y", "source_col", "source_row"]:
+            coerced[field_name] = int(coerced.get(field_name, 0))
+        coerced["flip_h"] = bool(coerced.get("flip_h", false))
+        coerced["generated_key"] = String(coerced.get("generated_key", ""))
+        return coerced
+    var bridged_request: Dictionary = request.duplicate()
+    for field_name in ["width_px", "height_px"]:
+        bridged_request[field_name] = int(bridged_request.get(field_name, 0))
+    for point_field in ["margins_px", "cell_size_px", "separation_px"]:
+        bridged_request[point_field] = fn_coerce_point.call(bridged_request.get(point_field, {}))
+    var cells: Array = bridged_request.get("cells", [])
+    bridged_request["cells"] = cells.map(fn_coerce_cell)
+    return JSON.stringify(bridged_request)

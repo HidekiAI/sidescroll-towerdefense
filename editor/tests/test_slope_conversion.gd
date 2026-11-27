@@ -3,6 +3,8 @@ extends SceneTree
 # every guard checks the seam by name first so a missing method records a failure and the suite
 # still reaches quit(1). No race applies: all inputs are single-threaded Dictionaries.
 # Back-to-back safety is pinned by merging the same generated set twice.
+# Measured on 4.4.1 and 4.7.2: JSON.parse_string returns every JSON number as a float, so an
+# "integer on the wire" check must inspect the serialized literal, not the parsed Variant.
 
 const MODEL_GATEWAY_PATH: String = "res://scripts/model_gateway.gd"
 const SLOPE_TOOL_PATH: String = "res://scripts/slope_conversion_tool.gd"
@@ -28,6 +30,22 @@ func _check(condition: bool, description: String) -> void:
 func _load_object(path: String) -> Object:
     var script: GDScript = load(path) as GDScript
     return script.new() if script != null else null
+
+
+# Match the literal after a JSON field name; a fractional literal means the coercion seam missed it.
+func _all_wire_integers(text: String, field_name: String) -> bool:
+    var regex: RegEx = RegEx.new()
+    regex.compile("\"" + field_name + "\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)")
+    var matches: Array[RegExMatch] = regex.search_all(text)
+    var fn_has_no_fraction: Callable = func(match_result: RegExMatch) -> bool:
+        return not match_result.get_string(1).contains(".")
+    return not matches.is_empty() and matches.all(fn_has_no_fraction)
+
+
+func _has_fractional_number(text: String) -> bool:
+    var regex: RegEx = RegEx.new()
+    regex.compile("-?[0-9]+\\.[0-9]+")
+    return regex.search(text) != null
 
 
 func _generated_keys() -> Array[String]:
@@ -78,18 +96,12 @@ func _guard_conversion_request_coerces_integer_fields() -> void:
         return
 
     var parsed: Dictionary = decoded
-    _check(typeof(parsed.get("width_px")) == TYPE_INT, "width_px is an integer on the wire")
-    _check(typeof(parsed.get("height_px")) == TYPE_INT, "height_px is an integer on the wire")
-    var margins: Dictionary = parsed.get("margins_px", {})
-    _check(typeof(margins.get("x")) == TYPE_INT, "margin x is an integer on the wire")
-    _check(typeof(margins.get("y")) == TYPE_INT, "margin y is an integer on the wire")
     var cells: Array = parsed.get("cells", [])
     _check(cells.size() == 1, "one cell survives coercion")
-    if not cells.is_empty():
-        var cell: Dictionary = cells[0]
-        for field_name in ["local_x", "local_y", "source_col", "source_row"]:
-            _check(typeof(cell.get(field_name)) == TYPE_INT,
-                "%s is an integer on the wire" % field_name)
+    for field_name in ["width_px", "height_px", "x", "y",
+            "local_x", "local_y", "source_col", "source_row"]:
+        _check(_all_wire_integers(request_text, field_name),
+            "%s is an integer literal on the wire" % field_name)
     _completed.append("conversion_request_coerces_integer_fields")
 
 
@@ -149,10 +161,9 @@ func _guard_terrain_json_resaves_integral_float_as_integer() -> void:
     _check(parsed_entries.size() == 1, "one entry survives canonicalization")
     if parsed_entries.is_empty():
         return
-    var entry: Dictionary = parsed_entries[0]
-    _check(typeof(entry.get("sub_tile_mask")) == TYPE_INT, "sub_tile_mask is an integer, not a float")
-    _check(typeof(entry.get("elevation_tiles")) == TYPE_INT, "elevation_tiles is an integer, not a float")
-    var mask_bytes: Array = entry.get("solid_mask", [])
-    for byte_variant in mask_bytes:
-        _check(typeof(byte_variant) == TYPE_INT, "solid_mask bytes are integers, not floats")
+    for field_name in ["sub_tile_mask", "elevation_tiles"]:
+        _check(_all_wire_integers(json_text, field_name),
+            "%s is an integer literal in canonical JSON" % field_name)
+    _check(not _has_fractional_number(json_text),
+        "solid_mask bytes serialize without a decimal point")
     _completed.append("terrain_json_resaves_integral_float_as_integer")

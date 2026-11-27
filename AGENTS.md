@@ -16,6 +16,19 @@ file — a session started here must still get the full process contract.
 Workspace-level orientation (the two-repo layout, branch topology) lives one level up in
 `SSTD/AGENTS.md`. Session state of record lives in `docs/SESSION-CHECKPOINT.md`.
 
+## Bias `if...else...` and ternaries toward `match` (user directive 2026-11-26)
+
+@me interrupted the in-flight slope conversion work at the `return` in
+`editor/scripts/model_gateway.gd` `import_terrain_types` (line 135,
+`return decoded if decoded is Dictionary else {}`): "can that be `match` instead? if so,
+these kinds of pattern wherever `if...else...` exists, TRY to bias towards `match` where applicable
+(remember this request)". Recorded so it survives a session switch. Apply it to code the task
+writes or touches: a returned value computed by chained ternaries, a discrete-tag `if` ladder, or a
+Rust `let foo = if ... else ...` binding (the global Rust rule already mandates `match` there).
+An early-return guard and a single plain `if` on one boolean may stay when `match` reads worse.
+This is not licence to restyle untouched files; finish the current step to a documented state
+first, then apply it inside the same branch.
+
 ## Coding-assist scope (user directive 2026-11-25)
 
 Use the assisted `TODO(human)` path only for Rust code. Write GDScript production logic directly.

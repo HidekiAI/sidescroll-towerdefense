@@ -7,32 +7,41 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-**2026-11-26 CURRENT STEP: write the GDScript orchestrator and DAO coercion seam, then commit
-generated artifacts, on implementation branch `local/feat/slope-preprocess` (base local `trunk`
-`d2e0255`), no push and no issue state change.** Objective: implement the two-phase preprocessing
-and conversion tool from #178 (grass slope conversion tool) and #239 (two-phase preprocessing
-implementation), destination the committed `editor/default_package/`. Committed history on this
-branch: `b6ad8e6` measured sources; `06e2eb9`, `a0501b8`, `bd45b33` the 16 assistant-written RED
-guards; `aa253ce` the Rust production logic and whole-file illegibility pass. CP9 (Rust
-`convert-slope`, plan step S3) is DONE: `cargo check -p import-tiles --tests` exit 0 and
-`cargo test -p import-tiles` exit 0 with 17 passed / 0 failed; the nine-mutant battery in
-`/tmp/user/1000/opencode/sstd-s3-mutations.sh` had a green baseline, 9 FIRED / 0 VOID / 0 REFUTED,
-`MUTATIONS-FAILED=0`, and a byte-identical restore plus green re-run after each. The two-run byte
-compare is the in-source `two_conversion_runs_are_byte_identical` guard, reddened by the TIMESTAMP
-mutant. One pre-existing warning (`CellRequest.local_x` / `local_y` unused) remains. Next move in
-runnable order: (1) write `editor/scripts/slope_conversion_tool.gd` (seams `convert_all`,
-`merge_terrain_entries`, `canonical_terrain_json`, `preprocess`, `load_default_terrain`) and add
-`ModelGateway.build_slope_conversion_request`, then run the three guards in
-`editor/tests/test_slope_conversion.gd` green; (2) generate the 16 tile PNGs plus `.import` files,
-regenerate the two `.tres`, and keyed-upsert 16 entries into
+**2026-11-26 CURRENT STEP: generate the 16 slope tile PNGs plus `.import` files, regenerate the
+two grouping resources, and keyed-upsert 16 terrain entries into `editor/default_package/`
+(aka S5), on implementation branch `local/feat/slope-preprocess` (base local `trunk` `d2e0255`),
+no push and no issue state change.** This commit also closes the GDScript orchestrator and both
+bridge directions (plan step S4). Objective: implement the two-phase preprocessing and conversion
+tool from #178 (grass slope conversion tool) and #239 (two-phase preprocessing implementation),
+destination the committed `editor/default_package/`. Committed history on this branch: `b6ad8e6`
+measured sources; `06e2eb9`, `a0501b8`, `bd45b33` the 16 assistant-written RED guards; `aa253ce`
+the Rust `convert-slope` core and whole-file illegibility pass; `097fb88` the mutation-battery and
+byte-identity evidence. CP10 (GDScript orchestrator and both bridge directions) is DONE:
+`editor/scripts/slope_conversion_tool.gd` holds the named seams `convert_all`,
+`merge_terrain_entries`, `canonical_terrain_json`, `preprocess` and `load_default_terrain`;
+`ModelGateway.build_slope_conversion_request` coerces integer fields before stringify. All
+value-producing ternaries in both touched scripts became `match` per @me's 2026-11-26 directive.
+Re-measured this session: `--check-only` exit 0 on both scripts, `test_model_gateway` exit 0 with
+17 ok assertions, `test_slope_conversion` exit 0 with `failures=0 completed=3`; logs
+`/tmp/user/1000/opencode/sstd-s4-test_model_gateway.log` and
+`/tmp/user/1000/opencode/sstd-s4-test_slope_conversion.log`. CP9 (Rust `convert-slope`) stays DONE:
+`cargo check -p import-tiles --tests` exit 0, `cargo test -p import-tiles` exit 0 with 17 passed /
+0 failed, nine-mutant battery 9 FIRED / 0 VOID / 0 REFUTED with byte-identical restores. One
+pre-existing warning (`CellRequest.local_x` / `local_y` unused) remains. Next move in runnable
+order: (1) commit the S4 code and these documents together with explicit paths only, staging
+`AGENTS.md`, `editor/scripts/model_gateway.gd`, `editor/scripts/model_gateway.gd.uid`,
+`editor/scripts/slope_conversion_tool.gd`, `editor/tests/test_slope_conversion.gd`,
+`docs/PLAN-2026-11-25-slope-conversion-tool.md` and this file; (2) generate the 16 PNGs plus
+`.import` files, regenerate the two `.tres`, and keyed-upsert 16 entries into
 `editor/default_package/terrain_types.json` to 30, staging explicit paths only because the repo
 vendors 516 MB under `editor/addons/`; (3) run the four headless GDScript guards
 (`test_both_slope_sets_appear_in_palette.gd`, `test_fresh_profile_loads_default_terrain.gd`,
-`test_walker_contact_tracks_drawn_edge.gd`, `test_second_full_conversion_is_byte_identical.gd`),
-gating on exit code under Godot 4.7.2 and remembering that `test_screen_store` is known RED on
-4.7 for issue #85, unrelated to this work; (4) run the full gate; (5) update the wiki and close
-#178 only when all ten acceptance criteria are green. Never `git add -A` or `git add .`. The six
-untracked `.uid` files in `git status` are pre-existing and out of scope.
+`test_walker_contact_tracks_drawn_edge.gd`, `test_second_full_conversion_run_is_byte_identical.gd`),
+gating on exit code under Godot 4.7.2; (4) run the full gate; (5) update the wiki and close #178
+only when all ten acceptance criteria are green. `test_screen_store` is known RED on 4.7 for
+issue #85 (zip directory-entry count in the screen-store guard), unrelated to this work. Never
+`git add -A` or `git add .`. The five other untracked `.uid` files in `git status` are pre-existing
+and out of scope.
 
 **2026-11-26 CURRENT STEP: add the Rust `convert-slope` conversion subcommand (aka S3), on implementation branch `local/feat/slope-preprocess` (base `trunk` `d2e0255`).** Objective: implement the two-phase preprocessing/conversion tool from #178 (grass slope conversion tool) and #239 (two-phase preprocessing implementation), all work on this new branch, no push and no issue state change yet. CP7 is DONE and committed at `b6ad8e6`: `docs/PLAN-2026-11-25-slope-conversion-tool.md` has `## Step S1 result` with measured W/H 32/32 from `editor/config/sstd_config.sqlite3` (`key`/`default_value` columns), both eight-key `.tres` lists, crop rect `(104,65,507,253)`, sixteen resolved cells with 128-byte masks, and 956 tracked tile files with 0 generated-key collisions; replay scripts and journal are under `/tmp/user/1000/opencode/sstd-s1-*`. CP8 is DONE in the commit carrying this pointer: all 16 assistant-written guards exist and are RED -- 9 in-source Rust guards in `tools/import-tiles/src/main.rs` (including the four preprocessing guards `preprocess_crops_whole_grid_then_slices_eight_cells`, `preprocess_clears_every_grid_line_pixel`, `preprocess_flags_unresolved_and_blocks_phase_ii` and `jsonc_sidecar_round_trips_after_human_signoff`), 3 GDScript unit guards in `editor/tests/test_slope_conversion.gd`, and 4 headless E2E guards. Exact evidence is in `## Step S2 result`: `cargo test -p import-tiles` exit 101 with 57 missing-symbol errors (E0422/E0425/E0433 only, no test-side error), and each of the five GDScript suites exits 1 with named FAIL lines; logs are `/tmp/user/1000/opencode/sstd-s2-rust-red.log` and `/tmp/user/1000/opencode/sstd-s2-gdscript-red.log`. The plan also now fixes the named GDScript seam contract (`ModelGateway.build_slope_conversion_request`, `SlopeConversionTool.merge_terrain_entries`, `canonical_terrain_json`, `convert_all`, `preprocess`, `load_default_terrain`). The next move is CP9: run the `coding-assistant` skill for the Rust production logic only, scaffold the named `TODO(human)` blocks in `tools/import-tiles/src/main.rs`, then fill them and re-run `cargo check -p import-tiles --tests` and `cargo test -p import-tiles` (exit 0 required). GDScript production logic is written directly later, never with assisted blocks. Six untracked `.uid` files in `git status` are pre-existing and not part of this task. NEVER `git add -A` or `git add .` here (516 MB vendored `editor/addons/`); stage explicit paths only. The older blocks below are history, not a second progress table.
 
