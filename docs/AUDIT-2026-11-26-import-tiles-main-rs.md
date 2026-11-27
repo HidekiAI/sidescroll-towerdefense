@@ -92,5 +92,7 @@ scope for this ticket.
 
 ## Gate status
 
-Ledger complete. No further production edit to `main.rs` until @me chooses
-scope. The pending converter fix is item A.
+Ledger complete and applied in one coherent pass on 2026-11-26. Item A is
+fixed: `remove_floating_specks` seeds from the lowest row containing a solid pixel and has a
+RED-first, mutation-verified guard. The remaining entries were applied or left as pre-existing
+out-of-scope style debt. Rust and headless gates are green; no further production edit is pending.

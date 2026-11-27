@@ -1230,8 +1230,10 @@ until that audit is delivered.
 @me then accepted the early-return `if` at line 1343 for now and narrowed the ask: "in that case,
 at least comment each sub-blocks". Scope of that one change: a WHY comment above the mode dispatch
 and a gist comment above every sub-block (request path, output dir, sign-off flag, run/failure,
-early return), with no restructuring of `main()` and no `match` conversion. The rest of the audit
-ledger is still pending; do not resume the other fixes until it is delivered.
+early return), with no restructuring of `main()` and no `match` conversion. RESOLVED 2026-11-26:
+the whole-file audit ledger was delivered and all findings were applied in one coherent pass, with
+the converter fix and its mutation-verified guard in place and every gate green. No audit work
+remains; this paragraph is retained as history.
 
 @me rejected the block-by-block walkthrough on 2026-11-26: "just audit the whole g'dmaned file ...
 rather than having me look at each blocks of illegible code blocks!" Recorded verbatim. Work rule:
