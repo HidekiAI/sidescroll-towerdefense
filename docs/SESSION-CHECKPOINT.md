@@ -7,6 +7,43 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
+**2026-11-26 FINAL IMPLEMENTATION STATE (supersedes the older paragraphs in this same block).**
+Objective: implement #178 (grass slope conversion tool) and #239 (two-phase slope source-art
+preprocessing) on implementation branch `local/feat/slope-preprocess` (base local `trunk`
+`d2e0255`). Destination is the committed `editor/default_package/`, not the user-data world
+bundle. Committed history on the branch: `b6ad8e6`, `06e2eb9`, `a0501b8`, `bd45b33`, `aa253ce`,
+`097fb88`, `b766a7c`, `ddb8a0a`, `97ec342`, `d5c36b1`; no push and no issue state change. The
+current uncommitted pass completes publication, the whole-file audit fixes and final gates. It
+fixes a converter defect: `remove_floating_specks` now seeds from the lowest row with any solid
+pixel rather than `height_px - 1`, so an air-coloured bottom row no longer erases the ground mass;
+the RED guard `air_coloured_bottom_row_does_not_erase_the_ground_mass` is green and was mutation-
+verified red by restoring the old seeding. @me chose a direct fix for this pass instead of an
+assisted `TODO(human)` scaffold. The audit ledger is
+`docs/AUDIT-2026-11-26-import-tiles-main-rs.md`; all its findings were applied in one pass:
+per-node intent comments, `|e|` renamed to `|error|`, `|a, b|` renamed to `|left, right|`, named
+exit/index magic numbers, two `if`/`else` bindings converted to `match`, and helpers extracted from
+oversized emitters. The walker guard uses PNG alpha from `Image.new().load(path)` as the drawn-edge
+oracle, declares `NO_SOLID_ROW = -1` at `_topmost_solid_row_in_column` with the caller check in the
+function comment, returns a boolean verdict from `_check_key`, and exempts authored all-air
+columns from contact while requiring them to stay collision-free. The override-merge guard now
+filters generated keys before counting its 14 framework prototypes. Published artifacts: 16
+`slope_grass_30deg_4x2_*_32x32.png` files in `editor/assets/tiles/`, both regenerated `.tres`
+groupings, and a 30-entry `editor/default_package/terrain_types.json`; the 14 framework entries are
+unchanged under `jq -S` and every committed artifact is byte-identical to the throwaway publisher
+output. Gates just measured: `cargo check -p import-tiles --tests` exit 0, `cargo test -p
+import-tiles` 18 passed / 0 failed, `cargo test -p sstd-core` 160 passed / 0 failed, all five slope
+E2E suites exit 0 (walker `passing_keys=16/16`), and `test_screen_store`, `test_image_to_map` and
+`test_override_merge` exit 0. Mutation evidence: converter seeding, walker all-air collision bit,
+and override-merge prefix each turned its named guard red and returned green after restore. Wiki
+`TDD_Collision-Map-Tooling` §10.5 and wiki `TODO.md` TS83 are updated on local wiki branch
+`local/docs/slope-preprocess-section10`; the plan ledger `## Mini-checkpoints` has CP11-CP13 ticked
+and CP14 open only for issue close, push and merge. STOP: no push, no issue close, no outward write
+without explicit direction. Next move when directed: commit both repos with explicit paths only
+(never `git add -A` / `git add .`, never `.uid`), ask once for push permission, push both branches
+by explicit remote, ff-only merge both defaults, push both defaults, then close #178 and #239 with
+comments citing the wiki section. Never stage `.uid` files; force-add ignored `.import` files only
+if the publishing path requires them.
+
 **2026-11-26 CURRENT STEP: publish the verified throwaway outputs into `editor/default_package/`
 (16 PNGs plus `.import` files, two regenerated `.tres`, 30-entry `terrain_types.json`) in S5, on
 implementation branch `local/feat/slope-preprocess` (base local `trunk` `d2e0255`), no push and no

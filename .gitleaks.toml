@@ -10,4 +10,7 @@ regexTarget = "line"
 regexes = [
   '''(?i)key\s*[:=]\s*"[a-z0-9_]+"''',
   '''(?i)"key"\s*:\s*"[a-z0-9_]+"''',
+  # Generated slope terrain keys are authored identifiers, not credentials; restrict the
+  # allowance to the emitted namespace so a real api_key cannot hide behind this rule.
+  '''(?i)"terrain_key"\s*:\s*"slope_grass_30deg_4x2_[rl][0-7]"''',
 ]

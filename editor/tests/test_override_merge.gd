@@ -19,6 +19,9 @@ var _failures := 0
 # #126 added the seven slope_up_* terrain types (with solid masks) to the framework file, so its
 # prototype count moved from 7 to 14. The merge guards below still pin air/dirt/grass by key.
 const FRAMEWORK_TERRAIN_COUNT: int = 14
+# Generated slope entries are added to the same catalog but are not framework prototypes; this
+# guard pins the 14 pre-existing keys, so it must filter them out before counting.
+const GENERATED_SLOPE_KEY_PREFIX: String = "slope_grass_30deg_4x2_"
 
 # Each guard appends its name on its final line. A guard that dies partway (a
 # runtime script error aborts the coroutine but lets _run continue to the next
@@ -230,8 +233,14 @@ func _run() -> void:
 
     var fw_terrains := _load_framework_terrains()
     var fw_entities := _load_framework_entities()
-    check(fw_terrains.size() == FRAMEWORK_TERRAIN_COUNT,
-        "framework terrain types loaded (%d)" % fw_terrains.size())
+    # Count only the pre-existing prototypes: the 16 generated slope keys are authored catalog
+    # entries too, so a successful conversion must not read as a corrupted framework catalog.
+    var framework_prototypes: Array[Dictionary] = []
+    for entry in fw_terrains:
+        if not String(entry.get("key", "")).begins_with(GENERATED_SLOPE_KEY_PREFIX):
+            framework_prototypes.append(entry)
+    check(framework_prototypes.size() == FRAMEWORK_TERRAIN_COUNT,
+        "framework terrain types loaded (%d)" % framework_prototypes.size())
     check(fw_entities.size() == 8, "framework entity defs loaded (%d)" % fw_entities.size())
 
     await _guard_terrain_merge(fw_terrains)

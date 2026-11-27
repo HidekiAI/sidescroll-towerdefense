@@ -40,6 +40,24 @@ target, and Godot's idiomatic result is a key/value `Dictionary`, so a Rust-styl
 `Option<T>` would fight the platform even though it is less bug-prone. Do not "improve" that return
 into a discriminated union without being asked; keep the early-return guards and `match` narrative.
 
+## Whole-file audit gate on `tools/import-tiles/src/main.rs` (user directive 2026-11-26, REPEATED)
+
+@me's escalation after a second undocumented-function defect in the same file: "if we're coding
+like this, I need to have the ENTIRE .rs file audited for this kind of crap!" The gate is
+unconditional: deliver a complete ledger for every function in that file (return contract stated
+at the function, void side-effecting "check" names, missing intent comments on flow-chart nodes,
+banned bare/short identifiers, magic numbers, if/else ladders that should be `match`) BEFORE any
+further production edit to that file. A blank or partial ledger is not acceptable; review stops
+at the first such defect until the ledger is delivered.
+
+## Sentinel returns must be declared at the function (user directive 2026-11-26)
+
+A named constant for a sentinel is NOT enough. The function that returns it must say so in its own
+comment, with the value and the required caller check, so a reader of the signature/comment never
+has to inspect call sites to learn that `-1` means "no value". @me scored a helper that returned
+`-1` with no such comment at -25 points in review. Applies to any function this task writes or
+touches; do not restyle unrelated functions for it.
+
 ## Coding-assist scope (user directive 2026-11-25)
 
 Use the assisted `TODO(human)` path only for Rust code. Write GDScript production logic directly.

@@ -72,6 +72,9 @@ const NO_HAZARD: &str = "none";
 /// A pixel contributes to the dark-pixel count only when it is this opaque or more.
 const DARK_PIXEL_ALPHA_CUTOFF: f64 = 0.5;
 
+/// Fallback luma threshold for the legacy 4-bit mask detector when the config omits one.
+const DEFAULT_LUMINANCE_THRESHOLD: f64 = 0.5;
+
 #[derive(Deserialize, Debug, Clone)]
 struct ImportConfig {
     #[serde(default)]
@@ -137,7 +140,7 @@ fn default_true() -> bool {
     true
 }
 fn default_luminance_threshold() -> f64 {
-    0.5
+    DEFAULT_LUMINANCE_THRESHOLD
 }
 fn default_min_cluster_gap() -> u8 {
     DEFAULT_MIN_CLUSTER_GAP
@@ -297,6 +300,8 @@ fn row_has_content(
     false
 }
 
+/// Scan a full column at pixel resolution (used for fine-grained left/right
+/// edge detection within the last content window).
 fn col_has_content(
     gray: &image::GrayImage,
     col_x: u32,
@@ -458,6 +463,8 @@ fn fn_find_content_right_edge(gray: &image::GrayImage, image_width: u32, image_h
     }
 }
 
+// Reduce the sheet to its content rectangle and source pitch: coarse window scans locate the
+// four edges, then the pixel scans refine each one. A zero-sized sheet returns zeroed bounds.
 fn detect_content_bounds(img: &RgbaImage) -> ContentBounds {
     let image_width: u32 = img.width();
     let image_height: u32 = img.height();
@@ -551,7 +558,8 @@ fn auto_detect_sub_tile_mask(img: &RgbaImage, threshold: f64) -> u8 {
         for pixel_y in quad_y0..quad_y1 {
             for pixel_x in quad_x0..quad_x1 {
                 let pixel: &image::Rgba<u8> = img.get_pixel(pixel_x, pixel_y);
-                let pixel_luma: f64 = REC601_LUMA_RED_WEIGHT * f64::from(pixel[0]) / f64::from(u8::MAX)
+                let pixel_luma: f64 = REC601_LUMA_RED_WEIGHT * f64::from(pixel[0])
+                    / f64::from(u8::MAX)
                     + REC601_LUMA_GREEN_WEIGHT * f64::from(pixel[1]) / f64::from(u8::MAX)
                     + REC601_LUMA_BLUE_WEIGHT * f64::from(pixel[2]) / f64::from(u8::MAX);
                 mut_luma_sum += pixel_luma;
@@ -569,6 +577,8 @@ fn auto_detect_sub_tile_mask(img: &RgbaImage, threshold: f64) -> u8 {
     mut_mask
 }
 
+// Name a cell's coarse terrain class from its finished RGBA: a mostly transparent cell is air,
+// then mean luma separates grass from stone and dark-pixel ratio separates wall from stone.
 fn auto_detect_terrain_key(img: &RgbaImage) -> &'static str {
     let image_width: u32 = img.width();
     let image_height: u32 = img.height();
@@ -771,17 +781,27 @@ fn uniform_patch_grey(
         .unwrap_or(0)
 }
 
-// A solid run that does not reach the tile's bottom row is dust, not ground: the bottom-row
-// anchor says the ground is the mass the tile stands on. Flood from every solid pixel of the
-// bottom row and clear whatever the flood never reaches.
+// Clear every solid pixel that is not 4-connected to the ground mass. `binary` is a row-major
+// width_px x height_px raster of 0/1. CONTRACT: seeds come from the LOWEST ROW THAT CONTAINS A
+// SOLID PIXEL, not from `height_px - 1` -- an authored tile's last row can be sheet edge and
+// therefore air-coloured, and seeding from an empty border would clear the entire mass. An
+// all-air raster has no seed row and stays all air; it never becomes solid by default.
 fn remove_floating_specks(binary: &mut [u8], width_px: u32, height_px: u32) {
     let width: usize = width_px as usize;
-    let bottom_row_start: usize = (height_px as usize - 1) * width;
+    // Find the ground anchor first: the lowest row with any solid pixel, independent of a
+    // possibly air-coloured final row.
+    let lowest_solid_row: Option<usize> = (0..height_px as usize).rev().find(|row| {
+        let row_start: usize = row * width;
+        (0..width).any(|col| binary[row_start + col] != 0)
+    });
     let mut mut_reached: Vec<bool> = vec![false; binary.len()];
-    let mut mut_stack: Vec<usize> = (0..width)
-        .filter(|col| binary[bottom_row_start + col] != 0)
-        .map(|col| bottom_row_start + col)
-        .collect();
+    // Seed the flood from every solid pixel of that row; an all-air raster seeds nothing.
+    let mut mut_stack: Vec<usize> = lowest_solid_row.map_or_else(Vec::new, |row| {
+        (0..width)
+            .filter(|col| binary[row * width + col] != 0)
+            .map(|col| row * width + col)
+            .collect()
+    });
     while let Some(index) = mut_stack.pop() {
         if mut_reached[index] {
             continue;
@@ -864,15 +884,14 @@ fn fn_anchor_ground_grey(
     );
     let bottom_is_dominant: bool = (bottom_grey as i32 - dominant_grey as i32).abs()
         <= (bottom_grey as i32 - opposite_grey as i32).abs();
-    if bottom_is_dominant {
-        (dominant_grey, opposite_grey)
-    } else {
-        (opposite_grey, dominant_grey)
+    match bottom_is_dominant {
+        true => (dominant_grey, opposite_grey),
+        false => (opposite_grey, dominant_grey),
     }
 }
 
 // Classify each pixel by whichever cluster grey it is nearer to. Specks that never connect
-// back to the bottom-row ground mass are cleared by the caller.
+// back to the ground mass are cleared by the caller, which seeds from the lowest solid row.
 fn fn_classify_solid_pixels(greyscale: &[u8], ground_grey: u8, air_grey: u8) -> Vec<u8> {
     greyscale
         .iter()
@@ -920,7 +939,7 @@ fn derive_solid_mask(
     let (ground_grey, air_grey): (u8, u8) =
         fn_anchor_ground_grey(greyscale, width_px, height_px, dominant_grey, opposite_grey);
     let mut mut_binary: Vec<u8> = fn_classify_solid_pixels(greyscale, ground_grey, air_grey);
-    // Clear specks that never connect to the bottom-row ground mass.
+    // Clear specks that never connect to the ground mass at the lowest solid row.
     remove_floating_specks(&mut mut_binary, width_px, height_px);
     (fn_pack_solid_bits(&mut_binary), true)
 }
@@ -983,7 +1002,7 @@ fn scan_tile_directory(
     output_dir: &Path,
 ) -> Vec<TerrainTypeDef> {
     let mut mut_entries: Vec<TerrainTypeDef> = std::fs::read_dir(dir)
-        .unwrap_or_else(|e| panic!("Failed to read tile dir '{}': {}", dir.display(), e))
+        .unwrap_or_else(|error| panic!("Failed to read tile dir '{}': {}", dir.display(), error))
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| {
             let file_name: String = entry.file_name().to_string_lossy().into_owned();
@@ -991,22 +1010,24 @@ fn scan_tile_directory(
                 .strip_suffix("_32x32.png")
                 .filter(|stripped| stripped.starts_with(key_prefix))?;
             let mut mut_img: RgbaImage = image::open(entry.path())
-                .unwrap_or_else(|e| panic!("Failed to open '{}': {}", entry.path().display(), e))
+                .unwrap_or_else(|error| {
+                    panic!("Failed to open '{}': {}", entry.path().display(), error)
+                })
                 .to_rgba8();
             let (terrain_entry, resolved): (TerrainTypeDef, bool) =
                 terrain_entry_from_image(key, &mut_img, min_cluster_gap);
             if !resolved {
                 flag_unresolved(&mut mut_img);
                 let flagged_path: PathBuf = output_dir.join(format!("{}_unresolved.png", key));
-                mut_img.save(&flagged_path).unwrap_or_else(|e| {
-                    panic!("Failed to save '{}': {}", flagged_path.display(), e)
+                mut_img.save(&flagged_path).unwrap_or_else(|error| {
+                    panic!("Failed to save '{}': {}", flagged_path.display(), error)
                 });
                 eprintln!("UNRESOLVED {} -> {}", file_name, flagged_path.display());
             }
             Some(terrain_entry)
         })
         .collect();
-    mut_entries.sort_by(|a, b| a.key.cmp(&b.key));
+    mut_entries.sort_by(|left, right| left.key.cmp(&right.key));
     mut_entries
 }
 
@@ -1068,10 +1089,9 @@ fn fn_crop_resize_flip_cell(
         request.height_px,
         image::imageops::FilterType::Nearest,
     );
-    if cell.flip_h {
-        image::imageops::flip_horizontal(&resized)
-    } else {
-        resized
+    match cell.flip_h {
+        true => image::imageops::flip_horizontal(&resized),
+        false => resized,
     }
 }
 
@@ -1115,7 +1135,7 @@ fn fn_emit_cell_outputs(
         ));
         cell_image
             .save(&image_path)
-            .unwrap_or_else(|e| panic!("Failed to save '{}': {}", image_path.display(), e));
+            .unwrap_or_else(|error| panic!("Failed to save '{}': {}", image_path.display(), error));
         eprintln!(
             "CONVERT key={} path={} mask_bytes={} resolved={}",
             cell.generated_key,
@@ -1146,10 +1166,10 @@ fn fn_convert_resource(
         return Err(ConvertError::Version(request.version.clone()));
     }
     let sheet: RgbaImage = image::open(&request.source_image)
-        .map_err(|e| ConvertError::Io(format!("{}: {}", request.source_image, e)))?
+        .map_err(|error| ConvertError::Io(format!("{}: {}", request.source_image, error)))?
         .to_rgba8();
     std::fs::create_dir_all(output_dir)
-        .map_err(|e| ConvertError::Io(format!("{}: {}", output_dir.display(), e)))?;
+        .map_err(|error| ConvertError::Io(format!("{}: {}", output_dir.display(), error)))?;
     let (mut mut_outputs, unresolved): (Vec<ConversionOutput>, Vec<String>) =
         fn_emit_cell_outputs(request, &sheet, output_dir);
     if !unresolved.is_empty() {
@@ -1162,6 +1182,8 @@ fn fn_convert_resource(
     })
 }
 
+// Overlay converted outputs on the framework catalog: generated keys win, authored keys keep
+// their place, and the result is ordered by key so two runs serialize byte-identically.
 fn fn_merge_terrain_entries(
     base: &[TerrainTypeDef],
     outputs: &[ConversionOutput],
@@ -1173,7 +1195,13 @@ fn fn_merge_terrain_entries(
         .collect();
     outputs.iter().for_each(|output| {
         let cell_image: RgbaImage = image::open(&output.image_path)
-            .unwrap_or_else(|e| panic!("Failed to open '{}': {}", output.image_path.display(), e))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "Failed to open '{}': {}",
+                    output.image_path.display(),
+                    error
+                )
+            })
             .to_rgba8();
         let entry: TerrainTypeDef = TerrainTypeDef {
             solid_mask: output.solid_mask.clone(),
@@ -1353,10 +1381,10 @@ fn preprocess_source_sheet(
         return Err(ConvertError::Version(request.version.clone()));
     }
     let sheet: RgbaImage = image::open(&request.source_image)
-        .map_err(|e| ConvertError::Io(format!("{}: {}", request.source_image, e)))?
+        .map_err(|error| ConvertError::Io(format!("{}: {}", request.source_image, error)))?
         .to_rgba8();
     std::fs::create_dir_all(output_dir)
-        .map_err(|e| ConvertError::Io(format!("{}: {}", output_dir.display(), e)))?;
+        .map_err(|error| ConvertError::Io(format!("{}: {}", output_dir.display(), error)))?;
     let grid: SheetGrid = fn_measure_grid(request);
     let mut mut_crop: RgbaImage = image::imageops::crop_imm(
         &sheet,
@@ -1372,7 +1400,13 @@ fn preprocess_source_sheet(
     let cleaned_image_path: PathBuf = output_dir.join("slope_cleaned.png");
     mut_cleaned
         .save(&cleaned_image_path)
-        .unwrap_or_else(|e| panic!("Failed to save '{}': {}", cleaned_image_path.display(), e));
+        .unwrap_or_else(|error| {
+            panic!(
+                "Failed to save '{}': {}",
+                cleaned_image_path.display(),
+                error
+            )
+        });
     Ok(PreprocessResult {
         crop_rect: grid.crop_rect,
         cleaned_image_path,
@@ -1424,10 +1458,10 @@ fn fn_phase_two_gate(
             })
             .collect(),
     };
-    let text: String =
-        serde_json::to_string_pretty(&sidecar).map_err(|e| ConvertError::Decode(e.to_string()))?;
+    let text: String = serde_json::to_string_pretty(&sidecar)
+        .map_err(|error| ConvertError::Decode(error.to_string()))?;
     std::fs::write(sidecar_path, text)
-        .map_err(|e| ConvertError::Io(format!("{}: {}", sidecar_path.display(), e)))?;
+        .map_err(|error| ConvertError::Io(format!("{}: {}", sidecar_path.display(), error)))?;
     eprintln!(
         "SIDECAR path={} rows={}",
         sidecar_path.display(),
@@ -1440,14 +1474,14 @@ fn fn_phase_two_gate(
 // consumer, and never recompute geometry from the source art.
 fn read_sidecar(path: &Path) -> Result<ConversionSidecar, ConvertError> {
     let raw_text: String = std::fs::read_to_string(path)
-        .map_err(|e| ConvertError::Io(format!("{}: {}", path.display(), e)))?;
+        .map_err(|error| ConvertError::Io(format!("{}: {}", path.display(), error)))?;
     let json_text: String = raw_text
         .lines()
         .filter(|line| !line.trim_start().starts_with("//"))
         .collect::<Vec<&str>>()
         .join("\n");
     let sidecar: ConversionSidecar = serde_json::from_str(&json_text)
-        .map_err(|e| ConvertError::Decode(format!("{}: {}", path.display(), e)))?;
+        .map_err(|error| ConvertError::Decode(format!("{}: {}", path.display(), error)))?;
     eprintln!(
         "SIDECAR-READ path={} rows={}",
         path.display(),
@@ -1460,6 +1494,17 @@ fn read_sidecar(path: &Path) -> Result<ConversionSidecar, ConvertError> {
 // CLI
 // =========================================================================
 
+/// The only two process statuses this binary emits: success and a single failure status.
+const EXIT_OK: i32 = 0;
+const EXIT_FAILURE: i32 = 1;
+
+/// Positional argv layout of `convert-slope <request-json> <out-dir> [--signed-off]`.
+const CONVERT_MODE_ARG_INDEX: usize = 1;
+const CONVERT_REQUEST_ARG_INDEX: usize = 2;
+const CONVERT_OUTPUT_DIR_ARG_INDEX: usize = 3;
+const CONVERT_SIGN_OFF_ARG_INDEX: usize = 4;
+
+// Print the importer's argv contract to stderr; this helper never exits, the caller decides.
 fn print_usage() {
     eprintln!(
         "Usage: import-tiles --config <config.json> [--input <spritesheet.png>] [--out-dir <dir>]"
@@ -1475,6 +1520,8 @@ fn print_usage() {
     eprintln!("  --help         Show this help");
 }
 
+// Resolve argv into the config path plus the two optional overrides; --help prints usage and
+// exits here because no import can proceed without a config path.
 fn parse_args() -> (String, Option<String>, Option<String>) {
     let args: Vec<String> = std::env::args().collect();
     let mut mut_config_path: Option<String> = None;
@@ -1501,13 +1548,13 @@ fn parse_args() -> (String, Option<String>, Option<String>) {
             // Help is the only flag that can succeed without a config.
             "--help" | "-h" => {
                 print_usage();
-                std::process::exit(0);
+                std::process::exit(EXIT_OK);
             }
             // An unrecognised flag is a usage error, so fail before any file is opened.
             _ => {
                 eprintln!("Unknown argument: {}", args[mut_arg_index]);
                 print_usage();
-                std::process::exit(1);
+                std::process::exit(EXIT_FAILURE);
             }
         }
         mut_arg_index += 1;
@@ -1517,7 +1564,7 @@ fn parse_args() -> (String, Option<String>, Option<String>) {
     let config_path: String = mut_config_path.unwrap_or_else(|| {
         eprintln!("Error: --config is required");
         print_usage();
-        std::process::exit(1);
+        std::process::exit(EXIT_FAILURE);
     });
 
     (config_path, mut_input_override, mut_out_override)
@@ -1544,9 +1591,9 @@ fn fn_load_import_config(
     out_override: Option<String>,
 ) -> ImportConfig {
     let config_text: String = std::fs::read_to_string(config_path)
-        .unwrap_or_else(|e| panic!("Failed to read config '{}': {}", config_path, e));
+        .unwrap_or_else(|error| panic!("Failed to read config '{}': {}", config_path, error));
     let mut mut_config: ImportConfig = serde_json::from_str(&config_text)
-        .unwrap_or_else(|e| panic!("Failed to parse config '{}': {}", config_path, e));
+        .unwrap_or_else(|error| panic!("Failed to parse config '{}': {}", config_path, error));
     if let Some(ref path) = input_override {
         mut_config.input = Some(path.clone());
     }
@@ -1564,7 +1611,7 @@ fn fn_run_tile_scan(config: &ImportConfig) -> bool {
     };
     let key_prefix: &str = config.scan_prefix.as_deref().unwrap_or("");
     std::fs::create_dir_all(&config.output_dir)
-        .unwrap_or_else(|e| panic!("Failed to create '{}': {}", config.output_dir, e));
+        .unwrap_or_else(|error| panic!("Failed to create '{}': {}", config.output_dir, error));
     let entries: Vec<TerrainTypeDef> = scan_tile_directory(
         Path::new(scan_dir),
         key_prefix,
@@ -1578,8 +1625,13 @@ fn fn_run_tile_scan(config: &ImportConfig) -> bool {
     let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
         .expect("Failed to serialize terrain_types.json");
     let terrain_json_path: PathBuf = PathBuf::from(&config.output_dir).join("terrain_types.json");
-    std::fs::write(&terrain_json_path, &terrain_json)
-        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+    std::fs::write(&terrain_json_path, &terrain_json).unwrap_or_else(|error| {
+        panic!(
+            "Failed to write '{}': {}",
+            terrain_json_path.display(),
+            error
+        )
+    });
     println!(
         "\nWrote {} ({} tiles)",
         terrain_json_path.display(),
@@ -1820,8 +1872,13 @@ fn fn_write_terrain_types(config: &ImportConfig, terrain_defs: HashMap<String, T
     let terrain_json: String = serde_json::to_string_pretty(&terrain_file)
         .expect("Failed to serialize terrain_types.json");
     let terrain_json_path: PathBuf = PathBuf::from(&config.output_dir).join("terrain_types.json");
-    std::fs::write(&terrain_json_path, &terrain_json)
-        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", terrain_json_path.display(), e));
+    std::fs::write(&terrain_json_path, &terrain_json).unwrap_or_else(|error| {
+        panic!(
+            "Failed to write '{}': {}",
+            terrain_json_path.display(),
+            error
+        )
+    });
     println!("\nWrote {}", terrain_json_path.display());
 }
 
@@ -1946,8 +2003,9 @@ fn fn_emit_tile_sets(
     let sets_json: String =
         serde_json::to_string_pretty(&tile_sets_file).expect("Failed to serialize tile_sets.json");
     let sets_json_path: PathBuf = PathBuf::from(&config.output_dir).join("tile_sets.json");
-    std::fs::write(&sets_json_path, &sets_json)
-        .unwrap_or_else(|e| panic!("Failed to write '{}': {}", sets_json_path.display(), e));
+    std::fs::write(&sets_json_path, &sets_json).unwrap_or_else(|error| {
+        panic!("Failed to write '{}': {}", sets_json_path.display(), error)
+    });
     println!("Wrote {}", sets_json_path.display());
 }
 
@@ -1964,9 +2022,10 @@ fn main() {
         signed_off: bool,
     ) -> Result<(), ConvertError> {
         let request_text: String = std::fs::read_to_string(request_path)
-            .map_err(|e| ConvertError::Io(format!("{}: {}", request_path.display(), e)))?;
-        let request: ConversionRequest = serde_json::from_str(&request_text)
-            .map_err(|e| ConvertError::Decode(format!("{}: {}", request_path.display(), e)))?;
+            .map_err(|error| ConvertError::Io(format!("{}: {}", request_path.display(), error)))?;
+        let request: ConversionRequest = serde_json::from_str(&request_text).map_err(|error| {
+            ConvertError::Decode(format!("{}: {}", request_path.display(), error))
+        })?;
         let preprocessed: PreprocessResult = preprocess_source_sheet(&request, output_dir)?;
         let sidecar_path: PathBuf = output_dir.join("slope.jsonc");
         let _sidecar: ConversionSidecar =
@@ -1974,33 +2033,35 @@ fn main() {
         let result: ConversionResult = fn_convert_resource(&request, output_dir)?;
         println!(
             "{}",
-            serde_json::to_string(&result).map_err(|e| ConvertError::Decode(e.to_string()))?
+            serde_json::to_string(&result)
+                .map_err(|error| ConvertError::Decode(error.to_string()))?
         );
         Ok(())
     }
     // One binary serves two argv contracts: the config-driven importer and the slope
     // conversion request. Conversion prints JSON to stdout, so it must return here;
     // falling through makes parse_args reject the positional request path.
-    if std::env::args().nth(1).as_deref() == Some("convert-slope") {
+    if std::env::args().nth(CONVERT_MODE_ARG_INDEX).as_deref() == Some("convert-slope") {
         // The request path is positional; the importer's --config parser would reject it.
         let request_path: PathBuf = PathBuf::from(
             std::env::args()
-                .nth(2)
+                .nth(CONVERT_REQUEST_ARG_INDEX)
                 .expect("convert-slope needs a request JSON path"),
         );
         // Tiles and the sidecar both land under this directory.
         let output_dir: PathBuf = PathBuf::from(
             std::env::args()
-                .nth(3)
+                .nth(CONVERT_OUTPUT_DIR_ARG_INDEX)
                 .expect("convert-slope needs an output directory"),
         );
         // Phase II refuses without this explicit sign-off, so a missing flag fails the
         // command instead of emitting a converted set nobody reviewed.
-        let signed_off: bool = std::env::args().nth(4).as_deref() == Some("--signed-off");
+        let signed_off: bool =
+            std::env::args().nth(CONVERT_SIGN_OFF_ARG_INDEX).as_deref() == Some("--signed-off");
         // Fail loudly on stderr with a non-zero exit so no partial result is read from stdout.
         fn_run_convert_slope(&request_path, &output_dir, signed_off).unwrap_or_else(|error| {
             eprintln!("CONVERT-SLOPE FAILED: {:?}", error);
-            std::process::exit(1);
+            std::process::exit(EXIT_FAILURE);
         });
         // Never fall through to the importer's parse_args in conversion mode.
         return;
@@ -2021,7 +2082,7 @@ fn main() {
         .as_ref()
         .expect("Either set 'input' in config or pass --input");
     let sheet = image::open(input_path)
-        .unwrap_or_else(|e| panic!("Failed to load spritesheet '{}': {}", input_path, e));
+        .unwrap_or_else(|error| panic!("Failed to load spritesheet '{}': {}", input_path, error));
 
     // Resolve bounds, pitch and grid once so both emitters read the same geometry.
     let grid: ImportSheetGrid = fn_build_grid(&config, &sheet);
@@ -2029,11 +2090,11 @@ fn main() {
 
     // Every extracted PNG lands in one directory, created before the first cell is emitted.
     let tiles_dir: PathBuf = PathBuf::from(&config.output_dir).join("tiles");
-    std::fs::create_dir_all(&tiles_dir).unwrap_or_else(|e| {
+    std::fs::create_dir_all(&tiles_dir).unwrap_or_else(|error| {
         panic!(
             "Failed to create tiles dir '{}': {}",
             tiles_dir.display(),
-            e
+            error
         )
     });
 
@@ -2130,6 +2191,38 @@ mod tests {
         });
         (0..4).for_each(|row| {
             (0..8).for_each(|col| assert!(!mask_bit(&mask, 8, col, row), "air at ({col},{row})"));
+        });
+    }
+
+    #[test]
+    fn air_coloured_bottom_row_does_not_erase_the_ground_mass() {
+        // The authored tile's last row can be sheet edge (air grey) while the mass above it is
+        // ground. Flood seeds must come from the lowest SOLID row, not from the image border.
+        let img: RgbaImage = RgbaImage::from_fn(16, 16, |_, row| {
+            let grey: u8 = match row < 15 {
+                true => GROUND_GREY,
+                false => AIR_GREY,
+            };
+            Rgba([grey, grey, grey, ALPHA_SOLID])
+        });
+        let greyscale: Vec<u8> = to_greyscale(&img);
+        let (mask, resolved): (Vec<u8>, bool) =
+            derive_solid_mask(&greyscale, 16, 16, DEFAULT_MIN_CLUSTER_GAP);
+
+        assert!(resolved, "a clear two-cluster tile must resolve");
+        (0..15).for_each(|row| {
+            (0..16).for_each(|col| {
+                assert!(
+                    mask_bit(&mask, 16, col, row),
+                    "ground mass survives an air-coloured bottom row at ({col},{row})"
+                )
+            });
+        });
+        (0..16).for_each(|col| {
+            assert!(
+                !mask_bit(&mask, 16, col, 15),
+                "the air-coloured bottom row stays air at column {col}"
+            )
         });
     }
 

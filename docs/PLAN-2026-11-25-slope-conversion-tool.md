@@ -620,10 +620,10 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP10 - GDScript orchestrator and both bridge directions written (S4). Evidence: `## Step S4 result`, both `--check-only` exit 0, `test_model_gateway` 17 ok / exit 0, `test_slope_conversion` failures=0 completed=3 / exit 0, no ternary remains in either script. Recovery: GDScript production logic is written directly; only its tests are assistant-written. The completed count is now 5 after the CP10b seam guards.
 - [x] CP10b - Wire version, headless grid size and stdout capture seams fixed (S5 prerequisite). Resume: `godot4 --headless --path editor --script res://tests/test_slope_conversion.gd`, then `bash /tmp/user/1000/opencode/sstd-s5-mutations.sh`. Evidence: `## Step S5 seam fix result`, RED 3 then 2 then 1 failures, green failures=0 completed=6, `--check-only` exit 0, VERSION / CONFIG / CAPTURE-TYPE / FLATTEN / INVENT-MASK / NO-COERCE / ORDER mutants all FIRED with byte-identical restores. Recovery: a fresh bridge without `init_config_db` answers 64 px, `OS.execute` into a PackedStringArray captures nothing, and `JSON.parse_string` turns canonical integer literals back into floats.
 - [x] CP10c - Throwaway publisher produces a framework-safe catalog (S5 prerequisite). Resume: `godot4 --headless --path editor --script /tmp/user/1000/opencode/sstd-s5-publish.gd`, then compare `jq -S '.tiles | map(select(.key | startswith("slope_grass_30deg_4x2_") | not))'` of the run dir against `editor/default_package/terrain_types.json`. Evidence: `## Step S5 publisher verification`, publisher rc=0, 30 entries / 16 generated keys / 16 PNGs, base entries identical, both `.tres` carry all 16 terrain keys. Recovery: the publisher writes only `user://`; never point it at `res://`.
-- [ ] CP11 - Artifacts and palette registration written (S5). Resume: temp-dir-then-rename check plus the 16-key registration unit test. Evidence: 30 entries, no duplicate keys, explicit staged paths. Recovery: never `git add -A` here; stage only named artifacts.
-- [ ] CP12 - Four headless guards run (S6). Resume: four `godot4 --headless` commands; `Image.new().load(path)` oracle and `Time.get_ticks_msec()`. Evidence: all four exit 0, worst contact error <= 1 px. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
-- [ ] CP13 - Full gate and mutation battery run (S7). Resume: Rust gates plus all relevant GDScript suites; every mutant FIRES, PARSES and reddens its named test. Evidence: counts, VOID and REFUTED lists, byte-identical restore. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture.
-- [ ] CP14 - Docs, issue close and checkpoint updated (S8). Resume: wiki page and index, issue #178 close only when all ten ACs (the original seven plus AC8-AC10 for preprocessing) are green, checkpoint pointer. Evidence: closing comment URL and terminal checkpoint block. Recovery: if AC4 exceeded 1 px, #178 stays OPEN with the measured error and the follow-up link.
+- [x] CP11 - Artifacts and palette registration written (S5). Evidence: 16 generated PNGs copied from the throwaway publisher, two regenerated `.tres` groupings, a 30-entry `terrain_types.json`, `artifact_mismatch=0` against the publisher output, and `framework_cmp=0` against the 14 pre-existing entries under `jq -S`. Recovery: never `git add -A` here; stage only named artifacts; never stage `.uid` files.
+- [x] CP12 - Headless guards run (S6). Resume: the five `godot4 --headless` slope suites; `Image.new().load(path)` alpha oracle. Evidence: `test_slope_conversion`, `test_both_slope_sets_appear_in_palette`, `test_fresh_profile_loads_default_terrain`, `test_second_full_conversion_run_is_byte_identical` and `test_walker_contact_tracks_drawn_edge` all exit 0; the walker guard reports `passing_keys=16/16`. All-air columns are exempt from the contact assertion because no walker can stand there, and are asserted collision-free instead. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
+- [x] CP13 - Full gate and mutation battery run (S7). Evidence: `cargo check -p import-tiles --tests` exit 0; `cargo test -p import-tiles` 18 passed / 0 failed; `cargo test -p sstd-core` 160 passed / 0 failed; `test_screen_store`, `test_image_to_map`, `test_override_merge` all exit 0. The converter fix was mutation-verified red (exit 101) by restoring bottom-row seeding and then restored green. The walker guard's new assertion fired when a collision bit was set in an all-air column and returned green after restoring the publisher output. The override-merge guard's generated-key filter fired when its prefix was mutated and returned green after restore via an EXIT trap. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture; confirm a green baseline before copying any backup.
+- [ ] CP14 - Issue close, push and checkpoint terminal update (S8). Docs are done: wiki `TDD_Collision-Map-Tooling` section 10.5, wiki `TODO.md` TS83, this ledger and `docs/SESSION-CHECKPOINT.md` CURRENT STATE. STOP HERE: #178 and #239 stay OPEN and no branch is pushed without explicit @me direction. Resume when directed: commit on `local/feat/slope-preprocess`, request one push permission, push the code and wiki branches by explicit remote, ff-only merge both defaults, push both defaults, then close the two issues with comments citing the wiki section. Recovery: if the merge refuses, STOP and ask rather than authoring a merge commit.
 
 ## STEP LEDGER
 
@@ -637,10 +637,10 @@ blocks are append-only; corrections go in a later block and name what was wrong.
 | S2 RED tests for request, expansion, alpha, registration, determinism and preprocessing | DONE | `## Step S2 result`, 2026-11-26 | 9 Rust unit + 3 GDScript unit + 4 headless E2E tests, RED exit 101 / 1 |
 | S3 Rust `convert-slope` subcommand | DONE | `## Step S3 result (partial)`, 2026-11-26 | `tools/import-tiles/src/main.rs`, 128-byte mask at 32px, gates exit 0, 9/9 mutants FIRED |
 | S4 GDScript orchestrator and DAO coercion | DONE | `## Step S4 result`, 2026-11-26 | two `--check-only` exit 0, 17 + 3 tests green, no ternaries; CP10b adds three seam guards, now 6 |
-| S5 Commit generated artifacts and palette registration | NOT STARTED | - | 2 `.tres`, 16 PNGs + `.import`, 14 -> 30 terrain entries |
-| S6 E2E palette, fresh-load, and walker-contact guards | NOT STARTED | - | 4 headless suites, exit 0 each |
-| S7 Full gate and mutation battery | NOT STARTED | - | `cargo test -p import-tiles`, `cargo test -p sstd-core`, GDScript sweeps, mutant FIRE/VOID counts |
-| S8 Docs, issue close, checkpoint terminal update | NOT STARTED | - | wiki pages cited, issue #178 closed, pointer `nothing in flight` |
+| S5 Commit generated artifacts and palette registration | DONE | `## Mini-checkpoints` CP11, 2026-11-26 | 2 `.tres`, 16 PNGs, 14 -> 30 terrain entries, framework entries unchanged |
+| S6 E2E palette, fresh-load, and walker-contact guards | DONE | `## Mini-checkpoints` CP12, 2026-11-26 | 5 headless suites, exit 0 each, walker 16/16 |
+| S7 Full gate and mutation battery | DONE | `## Mini-checkpoints` CP13, 2026-11-26 | Rust 18 + 160 tests, 3 final mutations FIRED, canonical suites exit 0 |
+| S8 Docs, issue close, checkpoint terminal update | DOCS DONE; close/push pending direction | `## Mini-checkpoints` CP14, 2026-11-26 | wiki §10.5 and TS83 updated; #178 and #239 stay OPEN until directed |
 
 The checkpoint of record is `docs/SESSION-CHECKPOINT.md`. When implementation starts, its
 `## CURRENT STATE / NEXT MOVE` block gains exactly one pointer line,
@@ -1097,3 +1097,30 @@ Per @me's 2026-11-26 directive, `_run_converter()` is the preferred block shape 
 guards plus nested `match`; the GDScript `Dictionary` result with `"ok": false` stays because Godot's
 idiomatic return is a key/value dictionary. Recorded in project `AGENTS.md` and lessons DB
 `01M8D5T2CM33GKA1YQTPP4JXH6`.
+
+### Step S5-S8 final result (2026-11-26)
+
+The committed artifacts came from the verified throwaway publisher after rebuilding
+`target/debug/import-tiles` with the ground-mass fix. Byte comparison against the publisher output
+is exact for all 16 PNGs, both `.tres` files and the 30-entry JSON catalog; the 14 pre-existing
+framework entries are unchanged under sorted JSON comparison.
+
+Two test-side overreaches were corrected and mutation-verified. The walker guard asserted a drawn
+edge in every column, but authored slope cells contain all-air columns; it now requires those
+columns to stay collision-free and applies the 1 px contact check only where art is drawn. The
+canonical override-merge guard asserted an exact catalog size of 14; it now excludes the generated
+`slope_grass_30deg_4x2_` keys before counting its 14 framework prototypes. Both guards went red
+under their named mutations and green after restore.
+
+The whole-file audit of `tools/import-tiles/src/main.rs` delivered
+`docs/AUDIT-2026-11-26-import-tiles-main-rs.md` before the single fix pass. Fixes covered the
+converter seeding defect, per-node intent comments, identifier renames (`e` to `error`, `a, b` to
+`left, right`), named exit/index magic numbers, two `if`/`else` bindings converted to `match`, and
+helper extraction from oversized emitters. @me directed a direct fix instead of an assisted
+`TODO(human)` scaffold for this pass.
+
+Final gates: `cargo check -p import-tiles --tests` exit 0; `cargo test -p import-tiles` 18 passed;
+`cargo test -p sstd-core` 160 passed; five slope E2E suites exit 0; `test_screen_store`,
+`test_image_to_map` and `test_override_merge` exit 0. `test_screen_store` was green on this run, so
+the known issue #85 red on 4.7.2 was not reproduced; it remains a separate tracked concern. Issue
+close, push and merge stay blocked on explicit direction.

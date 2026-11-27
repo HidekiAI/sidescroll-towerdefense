@@ -15,7 +15,7 @@ source_image = "res://assets/samples/tileset_2-2.png"
 tiles = [{
 "local_x": 0,
 "local_y": 0,
-"terrain_key": "slope_30deg_3_0",
+"terrain_key": "slope_grass_30deg_4x2_l0",
 "elevation_tiles": 1,
 "z_depth": 0,
 "sub_tile_mask": 15,
@@ -25,7 +25,7 @@ tiles = [{
 }, {
 "local_x": 1,
 "local_y": 0,
-"terrain_key": "slope_30deg_2_0",
+"terrain_key": "slope_grass_30deg_4x2_l1",
 "elevation_tiles": 1,
 "z_depth": 0,
 "sub_tile_mask": 15,
@@ -35,7 +35,7 @@ tiles = [{
 }, {
 "local_x": 2,
 "local_y": 0,
-"terrain_key": "slope_30deg_1_0",
+"terrain_key": "slope_grass_30deg_4x2_l2",
 "elevation_tiles": 0,
 "z_depth": 0,
 "sub_tile_mask": 15,
@@ -45,7 +45,7 @@ tiles = [{
 }, {
 "local_x": 3,
 "local_y": 0,
-"terrain_key": "slope_30deg_0_0",
+"terrain_key": "slope_grass_30deg_4x2_l3",
 "elevation_tiles": 0,
 "z_depth": 0,
 "sub_tile_mask": 15,
@@ -55,7 +55,7 @@ tiles = [{
 }, {
 "local_x": 0,
 "local_y": 1,
-"terrain_key": "slope_30deg_3_1",
+"terrain_key": "slope_grass_30deg_4x2_l4",
 "elevation_tiles": 1,
 "z_depth": 0,
 "sub_tile_mask": 15,
@@ -65,7 +65,7 @@ tiles = [{
 }, {
 "local_x": 1,
 "local_y": 1,
-"terrain_key": "slope_30deg_2_1",
+"terrain_key": "slope_grass_30deg_4x2_l5",
 "elevation_tiles": 0,
 "z_depth": -1,
 "sub_tile_mask": 0,
@@ -75,7 +75,7 @@ tiles = [{
 }, {
 "local_x": 2,
 "local_y": 1,
-"terrain_key": "slope_30deg_1_1",
+"terrain_key": "slope_grass_30deg_4x2_l6",
 "elevation_tiles": 0,
 "z_depth": -1,
 "sub_tile_mask": 0,
@@ -85,7 +85,7 @@ tiles = [{
 }, {
 "local_x": 3,
 "local_y": 1,
-"terrain_key": "slope_30deg_0_1",
+"terrain_key": "slope_grass_30deg_4x2_l7",
 "elevation_tiles": 0,
 "z_depth": -1,
 "sub_tile_mask": 0,
