@@ -18,7 +18,11 @@ Current step: optional reference pass is implemented and green. `cargo check -p 
 
 The four-mutant battery also passed: `/tmp/user/1000/opencode/sstd-reference-pass-mutations.sh` exited 0 with `fired=4 void=0 refuted=0`, byte-identical restores after each mutant, and the unmutated suite back to 22 passed / 0 failed. Mutant names and guards are recorded in the plan's cleaned-reference mutation section.
 
-Next move in runnable order: (1) run the real cleaned PNG with the existing request geometry and record all eight measured mismatch counts; (2) update the plan's mini-checkpoint boxes and this block with evidence, then commit explicit paths only. Do not stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file, do not use `git add -A` / `git add .`, and ask before any push or merge.
+The real cleaned PNG run also passed: `/tmp/user/1000/opencode/sstd-reference-pass-run.sh` exited 0 with converter exit 0 and eight measured differing-bit counts `0, 0, 0, 0, 0, 0, 0, 45` against the alpha oracle. Total gap is 45/8192 bits (0.5%), down from 3128/8192 (38.2%). Cell 7 deliberately keeps its Pass I mask because 45 bits is below the 64-bit limit. Emitted JSON has no timestamp fields and the 16 PNGs have only `IHDR`, `IDAT`, `IEND` chunks; no new dependency was added. Full numbers are in the plan's cleaned-reference real-run section.
+
+Current step: all plan boxes are ticked and the work is committed locally on `fix/slope-mask-reference-pass`; nothing is pushed or merged. Issue #239 stays open until @me approves publishing, then it must be closed with a comment citing the commit. `editor/assets/samples/tileset_2-2-cleaned.png` is the human-authored reference and stays untracked; it must never be staged.
+
+Next move: present the single final diff walkthrough, then ask @me whether to push the branch by explicit remote name and fast-forward merge it into `trunk`. Do not push, merge, stage the cleaned PNG or any `.uid` file, or use `git add -A` / `git add .` without that approval.
 
 **2026-11-26 FINAL IMPLEMENTATION STATE (superseded by the terminal paragraph above; retained as history).**
 Objective: implement #178 (grass slope conversion tool) and #239 (two-phase slope source-art

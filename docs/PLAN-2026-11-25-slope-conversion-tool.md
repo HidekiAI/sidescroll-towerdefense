@@ -694,6 +694,27 @@ Every restore was byte-identical to the verified-green backup and the unmutated 
 22 passed / 0 failed. Raw output: `/tmp/user/1000/opencode/sstd-reference-pass-mutations.log`,
 `.results` and the per-mutant `.REF-*` logs.
 
+## Cleaned-reference pass real-run result
+
+2026-11-27: `bash /tmp/user/1000/opencode/sstd-reference-pass-run.sh` exited **0**. It rebuilt
+`target/debug/import-tiles`, added `cleaned_reference_image` to the checked-in request geometry,
+and ran `convert-slope ... --signed-off` into
+`$HOME/Downloads/slope-clean-up/compare-reference-pass/out`. Raw output is that directory's
+`compare.log` plus `stdout.log` and `stderr.log`.
+
+Measured against the alpha-derived oracle, all eight source cells: differing bits are
+`0, 0, 0, 0, 0, 0, 0, 45` and ground-pixel counts are `(25,25)`, `(800,800)`, `(784,784)`,
+`(510,510)`, `(745,745)`, `(1024,1024)`, `(1024,1024)` and `(915,960)` for derived versus
+reference. Total gap fell from **3128 / 8192 bits (38.2%)** before the pass to **45 / 8192 bits
+(0.5%)** after it. The 16-line `REFINE` journal shows `use_reference=true` for the seven cells
+whose gap exceeds 64 bits and `use_reference=false` for cell 7 at 45 bits, which is the intended
+"close enough" outcome: the tool does not repaint cell art that already agrees with the human.
+
+No new Rust dependency was added. The emitted JSON has no timestamp fields and the 16 emitted PNGs
+contain only `IHDR`, `IDAT` and `IEND` chunks, so there is no embedded timestamp. ImageMagick's
+`date:create` / `date:modify` lines are filesystem stat properties, not PNG chunks; they are not
+written by the tool.
+
 ## Mini-checkpoints (live-updated ledger for stateless agents)
 
 Rule of use: a fresh or resumed agent reads the FIRST unchecked box and runs its resume
@@ -724,7 +745,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP16 - Four refinement guards written RED. Resume: `cargo test -p import-tiles` from the code repo. Evidence: exit 101 with `reference_crop_uses_request_geometry_and_flip`, `reference_pass_reclassifies_all_eight_source_cells`, `reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero` and `without_cleaned_reference_pass_one_mask_is_unchanged` failing for the named missing symbols or behaviour; raw output in `## Cleaned-reference pass RED result`. Recovery: the guards are in-source; repair only those four test bodies if a partial write broke parsing, and never revert production code to make them green.
 - [x] CP17 - Optional reference pass implemented and gates green. Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`. Evidence: both exit 0; 22 passed; the 64-bit decision and no-reference branch are exercised by the four guards; raw output in `## Cleaned-reference pass GREEN result`. Recovery: a half-edited block shows as a compile error in `tools/import-tiles/src/main.rs`; finish that block, do not rewrite unrelated functions.
 - [x] CP18 - Four-mutant battery confirmed. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-mutations.sh`. Evidence: 4 FIRED, 0 VOID, 0 REFUTED and byte-identical restores after each mutant; raw output in `## Cleaned-reference pass mutation result`. Recovery: restore from the verified-green backup with `cp`, never `git checkout` a never-committed state; confirm the unmutated baseline is green before copying a backup.
-- [ ] CP19 - Real cleaned PNG run, evidence, commit and handover. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-run.sh`, then `git -C sidescroll-towerdefense diff --check` and `git -C sidescroll-towerdefense status --short`. Evidence: converter exit 0, eight measured mismatch counts, plan and checkpoint updated, explicit-path commit made, and no push or merge performed without asking. Recovery: never stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file; stage only the named plan, checkpoint and `tools/import-tiles/src/main.rs`.
+- [x] CP19 - Real cleaned PNG run, evidence, commit and handover. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-run.sh`, then `git -C sidescroll-towerdefense diff --check` and `git -C sidescroll-towerdefense status --short`. Evidence: converter exit 0, eight measured mismatch counts (`0,0,0,0,0,0,0,45`; total 45/8192), plan and checkpoint updated, explicit-path commit made, and no push or merge performed without asking. Recovery: never stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file; stage only the named plan, checkpoint and `tools/import-tiles/src/main.rs`.
 
 ## STEP LEDGER
 
