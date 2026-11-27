@@ -659,6 +659,9 @@ struct ConversionRequest {
     width_px: u32,
     height_px: u32,
     cells: Vec<CellRequest>,
+    // Absent means the original grey-cluster pass alone decides every mask.
+    #[serde(default)]
+    cleaned_reference_image: Option<String>,
 }
 #[derive(Deserialize, Debug, Clone)]
 struct CellRequest {
@@ -724,6 +727,10 @@ struct ConversionSidecar {
 const REQUEST_VERSION: &str = "1.0.0";
 const RESULT_VERSION: &str = "1.0.0";
 const MASK_ENCODING_GREYSCALE: &str = "greyscale";
+// Alpha above this value is the human's solid verdict; RGB under transparent pixels is stale art.
+const REFERENCE_ALPHA_SOLID_THRESHOLD: u8 = 128;
+// 64 bits is 6.25% of a 32x32 tile, measured against the eight per-cell gaps in the plan.
+const REFERENCE_MASK_MISMATCH_LIMIT: usize = 64;
 
 // =========================================================================
 // solid-mask pipeline (ART -> DATA, step 1)
@@ -1093,11 +1100,69 @@ fn fn_crop_resize_flip_cell(
     }
 }
 
+// Read the human's verdict from reference alpha only. The cleaned PNG keeps art RGB under its
+// transparent pixels, so greyscale would call every cell solid and erase the human's air.
+fn fn_alpha_mask_from_image(image: &RgbaImage) -> Vec<u8> {
+    let binary: Vec<u8> = image
+        .pixels()
+        .map(|pixel| (pixel[3] >= REFERENCE_ALPHA_SOLID_THRESHOLD) as u8)
+        .collect();
+    fn_pack_solid_bits(&binary)
+}
+
+// Count one differing solid/air bit per pixel. Equal lengths are part of the contract: a silent
+// zip over unequal packed masks would hide a wrong image size.
+fn fn_mask_difference_count(derived_mask: &[u8], reference_mask: &[u8]) -> usize {
+    assert_eq!(
+        derived_mask.len(),
+        reference_mask.len(),
+        "derived and reference masks must cover the same tile"
+    );
+    derived_mask
+        .iter()
+        .zip(reference_mask.iter())
+        .map(|(derived_byte, reference_byte)| (derived_byte ^ reference_byte).count_ones() as usize)
+        .sum()
+}
+
+// Adopt the reference only when Pass I is materially wrong. The journal line records both the
+// measured gap and the decision so a later session can replay why a cell kept or lost its mask.
+fn fn_refine_mask_with_reference(
+    derived_mask: &[u8],
+    reference_mask: &[u8],
+    generated_key: &str,
+    reference_path: &str,
+) -> Vec<u8> {
+    let differing_bits: usize = fn_mask_difference_count(derived_mask, reference_mask);
+    let use_reference: bool = differing_bits > REFERENCE_MASK_MISMATCH_LIMIT;
+    eprintln!(
+        "REFINE key={} reference={} differing_bits={} limit={} use_reference={}",
+        generated_key, reference_path, differing_bits, REFERENCE_MASK_MISMATCH_LIMIT, use_reference
+    );
+    match use_reference {
+        true => reference_mask.to_vec(),
+        false => derived_mask.to_vec(),
+    }
+}
+
+// Crop the cleaned reference through the source path, so margins, pitch, resize and flip cannot
+// drift between the art and the human verdict.
+fn fn_reference_mask_for_cell(
+    cell: &CellRequest,
+    request: &ConversionRequest,
+    reference_sheet: &RgbaImage,
+) -> Vec<u8> {
+    let artwork: RgbaImage = fn_crop_resize_flip_cell(cell, request, reference_sheet);
+    fn_alpha_mask_from_image(&artwork)
+}
+
 // Derive the mask from finished art and bake it into alpha. An inconclusive cell returns an empty
 // mask so no caller can mistake the classifier's best guess for a resolved collision value.
 fn fn_mask_and_bake_cell(
     artwork: RgbaImage,
+    generated_key: &str,
     request: &ConversionRequest,
+    reference: Option<(&str, &[u8])>,
 ) -> (RgbaImage, Vec<u8>, bool) {
     let greyscale: Vec<u8> = to_greyscale(&artwork);
     let (solid_mask, resolved): (Vec<u8>, bool) = derive_solid_mask(
@@ -1106,9 +1171,19 @@ fn fn_mask_and_bake_cell(
         request.height_px,
         DEFAULT_MIN_CLUSTER_GAP,
     );
-    let baked: RgbaImage = fn_bake_alpha_or_flag(artwork, &solid_mask, resolved);
+    // Refine only a resolved Pass I result; an inconclusive cell must still refuse the commit.
+    let chosen_mask: Vec<u8> = match (resolved, reference) {
+        (true, Some((reference_path, reference_mask))) => fn_refine_mask_with_reference(
+            &solid_mask,
+            reference_mask,
+            generated_key,
+            reference_path,
+        ),
+        _ => solid_mask,
+    };
+    let baked: RgbaImage = fn_bake_alpha_or_flag(artwork, &chosen_mask, resolved);
     let emitted_mask: Vec<u8> = match resolved {
-        true => solid_mask,
+        true => chosen_mask,
         false => Vec::new(),
     };
     (baked, emitted_mask, resolved)
@@ -1119,14 +1194,21 @@ fn fn_mask_and_bake_cell(
 fn fn_emit_cell_outputs(
     request: &ConversionRequest,
     sheet: &RgbaImage,
+    reference_sheet: Option<&RgbaImage>,
     output_dir: &Path,
 ) -> (Vec<ConversionOutput>, Vec<String>) {
     let mut mut_outputs: Vec<ConversionOutput> = Vec::new();
     let mut mut_unresolved: Vec<String> = Vec::new();
+    let reference_path: &str = request.cleaned_reference_image.as_deref().unwrap_or("none");
     request.cells.iter().for_each(|cell| {
         let artwork: RgbaImage = fn_crop_resize_flip_cell(cell, request, sheet);
+        let reference_mask: Option<Vec<u8>> =
+            reference_sheet.map(|reference| fn_reference_mask_for_cell(cell, request, reference));
+        let reference_context: Option<(&str, &[u8])> = reference_mask
+            .as_ref()
+            .map(|mask| (reference_path, mask.as_slice()));
         let (cell_image, solid_mask, resolved): (RgbaImage, Vec<u8>, bool) =
-            fn_mask_and_bake_cell(artwork, request);
+            fn_mask_and_bake_cell(artwork, &cell.generated_key, request, reference_context);
         let image_path: PathBuf = output_dir.join(format!(
             "{}_{}x{}.png",
             cell.generated_key, request.width_px, request.height_px
@@ -1166,10 +1248,39 @@ fn fn_convert_resource(
     let sheet: RgbaImage = image::open(&request.source_image)
         .map_err(|error| ConvertError::Io(format!("{}: {}", request.source_image, error)))?
         .to_rgba8();
+    // Load the optional human reference once and refuse a sheet too small for the request grid.
+    let reference_sheet: Option<RgbaImage> = match &request.cleaned_reference_image {
+        Some(reference_path) => {
+            let reference: RgbaImage = image::open(reference_path)
+                .map_err(|error| ConvertError::Decode(format!("{}: {}", reference_path, error)))?
+                .to_rgba8();
+            let grid: SheetGrid = fn_measure_grid(request);
+            let required_right_px: u32 = grid.crop_rect.x + grid.crop_rect.width_px;
+            let required_bottom_px: u32 = grid.crop_rect.y + grid.crop_rect.height_px;
+            if reference.width() < required_right_px || reference.height() < required_bottom_px {
+                return Err(ConvertError::Decode(format!(
+                    "{} is {}x{} but the request needs {}x{}",
+                    reference_path,
+                    reference.width(),
+                    reference.height(),
+                    required_right_px,
+                    required_bottom_px
+                )));
+            }
+            eprintln!(
+                "REFERENCE path={} width_px={} height_px={}",
+                reference_path,
+                reference.width(),
+                reference.height()
+            );
+            Some(reference)
+        }
+        None => None,
+    };
     std::fs::create_dir_all(output_dir)
         .map_err(|error| ConvertError::Io(format!("{}: {}", output_dir.display(), error)))?;
     let (mut mut_outputs, unresolved): (Vec<ConversionOutput>, Vec<String>) =
-        fn_emit_cell_outputs(request, &sheet, output_dir);
+        fn_emit_cell_outputs(request, &sheet, reference_sheet.as_ref(), output_dir);
     if !unresolved.is_empty() {
         return Err(ConvertError::UnresolvedCells(unresolved));
     }
@@ -1311,7 +1422,9 @@ fn fn_clean_cell(
         request.height_px,
         image::imageops::FilterType::Nearest,
     );
-    fn_mask_and_bake_cell(resized, request)
+    // Phase I emits the sheet a human cleans, so it has no cleaned reference to consult.
+    let phase_one_key: String = format!("phase_one_r{source_row}_c{source_col}");
+    fn_mask_and_bake_cell(resized, &phase_one_key, request, None)
 }
 
 // Assemble the cleaned cells into one sheet at the configured tile size and attach the rect and
@@ -2474,6 +2587,7 @@ mod tests {
             width_px,
             height_px,
             cells: mut_cells,
+            cleaned_reference_image: None,
         }
     }
 
@@ -3119,6 +3233,22 @@ mod tests {
         mask.iter().map(|byte| byte.count_ones() as usize).sum()
     }
 
+    /// Pack a half-solid 32px tile. Each row is 32 bits (4 bytes), so the 16-pixel halves are
+    /// `[FF,FF,00,00]` or `[00,00,FF,FF]` repeated on every row.
+    fn fn_expected_half_mask(solid_on_left: bool) -> Vec<u8> {
+        let row_bytes: usize = REFERENCE_TEST_TILE_PX as usize / BITS_PER_BYTE as usize;
+        let half_row_bytes: usize = row_bytes / 2;
+        let left_row: Vec<u8> = [vec![0xFF; half_row_bytes], vec![0x00; half_row_bytes]].concat();
+        let right_row: Vec<u8> = [vec![0x00; half_row_bytes], vec![0xFF; half_row_bytes]].concat();
+        let row_pattern: Vec<u8> = match solid_on_left {
+            true => left_row,
+            false => right_row,
+        };
+        (0..REFERENCE_TEST_TILE_PX)
+            .flat_map(|_| row_pattern.iter().copied())
+            .collect()
+    }
+
     /// Ask for one source cell at the fixture's measured geometry, with the requested flip.
     fn fn_reference_cell_request(source_col: i32, source_row: i32, flip_h: bool) -> CellRequest {
         CellRequest {
@@ -3197,13 +3327,9 @@ mod tests {
                 .iter()
                 .find(|candidate| candidate.generated_key == generated_key)
                 .unwrap_or_else(|| panic!("{generated_key} exists"));
-            let expected_byte: u8 = match cell_index % 2 {
-                0 => 0x0F,
-                _ => 0xF0,
-            };
+            let expected_mask: Vec<u8> = fn_expected_half_mask(cell_index % 2 == 0);
             assert_eq!(
-                output.solid_mask,
-                vec![expected_byte; REFERENCE_TEST_PACKED_TILE_BYTES],
+                output.solid_mask, expected_mask,
                 "{generated_key} follows the reference, not the all-solid Pass I mask"
             );
         });
