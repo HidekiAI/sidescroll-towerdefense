@@ -10,7 +10,10 @@ const DEFAULT_TERRAIN_PATH: String = "res://default_package/terrain_types.json"
 const GENERATED_KEY_PREFIX: String = "slope_grass_30deg_4x2_"
 const RIGHT_KEY_SUFFIX: String = "r"
 const LEFT_KEY_SUFFIX: String = "l"
-const REQUEST_VERSION: String = "slope-conversion-1"
+# Mirrors the Rust convert-slope reader's format token; a respell must touch both sides.
+const REQUEST_VERSION: String = "1.0.0"
+# The same runtime config DB `main.gd` boots; it seeds grid W/H from populate_001 on a fresh host.
+const CONFIG_DB_PATH: String = "user://data/config/sstd_config.sqlite3"
 const CONVERTER_RELATIVE_PATH: String = "../target/debug/import-tiles"
 const REQUEST_FILE_NAME: String = "request.json"
 const RESULT_FILE_NAME: String = "result.json"
@@ -43,6 +46,15 @@ func _grid_tile_size() -> Array[int]:
         bridge = ClassDB.instantiate("SstdBridge")
     if bridge == null or not bridge.has_method("get_grid_config"):
         return tile_size
+    # A fresh bridge has no config store and answers with its 64 px code defaults, so point it at
+    # the runtime config DB first; this keeps a headless run's tile size deterministic.
+    if bridge.has_method("init_config_db"):
+        var config_db_path: String = ProjectSettings.globalize_path(CONFIG_DB_PATH)
+        var init_decoded: Variant = JSON.parse_string(
+            String(bridge.call("init_config_db", config_db_path)))
+        var init_ok: bool = init_decoded is Dictionary and bool((init_decoded as Dictionary).get("ok", false))
+        if not init_ok:
+            printerr("SLOPE-CONFIG init failed path=%s result=%s" % [config_db_path, str(init_decoded)])
     var decoded: Variant = JSON.parse_string(String(bridge.call("get_grid_config")))
     if not decoded is Dictionary:
         return tile_size

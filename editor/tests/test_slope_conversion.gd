@@ -12,6 +12,11 @@ const GENERATED_KEY_PREFIX: String = "slope_grass_30deg_4x2_"
 const EXISTING_ENTRY_COUNT: int = 14
 const GENERATED_CELL_COUNT: int = 8
 const EXPECTED_ENTRY_COUNT: int = 30
+# The Rust convert-slope reader pins this format token; a drift here looks like a clean run until
+# the converter rejects the whole request with a version error.
+const EXPECTED_REQUEST_VERSION: String = "1.0.0"
+const EXPECTED_TILE_WIDTH_PX: int = 32
+const EXPECTED_TILE_HEIGHT_PX: int = 32
 
 var _failures: int = 0
 var _completed: Array[String] = []
@@ -60,6 +65,8 @@ func _run() -> void:
     _guard_conversion_request_coerces_integer_fields()
     _guard_terrain_merge_upserts_existing_keys_without_duplication()
     _guard_terrain_json_resaves_integral_float_as_integer()
+    _guard_request_version_matches_rust_reader()
+    _guard_headless_grid_size_comes_from_config_db()
     print("slope_conversion failures=%d completed=%d" % [_failures, _completed.size()])
     quit(0 if _failures == 0 else 1)
 
@@ -167,3 +174,33 @@ func _guard_terrain_json_resaves_integral_float_as_integer() -> void:
     _check(not _has_fractional_number(json_text),
         "solid_mask bytes serialize without a decimal point")
     _completed.append("terrain_json_resaves_integral_float_as_integer")
+
+
+# A version drift only shows up when the Rust reader rejects the whole request, so pin the
+# orchestrator's wire token directly.
+func _guard_request_version_matches_rust_reader() -> void:
+    var tool_script: GDScript = load(SLOPE_TOOL_PATH) as GDScript
+    if tool_script == null:
+        _check(false, "SlopeConversionTool script exists for the version guard")
+        return
+    var constants: Dictionary = tool_script.get_script_constant_map()
+    _check(String(constants.get("REQUEST_VERSION", "")) == EXPECTED_REQUEST_VERSION,
+        "request version matches the Rust reader's format token")
+    _completed.append("request_version_matches_rust_reader")
+
+
+# A freshly instantiated bridge answers with its code default (64 px), not the runtime config
+# DB. Pin the headless path to the configured size so a whole conversion is never scaled wrongly.
+func _guard_headless_grid_size_comes_from_config_db() -> void:
+    var tool: Object = _load_object(SLOPE_TOOL_PATH)
+    if tool == null or not tool.has_method("_grid_tile_size"):
+        _check(false, "SlopeConversionTool._grid_tile_size exists")
+        return
+    var tile_size: Array = tool.call("_grid_tile_size")
+    _check(tile_size.size() == 2, "headless grid size returns a width and a height")
+    if tile_size.size() == 2:
+        _check(int(tile_size[0]) == EXPECTED_TILE_WIDTH_PX,
+            "headless grid width comes from the config DB")
+        _check(int(tile_size[1]) == EXPECTED_TILE_HEIGHT_PX,
+            "headless grid height comes from the config DB")
+    _completed.append("headless_grid_size_comes_from_config_db")

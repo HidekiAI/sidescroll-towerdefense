@@ -7,37 +7,37 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-**2026-11-26 CURRENT STEP: generate the 16 slope tile PNGs plus `.import` files, regenerate the
-two grouping resources, and keyed-upsert 16 terrain entries into `editor/default_package/`
-(aka S5), on implementation branch `local/feat/slope-preprocess` (base local `trunk` `d2e0255`),
-no push and no issue state change.** This commit also closes the GDScript orchestrator and both
-bridge directions (plan step S4). Objective: implement the two-phase preprocessing and conversion
-tool from #178 (grass slope conversion tool) and #239 (two-phase preprocessing implementation),
-destination the committed `editor/default_package/`. Committed history on this branch: `b6ad8e6`
-measured sources; `06e2eb9`, `a0501b8`, `bd45b33` the 16 assistant-written RED guards; `aa253ce`
-the Rust `convert-slope` core and whole-file illegibility pass; `097fb88` the mutation-battery and
-byte-identity evidence. CP10 (GDScript orchestrator and both bridge directions) is DONE:
-`editor/scripts/slope_conversion_tool.gd` holds the named seams `convert_all`,
-`merge_terrain_entries`, `canonical_terrain_json`, `preprocess` and `load_default_terrain`;
-`ModelGateway.build_slope_conversion_request` coerces integer fields before stringify. All
-value-producing ternaries in both touched scripts became `match` per @me's 2026-11-26 directive.
-Re-measured this session: `--check-only` exit 0 on both scripts, `test_model_gateway` exit 0 with
-17 ok assertions, `test_slope_conversion` exit 0 with `failures=0 completed=3`; logs
-`/tmp/user/1000/opencode/sstd-s4-test_model_gateway.log` and
-`/tmp/user/1000/opencode/sstd-s4-test_slope_conversion.log`. CP9 (Rust `convert-slope`) stays DONE:
-`cargo check -p import-tiles --tests` exit 0, `cargo test -p import-tiles` exit 0 with 17 passed /
-0 failed, nine-mutant battery 9 FIRED / 0 VOID / 0 REFUTED with byte-identical restores. One
-pre-existing warning (`CellRequest.local_x` / `local_y` unused) remains. Next move in runnable
-order: (1) commit the S4 code and these documents together with explicit paths only, staging
-`AGENTS.md`, `editor/scripts/model_gateway.gd`, `editor/scripts/model_gateway.gd.uid`,
+**2026-11-26 CURRENT STEP: commit the wire-version and headless-config seam fix, then generate
+the 16 slope tile PNGs plus `.import` files, regenerate the two grouping resources, and keyed-upsert
+16 terrain entries into `editor/default_package/` (aka S5), on implementation branch
+`local/feat/slope-preprocess` (base local `trunk` `d2e0255`), no push and no issue state change.**
+Objective: implement the two-phase preprocessing and conversion tool from #178 (grass slope
+conversion tool) and #239 (two-phase preprocessing implementation), destination the committed
+`editor/default_package/`. Committed history on this branch: `b6ad8e6` measured sources;
+`06e2eb9`, `a0501b8`, `bd45b33` the 16 assistant-written RED guards; `aa253ce` the Rust
+`convert-slope` core and whole-file illegibility pass; `097fb88` the mutation-battery and
+byte-identity evidence; `b766a7c` the GDScript orchestrator and DAO coercion seam. CP10 is DONE
+and CP10b (S5 prerequisite seam fix) is DONE with evidence in `## Step S5 seam fix result`:
+`REQUEST_VERSION` now mirrors the Rust reader's `1.0.0`, and `_grid_tile_size()` boots the runtime
+config DB before asking a fresh bridge for the grid, so headless runs resolve 32 px rather than the
+bridge's 64 px code defaults. Two RED-first guards were added (version and grid size): RED exit 1
+with `failures=3 completed=5`, green `failures=0 completed=5` exit 0, `--check-only` exit 0, and the
+VERSION and CONFIG mutants both FIRED with byte-identical restores. Logs:
+`/tmp/user/1000/opencode/sstd-s5-seam-red.log`, `sstd-s5-seam-green2.log`, `sstd-s5-mutations.log`.
+CP9 (Rust `convert-slope`) stays DONE: `cargo check -p import-tiles --tests` exit 0, `cargo test -p
+import-tiles` exit 0 with 17 passed / 0 failed, nine-mutant battery 9 FIRED / 0 VOID / 0 REFUTED.
+One pre-existing warning (`CellRequest.local_x` / `local_y` unused) remains. Next move in runnable
+order: (1) commit the seam fix and both documents with explicit paths only, staging
 `editor/scripts/slope_conversion_tool.gd`, `editor/tests/test_slope_conversion.gd`,
-`docs/PLAN-2026-11-25-slope-conversion-tool.md` and this file; (2) generate the 16 PNGs plus
-`.import` files, regenerate the two `.tres`, and keyed-upsert 16 entries into
-`editor/default_package/terrain_types.json` to 30, staging explicit paths only because the repo
-vendors 516 MB under `editor/addons/`; (3) run the four headless GDScript guards
-(`test_both_slope_sets_appear_in_palette.gd`, `test_fresh_profile_loads_default_terrain.gd`,
+`docs/PLAN-2026-11-25-slope-conversion-tool.md` and this file; (2) re-run the one-shot publisher
+`/tmp/user/1000/opencode/sstd-s5-publish.gd` (its first run failed at the seam above, wrote nothing
+to the committed tree) and verify 16 PNGs, 16 keyed outputs and 30 terrain entries in its throwaway
+`user://` dir; (3) publish the verified PNGs plus `.import` files, regenerate the two `.tres`, and
+keyed-upsert 16 entries into `editor/default_package/terrain_types.json` to 30, staging explicit
+paths only because the repo vendors 516 MB under `editor/addons/`; (4) run the four headless GDScript
+guards (`test_both_slope_sets_appear_in_palette.gd`, `test_fresh_profile_loads_default_terrain.gd`,
 `test_walker_contact_tracks_drawn_edge.gd`, `test_second_full_conversion_run_is_byte_identical.gd`),
-gating on exit code under Godot 4.7.2; (4) run the full gate; (5) update the wiki and close #178
+gating on exit code under Godot 4.7.2; (5) run the full gate; (6) update the wiki and close #178
 only when all ten acceptance criteria are green. `test_screen_store` is known RED on 4.7 for
 issue #85 (zip directory-entry count in the screen-store guard), unrelated to this work. Never
 `git add -A` or `git add .`. The five other untracked `.uid` files in `git status` are pre-existing
