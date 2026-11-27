@@ -469,7 +469,7 @@ impl ScreenFile {
                     ),
                 )
                 .with_field("tile_width_px")
-                .with_value(&format!("{}x{}", self.tile_width_px, self.tile_height_px)),
+                .with_value(format!("{}x{}", self.tile_width_px, self.tile_height_px)),
             );
         }
 

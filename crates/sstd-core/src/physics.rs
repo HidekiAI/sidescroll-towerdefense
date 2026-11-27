@@ -121,11 +121,6 @@ fn world_bounds_px(tiles: &[Tile], grid: &GridConfig) -> (f64, f64) {
     leftmost_px.zip(rightmost_px).unwrap_or((0.0, grid.tile_w))
 }
 
-/// Tile column a world-pixel `pos_x` falls in, clamped to the columns the tile list covers.
-fn world_tile_col_at(pos_x: f64, grid: &GridConfig, last_world_tile_col: i32) -> i32 {
-    ((pos_x / grid.tile_w).floor() as i32).clamp(0, last_world_tile_col)
-}
-
 /// Hit points one landing costs, or `None` when the fall was safe.
 fn fall_damage_points(fall_start_y: f64, landing_y: f64) -> Option<f64> {
     (landing_y - fall_start_y > FALL_DAMAGE_THRESHOLD_PX).then_some(FALL_DAMAGE_POINTS)
@@ -195,11 +190,11 @@ pub fn build_ground_profile(tiles: &[Tile], grid: &GridConfig) -> GroundProfileS
                     let bit_idx = row * tile_w + local_x;
                     let byte_idx = (bit_idx / 8) as usize;
                     let bit = bit_idx % 8;
-                    if byte_idx < tile.solid_mask.len() {
-                        if (tile.solid_mask[byte_idx] >> bit) & 1 != 0 {
-                            top_row = Some(row);
-                            break;
-                        }
+                    if byte_idx < tile.solid_mask.len()
+                        && (tile.solid_mask[byte_idx] >> bit) & 1 != 0
+                    {
+                        top_row = Some(row);
+                        break;
                     }
                 }
                 top_row.map(|r| tile_top_px + r as f64)
@@ -754,7 +749,7 @@ mod tests {
     /// Build a linear ramp tile: topmost solid row rises from `start_row` (leftmost column)
     /// to `end_row` (rightmost column), linearly. All other rows are air.
     fn ramp_tile(world_tile_x: i32, world_tile_y: i32, start_row: u32, end_row: u32) -> Tile {
-        let mut mask = vec![0u8; (32 * 32 + 7) / 8];
+        let mut mask = vec![0u8; (32usize * 32).div_ceil(8)];
         for col in 0..32u32 {
             let row = start_row + (end_row.saturating_sub(start_row) * col) / 31;
             let bit_idx = row * 32 + col;
@@ -770,7 +765,7 @@ mod tests {
 
     /// Flat ground tile: every column solid at `surface_row`.
     fn flat_mask_tile(world_tile_x: i32, world_tile_y: i32, surface_row: u32) -> Tile {
-        let mut mask = vec![0u8; (32 * 32 + 7) / 8];
+        let mut mask = vec![0u8; (32usize * 32).div_ceil(8)];
         for col in 0..32u32 {
             let bit_idx = surface_row * 32 + col;
             mask[(bit_idx / 8) as usize] |= 1 << (bit_idx % 8);

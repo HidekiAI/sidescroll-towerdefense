@@ -18,7 +18,9 @@ use std::net::SocketAddr;
 use tokio::sync::{mpsc, oneshot};
 
 use editor::editor_service_server::{EditorService, EditorServiceServer};
-use editor::{CaptureScreenshotRequest, CaptureScreenshotResponse, SwitchTabRequest, SwitchTabResponse};
+use editor::{
+    CaptureScreenshotRequest, CaptureScreenshotResponse, SwitchTabRequest, SwitchTabResponse,
+};
 use tonic::{transport::Server, Request, Response, Status};
 
 /// A command queued by the tonic server for execution on the Godot main thread.

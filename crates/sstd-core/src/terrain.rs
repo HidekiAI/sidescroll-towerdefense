@@ -13,7 +13,7 @@ pub enum TerrainType {
 }
 
 impl TerrainType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "ground" => Some(TerrainType::Ground),
             "wall" => Some(TerrainType::Wall),
@@ -55,10 +55,7 @@ impl TerrainType {
     }
 
     pub fn has_inherent_hazard(self) -> bool {
-        match self {
-            TerrainType::Lava => true,
-            _ => false,
-        }
+        matches!(self, TerrainType::Lava)
     }
 }
 
@@ -71,7 +68,7 @@ pub enum SurfaceType {
 }
 
 impl SurfaceType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "normal" => Some(SurfaceType::Normal),
             "ice" => Some(SurfaceType::Ice),
@@ -105,7 +102,7 @@ pub enum HazardType {
 }
 
 impl HazardType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "none" => Some(HazardType::None),
             "lava" => Some(HazardType::Lava),
@@ -131,7 +128,7 @@ pub enum ZoneType {
 }
 
 impl ZoneType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "normal" => Some(ZoneType::Normal),
             "no_build" => Some(ZoneType::NoBuild),
@@ -319,7 +316,7 @@ impl TerrainTypeDef {
                         .replace("{}", &self.sub_tile_mask.to_string()),
                 )
                 .with_field("sub_tile_mask")
-                .with_value(&self.sub_tile_mask.to_string()),
+                .with_value(self.sub_tile_mask.to_string()),
             );
         }
 
@@ -330,7 +327,7 @@ impl TerrainTypeDef {
                     "Destructible terrain must have positive HP",
                 )
                 .with_field("destructible_hp")
-                .with_value(&self.destructible_hp.to_string()),
+                .with_value(self.destructible_hp.to_string()),
             );
         }
 
@@ -381,20 +378,20 @@ pub fn sub_tile_mask_is_set(mask: u8, index: u8) -> bool {
 
 /// Apply horizontal flip to a sub-tile mask (swap TL↔TR, BL↔BR).
 pub fn sub_tile_mask_flip_x(mask: u8) -> u8 {
-    let tl = (mask >> 0) & 1;
+    let tl = mask & 1;
     let tr = (mask >> 1) & 1;
     let bl = (mask >> 2) & 1;
     let br = (mask >> 3) & 1;
-    (tr << 0) | (tl << 1) | (br << 2) | (bl << 3)
+    tr | (tl << 1) | (br << 2) | (bl << 3)
 }
 
 /// Apply vertical flip to a sub-tile mask (swap TL↔BL, TR↔BR).
 pub fn sub_tile_mask_flip_y(mask: u8) -> u8 {
-    let tl = (mask >> 0) & 1;
+    let tl = mask & 1;
     let tr = (mask >> 1) & 1;
     let bl = (mask >> 2) & 1;
     let br = (mask >> 3) & 1;
-    (bl << 0) | (br << 1) | (tl << 2) | (tr << 3)
+    bl | (br << 1) | (tl << 2) | (tr << 3)
 }
 
 /// Sub-tile quadrant indices.
@@ -554,15 +551,15 @@ pub struct TerrainTile {
 
 impl TerrainTile {
     pub fn resolved_terrain_type(&self) -> Option<TerrainType> {
-        TerrainType::from_str(&self.terrain_type)
+        TerrainType::parse_from_str(&self.terrain_type)
     }
 
     pub fn resolved_surface(&self) -> Option<SurfaceType> {
-        SurfaceType::from_str(&self.surface)
+        SurfaceType::parse_from_str(&self.surface)
     }
 
     pub fn resolved_hazard(&self) -> Option<HazardType> {
-        HazardType::from_str(&self.hazard)
+        HazardType::parse_from_str(&self.hazard)
     }
 }
 
@@ -629,7 +626,7 @@ pub enum BiomeType {
 }
 
 impl BiomeType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "grassland" => Some(BiomeType::Grassland),
             "cave" => Some(BiomeType::Cave),
@@ -651,7 +648,7 @@ pub enum OwnershipType {
 }
 
 impl OwnershipType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "player.1" => Some(OwnershipType::Player1),
             "player.2" => Some(OwnershipType::Player2),
@@ -744,7 +741,7 @@ pub enum EntityStateType {
 }
 
 impl EntityStateType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "active" => Some(EntityStateType::Active),
             "disabled" => Some(EntityStateType::Disabled),

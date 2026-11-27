@@ -37,7 +37,7 @@ impl Screen {
             result = result.with_message(
                 ValidationMessage::error("SCREEN_INVALID_WIDTH", "Screen width must be positive")
                     .with_field("width_tiles")
-                    .with_value(&self.width_tiles.to_string()),
+                    .with_value(self.width_tiles.to_string()),
             );
         }
 
@@ -45,7 +45,7 @@ impl Screen {
             result = result.with_message(
                 ValidationMessage::error("SCREEN_INVALID_HEIGHT", "Screen height must be positive")
                     .with_field("height_tiles")
-                    .with_value(&self.height_tiles.to_string()),
+                    .with_value(self.height_tiles.to_string()),
             );
         }
 
@@ -78,7 +78,7 @@ impl TileEntry {
             result = result.with_message(
                 ValidationMessage::error("TILE_EMPTY_TERRAIN", "Terrain key must not be empty")
                     .with_field("terrain")
-                    .with_value(&format!("({}, {})", self.x, self.y)),
+                    .with_value(format!("({}, {})", self.x, self.y)),
             );
         }
 

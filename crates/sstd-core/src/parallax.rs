@@ -805,7 +805,9 @@ impl Stack {
                             .with_layer(layer.name.as_str()),
                         );
                     }
-                    Plane::Front if depth_value < -0.5 || depth_value >= 0.0 => {
+                    Plane::Front
+                        if !depth_value.is_nan() && !(-0.5..0.0).contains(&depth_value) =>
+                    {
                         result = result.with_message(
                             ValidationMessage::error(
                                 "plane_depth",

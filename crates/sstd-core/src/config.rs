@@ -937,13 +937,11 @@ mod tests {
                 Ok((row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })
             .expect("query foreign_key_check");
-        let mut count = 0;
-        for v in violations {
-            let (table, rowid) = v.expect("row");
-            count += 1;
+        // Panic on the first reported row; a clean foreign-key check yields no rows at all.
+        if let Some(violation) = violations.into_iter().next() {
+            let (table, rowid) = violation.expect("row");
             panic!("FK violation in {table} row {rowid}");
-        }
-        assert_eq!(count, 0);
+        };
     }
 
     #[test]

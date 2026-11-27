@@ -662,8 +662,6 @@ struct ConversionRequest {
 }
 #[derive(Deserialize, Debug, Clone)]
 struct CellRequest {
-    local_x: i32,
-    local_y: i32,
     source_col: i32,
     source_row: i32,
     flip_h: bool,
@@ -904,7 +902,7 @@ fn fn_classify_solid_pixels(greyscale: &[u8], ground_grey: u8, air_grey: u8) -> 
 
 // Pack one bit per pixel, least significant bit first, so eight pixels share a byte.
 fn fn_pack_solid_bits(binary: &[u8]) -> Vec<u8> {
-    let mut mut_mask: Vec<u8> = vec![0u8; (binary.len() + BITS_PER_BYTE - 1) / BITS_PER_BYTE];
+    let mut mut_mask: Vec<u8> = vec![0u8; binary.len().div_ceil(BITS_PER_BYTE)];
     for (index, solid) in binary.iter().enumerate() {
         if *solid != 0 {
             mut_mask[index / BITS_PER_BYTE] |= 1 << (index % BITS_PER_BYTE);
@@ -923,7 +921,7 @@ fn derive_solid_mask(
     height_px: u32,
     min_cluster_gap: u8,
 ) -> (Vec<u8>, bool) {
-    let packed_len: usize = (greyscale.len() + BITS_PER_BYTE - 1) / BITS_PER_BYTE;
+    let packed_len: usize = greyscale.len().div_ceil(BITS_PER_BYTE);
     let histogram: [u32; 256] = fn_grey_histogram(greyscale);
     let present: Vec<u8> = fn_present_greys(&histogram);
     // One grey level offers no anchor, so the whole tile is emitted as solid.
@@ -1684,10 +1682,14 @@ fn fn_build_grid(config: &ImportConfig, sheet: &image::DynamicImage) -> ImportSh
             mut_offset_x_px = (detected.left / source_pitch_w) * source_pitch_w;
             mut_offset_y_px = (detected.top / source_pitch_h) * source_pitch_h;
             mut_grid_cols = Some(
-                ((detected.right - mut_offset_x_px + source_pitch_w - 1) / source_pitch_w).max(1),
+                (detected.right - mut_offset_x_px)
+                    .div_ceil(source_pitch_w)
+                    .max(1),
             );
             mut_grid_rows = Some(
-                ((detected.bottom - mut_offset_y_px + source_pitch_h - 1) / source_pitch_h).max(1),
+                (detected.bottom - mut_offset_y_px)
+                    .div_ceil(source_pitch_h)
+                    .max(1),
             );
         }
     }
@@ -2341,7 +2343,7 @@ mod tests {
         assert!(entry.is_walkable);
         assert_eq!(
             entry.solid_mask.len(),
-            (32 * 32 + 7) / 8,
+            (32usize * 32).div_ceil(8),
             "packed 32x32 mask"
         );
     }
@@ -2407,7 +2409,7 @@ mod tests {
         entries.iter().for_each(|entry| {
             assert_eq!(
                 entry.solid_mask.len(),
-                (32 * 32 + 7) / 8,
+                (32usize * 32).div_ceil(8),
                 "{} packed mask",
                 entry.key
             );
@@ -2425,6 +2427,7 @@ mod tests {
 
     /// Build a 4x2 request over one sheet. Right cells use the measured key suffix; left cells
     /// repeat the same source regions with the authored horizontal flip.
+    #[allow(clippy::too_many_arguments)] // mirrors ConversionRequest's fixed fixture fields; no wrapper struct needed
     fn fn_fixture_request(
         source_path: &Path,
         margin_x_px: i32,
@@ -2440,16 +2443,12 @@ mod tests {
             for source_col in 0..FIXTURE_GRID_COLS {
                 let cell_index = source_row * FIXTURE_GRID_COLS + source_col;
                 mut_cells.push(CellRequest {
-                    local_x: source_col,
-                    local_y: source_row,
                     source_col,
                     source_row,
                     flip_h: false,
                     generated_key: format!("slope_grass_30deg_4x2_r{cell_index}"),
                 });
                 mut_cells.push(CellRequest {
-                    local_x: source_col,
-                    local_y: source_row,
                     source_col,
                     source_row,
                     flip_h: true,
@@ -2628,7 +2627,7 @@ mod tests {
             );
             assert_eq!(
                 output.solid_mask.len(),
-                (8 * 8 + 7) / 8,
+                (8usize * 8).div_ceil(8),
                 "{} packed mask",
                 output.generated_key
             );
@@ -2805,7 +2804,7 @@ mod tests {
             assert!(entry.is_walkable, "{} is walkable", entry.key);
             assert_eq!(
                 entry.solid_mask.len(),
-                (8 * 8 + 7) / 8,
+                (8usize * 8).div_ceil(8),
                 "{} packed mask",
                 entry.key
             );
@@ -2884,7 +2883,7 @@ mod tests {
         let mut mut_sheet: RgbaImage =
             fn_two_grey_sheet(104, 65, 126, 126, 1, GROUND_GREY, AIR_GREY);
         let layout_request: ConversionRequest =
-            fn_fixture_request(&Path::new("unused.png"), 104, 65, 126, 126, 1, 32, 32);
+            fn_fixture_request(Path::new("unused.png"), 104, 65, 126, 126, 1, 32, 32);
         fn_paint_grid_lines(&mut mut_sheet, &layout_request);
         let source_path: PathBuf = fn_write_source(&mut_sheet, &work_dir);
         let request: ConversionRequest =

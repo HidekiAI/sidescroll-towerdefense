@@ -57,8 +57,7 @@ async fn client(addr: SocketAddr) -> EditorServiceClient<Channel> {
 #[tokio::test(flavor = "multi_thread")]
 async fn switch_tab_round_trip_over_wire() {
     // Reserve a free port so we can connect a real tonic client.
-    let tcp = std::net::TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-        .expect("tcp bind");
+    let tcp = std::net::TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).expect("tcp bind");
     let port = tcp.local_addr().expect("local_addr").port();
     drop(tcp);
 
@@ -89,8 +88,7 @@ async fn switch_tab_round_trip_over_wire() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn capture_screenshot_round_trip_over_wire() {
-    let tcp = std::net::TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-        .expect("tcp bind");
+    let tcp = std::net::TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).expect("tcp bind");
     let port = tcp.local_addr().expect("local_addr").port();
     drop(tcp);
 

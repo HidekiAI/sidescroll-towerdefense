@@ -12,7 +12,7 @@ pub enum EntityClass {
 }
 
 impl EntityClass {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "tower" => Some(EntityClass::Stationary(StationarySubClass::Tower)),
             "trap" => Some(EntityClass::Stationary(StationarySubClass::Trap)),
@@ -61,7 +61,7 @@ mod entity_class_serde {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<EntityClass, D::Error> {
         let s = String::deserialize(d)?;
-        EntityClass::from_str(&s)
+        EntityClass::parse_from_str(&s)
             .ok_or_else(|| serde::de::Error::custom(format!("unknown entity class: \"{s}\"")))
     }
 }
@@ -80,7 +80,7 @@ pub enum Element {
 }
 
 impl Element {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "physical" => Some(Element::Physical),
             "fire" => Some(Element::Fire),
@@ -316,7 +316,7 @@ mod opt_entity_class_serde {
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<EntityClass>, D::Error> {
         let opt: Option<String> = Option::deserialize(d)?;
         match opt {
-            Some(s) => EntityClass::from_str(&s)
+            Some(s) => EntityClass::parse_from_str(&s)
                 .map(Some)
                 .ok_or_else(|| serde::de::Error::custom(format!("unknown entity class: \"{s}\""))),
             None => Ok(None),
@@ -343,7 +343,7 @@ impl EntityDefEditor {
             result = result.with_message(
                 ValidationMessage::error("ENTITY_INVALID_WIDTH", "Width must be positive")
                     .with_field("width_tiles")
-                    .with_value(&self.width_tiles.to_string()),
+                    .with_value(self.width_tiles.to_string()),
             );
         }
 
@@ -351,7 +351,7 @@ impl EntityDefEditor {
             result = result.with_message(
                 ValidationMessage::error("ENTITY_INVALID_HEIGHT", "Height must be positive")
                     .with_field("height_tiles")
-                    .with_value(&self.height_tiles.to_string()),
+                    .with_value(self.height_tiles.to_string()),
             );
         }
 
@@ -359,7 +359,7 @@ impl EntityDefEditor {
             result = result.with_message(
                 ValidationMessage::error("ENTITY_INVALID_HP", "Max HP must be positive")
                     .with_field("max_hp")
-                    .with_value(&self.max_hp.to_string()),
+                    .with_value(self.max_hp.to_string()),
             );
         }
 
@@ -392,7 +392,7 @@ pub enum ModifierOperation {
 }
 
 impl ModifierOperation {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_from_str(s: &str) -> Option<Self> {
         match s {
             "add" => Some(ModifierOperation::Add),
             "multiply" => Some(ModifierOperation::Multiply),
@@ -512,7 +512,7 @@ mod tests {
     fn tower_prototype() -> EntityDefEditor {
         EntityDefEditor {
             key: "arrow_tower".into(),
-            class: EntityClass::from_str("tower").unwrap(),
+            class: EntityClass::parse_from_str("tower").unwrap(),
             width_tiles: 1.0,
             height_tiles: 2.5,
             max_hp: 500,
@@ -595,7 +595,7 @@ mod tests {
     fn entity_override_incomplete_into_entity_def_is_none() {
         let ov = EntityDefOverride {
             key: "partial".into(),
-            class: Some(EntityClass::from_str("tower").unwrap()),
+            class: Some(EntityClass::parse_from_str("tower").unwrap()),
             width_tiles: None,
             height_tiles: None,
             max_hp: None,
