@@ -7,7 +7,7 @@
 > retained as the historical record only. A cold-start session should read this block
 > and stop.
 
-**2026-11-26 CURRENT STEP: commit the wire-version and headless-config seam fix, then generate
+**2026-11-26 CURRENT STEP: commit the three S4 seam fixes, then generate
 the 16 slope tile PNGs plus `.import` files, regenerate the two grouping resources, and keyed-upsert
 16 terrain entries into `editor/default_package/` (aka S5), on implementation branch
 `local/feat/slope-preprocess` (base local `trunk` `d2e0255`), no push and no issue state change.**
@@ -20,14 +20,17 @@ byte-identity evidence; `b766a7c` the GDScript orchestrator and DAO coercion sea
 and CP10b (S5 prerequisite seam fix) is DONE with evidence in `## Step S5 seam fix result`:
 `REQUEST_VERSION` now mirrors the Rust reader's `1.0.0`, and `_grid_tile_size()` boots the runtime
 config DB before asking a fresh bridge for the grid, so headless runs resolve 32 px rather than the
-bridge's 64 px code defaults. Two RED-first guards were added (version and grid size): RED exit 1
-with `failures=3 completed=5`, green `failures=0 completed=5` exit 0, `--check-only` exit 0, and the
-VERSION and CONFIG mutants both FIRED with byte-identical restores. Logs:
+bridge's 64 px code defaults; `OS.execute` now captures stdout into a plain `Array` and
+`_journal_lines` splits the single stream chunk before the JSON result is decoded, so a successful
+conversion no longer looks like a refusal. Three RED-first guards were added (version, grid size,
+stdout capture): RED exit 1 with `failures=3 completed=5` then `failures=2 completed=6`, green
+`failures=0 completed=6` exit 0, `--check-only` exit 0, and VERSION / CONFIG / CAPTURE-TYPE / FLATTEN
+mutants all FIRED with byte-identical restores. Logs:
 `/tmp/user/1000/opencode/sstd-s5-seam-red.log`, `sstd-s5-seam-green2.log`, `sstd-s5-mutations.log`.
 CP9 (Rust `convert-slope`) stays DONE: `cargo check -p import-tiles --tests` exit 0, `cargo test -p
 import-tiles` exit 0 with 17 passed / 0 failed, nine-mutant battery 9 FIRED / 0 VOID / 0 REFUTED.
 One pre-existing warning (`CellRequest.local_x` / `local_y` unused) remains. Next move in runnable
-order: (1) commit the seam fix and both documents with explicit paths only, staging
+order: (1) commit the seam fixes and both documents with explicit paths only, staging
 `editor/scripts/slope_conversion_tool.gd`, `editor/tests/test_slope_conversion.gd`,
 `docs/PLAN-2026-11-25-slope-conversion-tool.md` and this file; (2) re-run the one-shot publisher
 `/tmp/user/1000/opencode/sstd-s5-publish.gd` (its first run failed at the seam above, wrote nothing

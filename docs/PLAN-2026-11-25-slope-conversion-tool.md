@@ -618,7 +618,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP8 - Sixteen tests written RED (S2). Resume: `cargo test -p import-tiles` plus the named headless GDScript suites; gate on exit code. Evidence: exact RED output in `## Step S2 result` -- Rust exit 101 with 57 missing-symbol errors, five GDScript suites exit 1 with named failures; the four preprocessing guards are named there alongside the original twelve. Recovery: tests are new files; if a partial write is found, remove only the files named in the Test plan, then re-add. Never `git checkout` an untracked file.
 - [x] CP9 - Rust conversion subcommand filled (S3). Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`; assisted `TODO(human)` blocks are Rust-only. Evidence: exit 0, 17 passed / 0 failed, and the nine-mutant battery in `## Step S3 result (partial)` with 9 FIRED / 0 VOID / 0 REFUTED and a byte-identical restore after each; the two-run byte compare is the in-source `two_conversion_runs_are_byte_identical` guard, reddened by the TIMESTAMP mutant. Recovery: a half-edited block is visible as an unclosed delimiter or a remaining marker; complete that block, do not rewrite its neighbours.
 - [x] CP10 - GDScript orchestrator and both bridge directions written (S4). Evidence: `## Step S4 result`, both `--check-only` exit 0, `test_model_gateway` 17 ok / exit 0, `test_slope_conversion` failures=0 completed=3 / exit 0, no ternary remains in either script. Recovery: GDScript production logic is written directly; only its tests are assistant-written. The completed count is now 5 after the CP10b seam guards.
-- [x] CP10b - Wire version and headless grid size seam fixed (S5 prerequisite). Resume: `godot4 --headless --path editor --script res://tests/test_slope_conversion.gd`, then `bash /tmp/user/1000/opencode/sstd-s5-mutations.sh`. Evidence: `## Step S5 seam fix result`, RED 3 failures, green failures=0 completed=5, `--check-only` exit 0, VERSION and CONFIG mutants both FIRED with byte-identical restores. Recovery: the two guards pin orchestrator constants; a fresh bridge without `init_config_db` answers 64 px, not the configured 32.
+- [x] CP10b - Wire version, headless grid size and stdout capture seams fixed (S5 prerequisite). Resume: `godot4 --headless --path editor --script res://tests/test_slope_conversion.gd`, then `bash /tmp/user/1000/opencode/sstd-s5-mutations.sh`. Evidence: `## Step S5 seam fix result`, RED 3 then 2 failures, green failures=0 completed=6, `--check-only` exit 0, VERSION / CONFIG / CAPTURE-TYPE / FLATTEN mutants all FIRED with byte-identical restores. Recovery: a fresh bridge without `init_config_db` answers 64 px, and `OS.execute` into a PackedStringArray captures nothing.
 - [ ] CP11 - Artifacts and palette registration written (S5). Resume: temp-dir-then-rename check plus the 16-key registration unit test. Evidence: 30 entries, no duplicate keys, explicit staged paths. Recovery: never `git add -A` here; stage only named artifacts.
 - [ ] CP12 - Four headless guards run (S6). Resume: four `godot4 --headless` commands; `Image.new().load(path)` oracle and `Time.get_ticks_msec()`. Evidence: all four exit 0, worst contact error <= 1 px. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
 - [ ] CP13 - Full gate and mutation battery run (S7). Resume: Rust gates plus all relevant GDScript suites; every mutant FIRES, PARSES and reddens its named test. Evidence: counts, VOID and REFUTED lists, byte-identical restore. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture.
@@ -635,7 +635,7 @@ blocks are append-only; corrections go in a later block and name what was wrong.
 | S1 Measure sources, config, and collision resolvability | DONE | `## Step S1 result`, 2026-11-26 | 16 cells, 8 per resource, W/H 32/32 from config DB, 0 unresolved |
 | S2 RED tests for request, expansion, alpha, registration, determinism and preprocessing | DONE | `## Step S2 result`, 2026-11-26 | 9 Rust unit + 3 GDScript unit + 4 headless E2E tests, RED exit 101 / 1 |
 | S3 Rust `convert-slope` subcommand | DONE | `## Step S3 result (partial)`, 2026-11-26 | `tools/import-tiles/src/main.rs`, 128-byte mask at 32px, gates exit 0, 9/9 mutants FIRED |
-| S4 GDScript orchestrator and DAO coercion | DONE | `## Step S4 result`, 2026-11-26 | two `--check-only` exit 0, 17 + 3 tests green, no ternaries; CP10b adds two seam guards, now 5 |
+| S4 GDScript orchestrator and DAO coercion | DONE | `## Step S4 result`, 2026-11-26 | two `--check-only` exit 0, 17 + 3 tests green, no ternaries; CP10b adds three seam guards, now 6 |
 | S5 Commit generated artifacts and palette registration | NOT STARTED | - | 2 `.tres`, 16 PNGs + `.import`, 14 -> 30 terrain entries |
 | S6 E2E palette, fresh-load, and walker-contact guards | NOT STARTED | - | 4 headless suites, exit 0 each |
 | S7 Full gate and mutation battery | NOT STARTED | - | `cargo test -p import-tiles`, `cargo test -p sstd-core`, GDScript sweeps, mutant FIRE/VOID counts |
@@ -1051,3 +1051,17 @@ Logs: `/tmp/user/1000/opencode/sstd-s5-seam-red.log`, `sstd-s5-seam-green2.log`,
 `sstd-s5-check-tool.log`. Mutation harness `/tmp/user/1000/opencode/sstd-s5-mutations.sh`: VERSION
 (respell the constant) and CONFIG (skip `init_config_db`) both FIRED rc=1, restores byte-identical
 at hash `0aa1092f514c2937692e3ad0ce6e71a0c27c049c94f324c204aeab9f420a1620`, baseline rc=0.
+
+A third seam defect surfaced on the next publisher run: the converter exited 0 and wrote all 16
+PNGs, but `_run_converter` reported `lines=0`, so `convert_all` refused its own successful output.
+Probe `/tmp/user/1000/opencode/sstd-s5-exec-probe2.gd` isolated the cause: on Godot 4.7.2
+`OS.execute` fills a plain `Array` but silently ignores a `PackedStringArray` output container;
+`open_console` has no effect on capture. It also returns the whole stream as ONE chunk, so the JSON
+result line is buried among `CLEAN` and `CONVERT` progress lines. A third RED-first guard
+`_guard_convert_all_captures_converter_stdout` failed with two assertions (`failures=2 completed=6`).
+The fix uses a plain `Array` for capture and adds `_journal_lines` to split chunks on newlines
+before `_decode_result` and `preprocess` read them. Green: `--check-only` exit 0, `failures=0
+completed=6` exit 0, logs `/tmp/user/1000/opencode/sstd-s5-capture-red.log` and
+`sstd-s5-capture-green2.log`. The four-mutant battery now includes CAPTURE-TYPE and FLATTEN; all
+four FIRED rc=1, restores byte-identical at hash
+`c6d42b895b326e32ab3e0643a7c32d7dd93f159c81f8bfdacf0d76fad361d31c`, baseline rc=0.

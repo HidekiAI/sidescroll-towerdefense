@@ -144,11 +144,12 @@ func _run_converter(request_text: String, output_dir_path: String, signed_off: b
     ])
     if signed_off:
         args.append("--signed-off")
-    var output_lines: PackedStringArray = PackedStringArray()
+    # OS.execute only fills a plain Array; a PackedStringArray is accepted but captures nothing.
+    var output_lines: Array = []
     var tool_path: String = _converter_path()
     if not FileAccess.file_exists(tool_path):
         return {"ok": false, "error": "converter binary missing at %s" % tool_path}
-    var exit_code: int = OS.execute(tool_path, args, output_lines, true, true)
+    var exit_code: int = OS.execute(tool_path, args, output_lines, true, false)
     print("SLOPE-RUN tool=%s out=%s signed_off=%s exit=%d lines=%d" % [
         tool_path, output_dir_path, str(signed_off), exit_code, output_lines.size()])
     # The failure text comes from the last journal line, or from the exit code when nothing was
@@ -170,10 +171,24 @@ func _run_converter(request_text: String, output_dir_path: String, signed_off: b
     }
 
 
+# OS.execute hands back each stream as one chunk on this runtime, so flatten the journal before
+# reading it; the JSON result sits after many CLEAN and CONVERT progress lines.
+func _journal_lines(chunks: Array) -> Array[String]:
+    var journal: Array[String] = []
+    for chunk_variant in chunks:
+        for text_line in String(chunk_variant).split("\n"):
+            var trimmed_line: String = text_line.strip_edges()
+            if not trimmed_line.is_empty():
+                journal.append(trimmed_line)
+    return journal
+
+
 # Pick the JSON result line out of the journal; progress lines are plain text, not JSON objects.
-func _decode_result(lines: PackedStringArray) -> Dictionary:
-    for line_variant in lines:
-        var decoded: Variant = JSON.parse_string(String(line_variant))
+func _decode_result(lines: Array) -> Dictionary:
+    for journal_line in _journal_lines(lines):
+        if not journal_line.begins_with("{"):
+            continue
+        var decoded: Variant = JSON.parse_string(journal_line)
         if decoded is Dictionary and (decoded as Dictionary).has("outputs"):
             return decoded
     return {}
@@ -259,7 +274,7 @@ func convert_all(output_dir: String) -> Dictionary:
     var conversion: Dictionary = _run_converter(request_text, output_dir_path, true)
     if not bool(conversion.get("ok", false)):
         return {"ok": false, "entries": 0, "error": String(conversion.get("error", ""))}
-    var result: Dictionary = _decode_result(conversion.get("lines", PackedStringArray()))
+    var result: Dictionary = _decode_result(conversion.get("lines", []))
     var outputs: Array = result.get("outputs", [])
     if outputs.is_empty():
         return {"ok": false, "entries": 0, "error": "convert-slope emitted no result JSON"}
@@ -294,10 +309,9 @@ func preprocess(source_path: String, output_dir: String) -> Dictionary:
     DirAccess.make_dir_recursive_absolute(output_dir_path)
     var conversion: Dictionary = _run_converter(request_text, output_dir_path, false)
     var flagged: Array[String] = []
-    for line_variant in conversion.get("lines", PackedStringArray()):
-        var line: String = String(line_variant)
-        if line.begins_with("CLEAN") and line.contains("resolved=false"):
-            flagged.append(line)
+    for journal_line in _journal_lines(conversion.get("lines", [])):
+        if journal_line.begins_with("CLEAN") and journal_line.contains("resolved=false"):
+            flagged.append(journal_line)
     var cleaned_path: String = output_dir_path.path_join(CLEANED_FILE_NAME)
     var cleaned: String = ""
     match FileAccess.file_exists(cleaned_path):

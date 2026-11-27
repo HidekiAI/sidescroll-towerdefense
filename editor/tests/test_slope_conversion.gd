@@ -17,6 +17,7 @@ const EXPECTED_ENTRY_COUNT: int = 30
 const EXPECTED_REQUEST_VERSION: String = "1.0.0"
 const EXPECTED_TILE_WIDTH_PX: int = 32
 const EXPECTED_TILE_HEIGHT_PX: int = 32
+const CAPTURE_RUN_DIR: String = "user://data/tools/sstd_stdout_capture_guard"
 
 var _failures: int = 0
 var _completed: Array[String] = []
@@ -67,6 +68,7 @@ func _run() -> void:
     _guard_terrain_json_resaves_integral_float_as_integer()
     _guard_request_version_matches_rust_reader()
     _guard_headless_grid_size_comes_from_config_db()
+    _guard_convert_all_captures_converter_stdout()
     print("slope_conversion failures=%d completed=%d" % [_failures, _completed.size()])
     quit(0 if _failures == 0 else 1)
 
@@ -204,3 +206,18 @@ func _guard_headless_grid_size_comes_from_config_db() -> void:
         _check(int(tile_size[1]) == EXPECTED_TILE_HEIGHT_PX,
             "headless grid height comes from the config DB")
     _completed.append("headless_grid_size_comes_from_config_db")
+
+
+# OS.execute silently drops captured lines when its output parameter is a PackedStringArray;
+# without those lines the decoded result is empty and a successful conversion looks like a refusal.
+func _guard_convert_all_captures_converter_stdout() -> void:
+    var tool: Object = _load_object(SLOPE_TOOL_PATH)
+    if tool == null or not tool.has_method("convert_all"):
+        _check(false, "SlopeConversionTool.convert_all exists")
+        return
+    var conversion: Dictionary = tool.call("convert_all", CAPTURE_RUN_DIR)
+    _check(bool(conversion.get("ok", false)),
+        "convert_all captures the converter stdout: %s" % String(conversion.get("error", "")))
+    var result_path: String = ProjectSettings.globalize_path(CAPTURE_RUN_DIR).path_join("result.json")
+    _check(FileAccess.file_exists(result_path), "convert_all writes the decoded result artifact")
+    _completed.append("convert_all_captures_converter_stdout")
