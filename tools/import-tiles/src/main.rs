@@ -550,27 +550,36 @@ fn auto_detect_sub_tile_mask(img: &RgbaImage, threshold: f64) -> u8 {
         (half_width, half_height, image_width, image_height, 3),
     ];
 
+    // Alpha decides which pixels can be ground before luma decides whether their colour is ground.
+    // Cleaned sheets keep stale art RGB under transparent pixels, so those pixels must not lower
+    // or raise the mean. A fully transparent quadrant has no ground at all.
+    let fn_solid_quadrant_mean_luma =
+        |quad_x0: u32, quad_y0: u32, quad_x1: u32, quad_y1: u32| -> f64 {
+            let mut mut_luma_sum: f64 = 0.0;
+            let mut mut_solid_pixel_count: u32 = 0;
+            for pixel_y in quad_y0..quad_y1 {
+                for pixel_x in quad_x0..quad_x1 {
+                    let pixel: &image::Rgba<u8> = img.get_pixel(pixel_x, pixel_y);
+                    // Transparent pixels carry stale art RGB and are air whatever their colour.
+                    if pixel[3] >= TRANSPARENT_ALPHA_CUTOFF {
+                        mut_luma_sum += REC601_LUMA_RED_WEIGHT * f64::from(pixel[0])
+                            / f64::from(u8::MAX)
+                            + REC601_LUMA_GREEN_WEIGHT * f64::from(pixel[1]) / f64::from(u8::MAX)
+                            + REC601_LUMA_BLUE_WEIGHT * f64::from(pixel[2]) / f64::from(u8::MAX);
+                        mut_solid_pixel_count += 1;
+                    }
+                }
+            }
+            match mut_solid_pixel_count > 0 {
+                true => mut_luma_sum / f64::from(mut_solid_pixel_count),
+                false => 0.0,
+            }
+        };
+
     let mut mut_mask: u8 = 0;
     for (quad_x0, quad_y0, quad_x1, quad_y1, bit_index) in quadrants {
-        // Average Rec.601 luma over the quadrant; a bright quadrant is solid ground.
-        let mut mut_luma_sum: f64 = 0.0;
-        let mut mut_pixel_count: u32 = 0;
-        for pixel_y in quad_y0..quad_y1 {
-            for pixel_x in quad_x0..quad_x1 {
-                let pixel: &image::Rgba<u8> = img.get_pixel(pixel_x, pixel_y);
-                let pixel_luma: f64 = REC601_LUMA_RED_WEIGHT * f64::from(pixel[0])
-                    / f64::from(u8::MAX)
-                    + REC601_LUMA_GREEN_WEIGHT * f64::from(pixel[1]) / f64::from(u8::MAX)
-                    + REC601_LUMA_BLUE_WEIGHT * f64::from(pixel[2]) / f64::from(u8::MAX);
-                mut_luma_sum += pixel_luma;
-                mut_pixel_count += 1;
-            }
-        }
-        let mean_luma: f64 = match mut_pixel_count > 0 {
-            true => mut_luma_sum / f64::from(mut_pixel_count),
-            false => 0.0,
-        };
-        if mean_luma > threshold {
+        // A bright opaque quadrant is solid ground. Fully opaque sheets read exactly as before.
+        if fn_solid_quadrant_mean_luma(quad_x0, quad_y0, quad_x1, quad_y1) > threshold {
             mut_mask |= 1 << bit_index;
         }
     }
@@ -3452,6 +3461,87 @@ mod tests {
         assert!(
             fn_count_solid_bits(plain_mask) > fn_count_solid_bits(reference_mask),
             "the reference field is the only thing that changes the verdict"
+        );
+    }
+
+    // ---- Alpha-aware coarse collision masks (2026-11-28) ----
+
+    const COLLISION_TEST_TILE_PX: u32 = 32;
+    const COLLISION_TEST_QUADRANT_PX: u32 = COLLISION_TEST_TILE_PX / 2;
+    const SUB_TILE_MASK_BOTTOM_PAIR: u8 = 0b1100;
+
+    /// Build a two-band tile: the top rows keep stale bright RGB under transparent alpha, the
+    /// bottom rows are opaque ground. Both bands have the same RGB, so only alpha can separate them.
+    fn fn_stale_rgb_alpha_tile(height_px: u32, top_alpha: u8, bottom_alpha: u8) -> RgbaImage {
+        let tile_width_px: u32 = COLLISION_TEST_TILE_PX;
+        let top_rows: u32 = height_px / 2;
+        RgbaImage::from_fn(tile_width_px, height_px, |_, row| {
+            let alpha: u8 = match row < top_rows {
+                true => top_alpha,
+                false => bottom_alpha,
+            };
+            Rgba([GROUND_GREY, GROUND_GREY, GROUND_GREY, alpha])
+        })
+    }
+
+    #[test]
+    fn sub_tile_mask_ignores_transparent_air_quadrants() {
+        let tile: RgbaImage =
+            fn_stale_rgb_alpha_tile(COLLISION_TEST_TILE_PX, ALPHA_AIR, ALPHA_SOLID);
+        let mask: u8 = auto_detect_sub_tile_mask(&tile, GRASS_MEAN_LUMA_CUTOFF);
+        assert_eq!(
+            mask, SUB_TILE_MASK_BOTTOM_PAIR,
+            "transparent top quadrants stay air; opaque bottom quadrants stay ground"
+        );
+    }
+
+    #[test]
+    fn sub_tile_mask_all_transparent_is_air() {
+        let tile: RgbaImage = fn_stale_rgb_alpha_tile(COLLISION_TEST_TILE_PX, ALPHA_AIR, ALPHA_AIR);
+        let mask: u8 = auto_detect_sub_tile_mask(&tile, GRASS_MEAN_LUMA_CUTOFF);
+        assert_eq!(
+            mask, 0x0,
+            "a fully transparent tile has no collision at all"
+        );
+    }
+
+    #[test]
+    fn sub_tile_mask_partial_transparency_keeps_solid_quadrant() {
+        // Within each quadrant the top half is transparent and the bottom half opaque, all with
+        // the same bright RGB. Only solid pixels may set the quadrant mean.
+        let tile: RgbaImage =
+            RgbaImage::from_fn(COLLISION_TEST_TILE_PX, COLLISION_TEST_TILE_PX, |_, row| {
+                let alpha: u8 =
+                    match row % COLLISION_TEST_QUADRANT_PX < COLLISION_TEST_QUADRANT_PX / 2 {
+                        true => ALPHA_AIR,
+                        false => ALPHA_SOLID,
+                    };
+                Rgba([GROUND_GREY, GROUND_GREY, GROUND_GREY, alpha])
+            });
+        assert_eq!(
+            auto_detect_sub_tile_mask(&tile, GRASS_MEAN_LUMA_CUTOFF),
+            SUB_TILE_MASK_ALL_SOLID,
+            "transparent art rows must not dilute the mean of the solid rows"
+        );
+    }
+
+    #[test]
+    fn sub_tile_mask_opaque_sheet_keeps_existing_verdict() {
+        let bright_tile: RgbaImage =
+            fn_stale_rgb_alpha_tile(COLLISION_TEST_TILE_PX, ALPHA_SOLID, ALPHA_SOLID);
+        let dark_tile: RgbaImage =
+            RgbaImage::from_fn(COLLISION_TEST_TILE_PX, COLLISION_TEST_TILE_PX, |_, _| {
+                Rgba([AIR_GREY, AIR_GREY, AIR_GREY, ALPHA_SOLID])
+            });
+        assert_eq!(
+            auto_detect_sub_tile_mask(&bright_tile, GRASS_MEAN_LUMA_CUTOFF),
+            SUB_TILE_MASK_ALL_SOLID,
+            "opaque bright sheets keep the old all-solid verdict"
+        );
+        assert_eq!(
+            auto_detect_sub_tile_mask(&dark_tile, GRASS_MEAN_LUMA_CUTOFF),
+            0x0,
+            "opaque dark sheets keep the old all-air verdict"
         );
     }
 }
