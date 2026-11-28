@@ -47,10 +47,14 @@ crops the full 127 px pitch rather than the authored 126 px region. Evidence is 
 `docs/AUDIT-2026-11-28-cleaned-sheet-import-survey.md`. @me approved the issue wording with "LGTM"; issue #260 (auto-bounding detects 1-4 px pitches) was
 filed on `HidekiAI/sidescroll-towerdefense` with `Difficulty: M` and is OPEN. The region-versus-pitch
 crop difference is recorded in the audit but was not filed as a second issue; @me approved only the
-pitch bug. The audit and checkpoint were committed as `3361c7c` and pushed by explicit `origin` under the
-earlier push approval; the remote tip is `3361c7c528821c812cd6363499e256da76b11683`. Current step:
-ask @me before merging the branch. Do not merge, close #239, or stage cleaned art or `.uid` files
-without explicit approval.
+pitch bug. The audit and checkpoint were committed as `3361c7c` and `64bd752` and pushed by explicit `origin`
+under the earlier push approval. @me approved the close-out with "commit, push, purge-the-merged":
+the branch is fast-forward merged to `trunk`, `trunk` is pushed to `origin`, and the merged local
+branch is deleted. Final gates all exited 0: `cargo test -p import-tiles`, `cargo test -p sstd-core`,
+`cargo build`, `cargo fmt --check -p import-tiles`, `git diff --check`. #239 (two-phase slope source-art
+preprocessing) and #260 (auto-bounding detects 1-4 px pitches) stay OPEN: @me did not approve closing
+either. Cleaned art under `editor/assets/samples/fixed/` is local-only and was never staged; no `.uid`
+file was staged.
 
 **2026-11-26 FINAL IMPLEMENTATION STATE (superseded by the terminal paragraph above; retained as history).**
 Objective: implement #178 (grass slope conversion tool) and #239 (two-phase slope source-art
