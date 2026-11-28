@@ -26,6 +26,31 @@ Final post-push run completed 2026-11-28: `bash /tmp/user/1000/opencode/sstd-fix
 
 **2026-11-28 ACTIVE STATE (supersedes the "next move: none in flight" line above).** The earlier #239 work is still pushed on `fix/slope-mask-reference-pass` and unmerged. A production-quality evaluation of the 17 cleaned sheets in `editor/assets/samples/fixed/` found a separate defect in `tools/import-tiles/src/main.rs`: `auto_detect_sub_tile_mask` averages Rec.601 luma over all pixels and ignores alpha, so transparent pixels with stale RGB read as ground and transparent pixels with dark RGB dilute solid neighbours. @me chose "fix and file issue" on 2026-11-28. The fix is implemented but UNCOMMITTED: it makes a local `fn_solid_quadrant_mean_luma` closure average only pixels with `alpha >= TRANSPARENT_ALPHA_CUTOFF` (128) and read air when a quadrant has no solid pixels. Four in-source guards were written first; three were RED (exit 101, 2 failures in that run; the fourth was added later and verified RED under mutation). `/tmp/user/1000/opencode/sstd-alpha-mutations.sh` exited 0 with ALPHA-BLIND, ALPHA-INVERT and DENOM-ALL-PIXELS all fired and byte-identical restores. Gates all exit 0: `cargo test -p import-tiles` 26 passed, `cargo test -p sstd-core`, `cargo build`, `git diff --check`. A real A/B on `tileset_2-2-cleaned.png` used an alpha-blind control mutant and the fixed binary: masks changed from `0x0 x5, 0x1, 0x5, 0xD` to `0x0 x3, 0x1, 0x3, 0x7, 0xA, 0xF` across eight cells; the source file restored byte-identically. Logs: `$HOME/Downloads/slope-clean-up/alpha-real-ab/compare.log`; design: `docs/PLAN-2026-11-28-alpha-aware-collision-mask.md`. The generic-importer A/B on `tileset_1-0.png` is explicitly NOT evidence: both sheets emit 252 `0x0` masks after the fix because the cleaned cells are air or below the Rec.601 threshold. @me approved the issue wording with "LGTM"; issue #259 (alpha-blind collision masks) was filed on `HidekiAI/sidescroll-towerdefense` with `Difficulty: S`. @me then directed that "I may be wrong" is unnecessary when the bug is from @me to @me; the issue body was edited to remove that hedge. Apply the same no-hedge wording to the #259 closing comment. The fix and docs were committed as `64d8c2d` on `fix/slope-mask-reference-pass` (the earlier local `e097fe0` was amended before publication). @me approved the push and the closing-comment wording with "LGTM". `git push origin fix/slope-mask-reference-pass` exited 0; the remote tip is `64d8c2dd65a039d2f6846866646021ee495a1805`. Issue #259 was then closed as `COMPLETED` with @me's approved comment, citing commit `64d8c2d` and wiki `TDD_Collision-Map-Tooling`. The branch is still unmerged. Current step: continue the production-quality evaluation of the 17 cleaned sheets in `editor/assets/samples/fixed/`; do not merge #239 or close it without explicit approval. Do not merge, stage `editor/assets/samples/tileset_2-2-cleaned.png` or any `.uid` file, or use `git add -A` / `git add .` without explicit approval. Issue #239 stays open until @me approves closing it with a comment citing the pushed commit.
 
+**2026-11-28 production survey (newest, supersedes the previous "continue" line).** All 17 cleaned
+sheets were run through `target/debug/import-tiles` in auto-bounding mode by
+`/tmp/user/1000/opencode/sstd-auto-detect-survey.sh`; all exited 0, but eight sheets get a 1-4 px
+pitch in one axis and `tileset_3-1_misaligned.png` emits 90,005 tiles. Nine sheets land on a 3x2 or
+2x2 grid without authored confirmation. With explicit slope geometry, the cleaned slope sheet still
+matches all eight hand-edited masks exactly. On `tileset_1-0.png` the sample threshold 0.45 emits
+252 air masks; threshold 0.15 emits 56 solid and 8 partial masks, and the one 8x8 opaque block has
+opaque-only luma 0.180645-0.387526. The wiki's `tileset_0-0.png` pitch 495x511 cannot be expressed
+by the importer's single scalar `margin`. Full evidence is in
+`docs/AUDIT-2026-11-28-cleaned-sheet-import-survey.md` (uncommitted); raw logs are in
+`$HOME/Downloads/slope-clean-up/production-survey-auto/` and `grass-threshold-sweep/`. Verdict:
+auto-bounding is not production-quality; only the explicit slope run is proved. @me chose the two
+runnable documented sheets and approved filing a pitch-detector bug. The script
+`/tmp/user/1000/opencode/sstd-production-two-sheets.sh` exited 0: slope emitted the same mask set as
+the hand-edited reference, `tileset_1-0.png` emitted 252 air masks at threshold 0.45 and 56 solid
+plus 8 partial masks at 0.15, and no PNG has a `tIME` chunk. Four slope cells differ from the
+two-phase output by 30-32 alpha pixels and all eight differ in RGB because the generic importer
+crops the full 127 px pitch rather than the authored 126 px region. Evidence is appended to
+`docs/AUDIT-2026-11-28-cleaned-sheet-import-survey.md`. @me approved the issue wording with "LGTM"; issue #260 (auto-bounding detects 1-4 px pitches) was
+filed on `HidekiAI/sidescroll-towerdefense` with `Difficulty: M` and is OPEN. The region-versus-pitch
+crop difference is recorded in the audit but was not filed as a second issue; @me approved only the
+pitch bug. Current step: commit and push the audit/checkpoint docs on the existing branch under the
+earlier push approval, then ask before any merge. Do not merge, close #239, or stage cleaned art or
+`.uid` files without explicit approval.
+
 **2026-11-26 FINAL IMPLEMENTATION STATE (superseded by the terminal paragraph above; retained as history).**
 Objective: implement #178 (grass slope conversion tool) and #239 (two-phase slope source-art
 preprocessing) on implementation branch `local/feat/slope-preprocess` (base local `trunk`
