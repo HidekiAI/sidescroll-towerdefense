@@ -47,9 +47,10 @@ crops the full 127 px pitch rather than the authored 126 px region. Evidence is 
 `docs/AUDIT-2026-11-28-cleaned-sheet-import-survey.md`. @me approved the issue wording with "LGTM"; issue #260 (auto-bounding detects 1-4 px pitches) was
 filed on `HidekiAI/sidescroll-towerdefense` with `Difficulty: M` and is OPEN. The region-versus-pitch
 crop difference is recorded in the audit but was not filed as a second issue; @me approved only the
-pitch bug. Current step: commit and push the audit/checkpoint docs on the existing branch under the
-earlier push approval, then ask before any merge. Do not merge, close #239, or stage cleaned art or
-`.uid` files without explicit approval.
+pitch bug. The audit and checkpoint were committed as `3361c7c` and pushed by explicit `origin` under the
+earlier push approval; the remote tip is `3361c7c528821c812cd6363499e256da76b11683`. Current step:
+ask @me before merging the branch. Do not merge, close #239, or stage cleaned art or `.uid` files
+without explicit approval.
 
 **2026-11-26 FINAL IMPLEMENTATION STATE (superseded by the terminal paragraph above; retained as history).**
 Objective: implement #178 (grass slope conversion tool) and #239 (two-phase slope source-art
