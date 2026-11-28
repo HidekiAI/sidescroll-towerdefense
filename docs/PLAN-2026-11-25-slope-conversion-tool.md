@@ -715,6 +715,28 @@ contain only `IHDR`, `IDAT` and `IEND` chunks, so there is no embedded timestamp
 `date:create` / `date:modify` lines are filesystem stat properties, not PNG chunks; they are not
 written by the tool.
 
+## Cleaned source-art measurement (2026-11-28, issue #239)
+
+After @me replaced `editor/assets/samples/tileset_2-2.png` with a grid-cleaned copy under
+`editor/assets/samples/fixed/`, the same two modes were rerun through
+`/tmp/user/1000/opencode/sstd-fixed-source-run.sh` (exit 0, both converter runs exit 0). The
+cleaned source is RGBA with 184917 fully transparent pixels; its bottom-centre anchor patch for
+cell (0,0) is now `(0,0,0,0)` where the original held opaque grey about 210. `to_greyscale` reads
+RGB only, so Pass I scored those pixels as luma 0.
+
+| run against the cleaned source | differing bits vs alpha oracle |
+| --- | --- |
+| Pass I alone | 4305 / 8192 (52.6%) |
+| Pass I plus the cleaned reference | 0 / 8192 |
+
+So grid cleanup alone made Pass I worse, and Pass II remains necessary for this sheet: all eight
+gaps exceeded the 64-bit limit, so the reference masks were adopted. Separately, the alpha mask of
+the cleaned source differs from the alpha mask of the hand-edited reference by only 126 / 8192
+bits (1.5%), with per-cell gaps `2, 64, 60, 0, 0, 0, 0, 0`, all within the existing limit. That
+measurement suggests an alpha-aware Pass I as a future redesign, but it does not replace Pass II:
+an alpha-aware Pass I would no longer support the older opaque sheets whose alpha carries no
+verdict. No code was changed by this measurement.
+
 ## Mini-checkpoints (live-updated ledger for stateless agents)
 
 Rule of use: a fresh or resumed agent reads the FIRST unchecked box and runs its resume
@@ -741,7 +763,7 @@ the box does not name, STOP and file a finding before continuing. This implement
 - [x] CP12 - Headless guards run (S6). Resume: the five `godot4 --headless` slope suites; `Image.new().load(path)` alpha oracle. Evidence: `test_slope_conversion`, `test_both_slope_sets_appear_in_palette`, `test_fresh_profile_loads_default_terrain`, `test_second_full_conversion_run_is_byte_identical` and `test_walker_contact_tracks_drawn_edge` all exit 0; the walker guard reports `passing_keys=16/16`. All-air columns are exempt from the contact assertion because no walker can stand there, and are asserted collision-free instead. Recovery: a guard that hangs is re-run from its own command; no shared mutable state exists between guards.
 - [x] CP13 - Full gate and mutation battery run (S7). Evidence: `cargo check -p import-tiles --tests` exit 0; `cargo test -p import-tiles` 18 passed / 0 failed; `cargo test -p sstd-core` 160 passed / 0 failed; `test_screen_store`, `test_image_to_map`, `test_override_merge` all exit 0. The converter fix was mutation-verified red (exit 101) by restoring bottom-row seeding and then restored green. The walker guard's new assertion fired when a collision bit was set in an all-air column and returned green after restoring the publisher output. The override-merge guard's generated-key filter fired when its prefix was mutated and returned green after restore via an EXIT trap. Recovery: restore from a byte-identical copy, never `git checkout` on an untracked fixture; confirm a green baseline before copying any backup.
 - [x] CP14 - Issue close, push and checkpoint terminal update (S8). Evidence: code branch `feat/slope-preprocess` and wiki branch `docs/slope-preprocess-section10` were pushed by explicit remote, ff-only merged into their defaults and pushed; local `trunk` and `master` match their remote tips. Issues #178 and #239 were closed 2026-11-27 with comments citing wiki `TDD_Collision-Map-Tooling` section 10.5. All merged local branches were deleted; the five published working branches were then deleted from both remotes on 2026-11-27, each only after it was verified merged into its default. The terminal record is `docs/SESSION-CHECKPOINT.md` CURRENT STATE. All original CP boxes are ticked; the refined-mask pass below reopens work on #239.
-- [ ] CP15 - Refinement design and checkpoint pointer written. Resume: `sed -n '/Cleaned-reference mask refinement pass/,/## Mini-checkpoints/p' docs/PLAN-2026-11-25-slope-conversion-tool.md` then read `## CURRENT STATE / NEXT MOVE` in `docs/SESSION-CHECKPOINT.md`. Evidence: this design section names the functions, optional request field, 64-bit limit and four guards; the checkpoint names the active step. Recovery: read-only; if either document is half-written, rewrite that section from this box's resume command before touching Rust.
+- [x] CP15 - Refinement design and checkpoint pointer written. Resume: `sed -n '/Cleaned-reference mask refinement pass/,/## Mini-checkpoints/p' docs/PLAN-2026-11-25-slope-conversion-tool.md` then read `## CURRENT STATE / NEXT MOVE` in `docs/SESSION-CHECKPOINT.md`. Evidence: this design section names the functions, optional request field, 64-bit limit and four guards; the checkpoint names the active step. Recovery: read-only; if either document is half-written, rewrite that section from this box's resume command before touching Rust.
 - [x] CP16 - Four refinement guards written RED. Resume: `cargo test -p import-tiles` from the code repo. Evidence: exit 101 with `reference_crop_uses_request_geometry_and_flip`, `reference_pass_reclassifies_all_eight_source_cells`, `reference_pass_reclassifies_obvious_air_cells_zero_zero_and_one_zero` and `without_cleaned_reference_pass_one_mask_is_unchanged` failing for the named missing symbols or behaviour; raw output in `## Cleaned-reference pass RED result`. Recovery: the guards are in-source; repair only those four test bodies if a partial write broke parsing, and never revert production code to make them green.
 - [x] CP17 - Optional reference pass implemented and gates green. Resume: `cargo check -p import-tiles --tests`, then `cargo test -p import-tiles`. Evidence: both exit 0; 22 passed; the 64-bit decision and no-reference branch are exercised by the four guards; raw output in `## Cleaned-reference pass GREEN result`. Recovery: a half-edited block shows as a compile error in `tools/import-tiles/src/main.rs`; finish that block, do not rewrite unrelated functions.
 - [x] CP18 - Four-mutant battery confirmed. Resume: `bash /tmp/user/1000/opencode/sstd-reference-pass-mutations.sh`. Evidence: 4 FIRED, 0 VOID, 0 REFUTED and byte-identical restores after each mutant; raw output in `## Cleaned-reference pass mutation result`. Recovery: restore from the verified-green backup with `cp`, never `git checkout` a never-committed state; confirm the unmutated baseline is green before copying a backup.
