@@ -93,7 +93,11 @@ exit codes, never printed pass lines.
   @me then removed the "I may be wrong" hedge from that wording: a bug filed by @me about @me's own
   code needs no humble hedge. The issue body was edited to match before the commit was published.
   Recovery: no issue exists until that approval.
-- [ ] Commit and push. Resume: stage only `tools/import-tiles/src/main.rs`,
+- [x] Commit and push. Resume: stage only `tools/import-tiles/src/main.rs`,
   `docs/PLAN-2026-11-28-alpha-aware-collision-mask.md`, `docs/SESSION-CHECKPOINT.md`; commit
   referencing the new issue; ask once before `git push origin fix/slope-mask-reference-pass`.
-  Evidence: commit hash and remote tip in the checkpoint. Recovery: no merge and no issue close.
+  Evidence: commit `64d8c2d`, remote tip `64d8c2dd65a039d2f6846866646021ee495a1805`, push exit 0.
+  Recovery: no merge and no issue close happened in this pass.
+- [x] Close #259 with @me's approved wording. Resume: `gh issue view 259 --repo HidekiAI/sidescroll-towerdefense`.
+  Evidence: state `CLOSED`, reason `COMPLETED`, closing comment cites commit `64d8c2d` and wiki
+  `TDD_Collision-Map-Tooling`. Recovery: issue was closed only after the push succeeded.
